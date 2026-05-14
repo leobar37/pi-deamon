@@ -173,7 +173,7 @@ console.log();
 
 // 5. Publish
 console.log("Publishing to npm...");
-run("npm run publish");
+run("bun run publish");
 console.log();
 
 // 6. Add new [Unreleased] sections

@@ -60,19 +60,21 @@
 	],
 	"scripts": {
 		"clean": "shx rm -rf dist",
-		"generate-models": "npx tsx scripts/generate-models.ts",
-		"generate-image-models": "npx tsx scripts/generate-image-models.ts",
-		"build": "npm run generate-models && npm run generate-image-models && tsgo -p tsconfig.build.json",
+		"generate-models": "bun x tsx scripts/generate-models.ts",
+		"generate-image-models": "bun x tsx scripts/generate-image-models.ts",
+		"build": "bun run generate-models && bun run generate-image-models && tsgo -p tsconfig.build.json",
 		"dev": "tsgo -p tsconfig.build.json --watch --preserveWatchOutput",
 		"dev:tsc": "tsgo -p tsconfig.build.json --watch --preserveWatchOutput",
 		"test": "vitest --run",
-		"prepublishOnly": "npm run clean && npm run build"
+		"prepublishOnly": "bun run clean && bun run build"
 	},
 	"dependencies": {
 		"@anthropic-ai/sdk": "^0.91.1",
 		"@aws-sdk/client-bedrock-runtime": "^3.1030.0",
 		"@google/genai": "^1.40.0",
 		"@mistralai/mistralai": "^2.2.0",
+		"@smithy/node-http-handler": "^4.6.1",
+		"@smithy/types": "^4.14.1",
 		"openai": "6.26.0",
 		"partial-json": "^0.1.7",
 		"proxy-agent": "^6.5.0",
