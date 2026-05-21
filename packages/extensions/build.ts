@@ -59,6 +59,7 @@ const EXTERNAL = [
 	"@mariozechner/pi-tui",
 	"@mariozechner/pi-coding-agent",
 	"@local/pi-subagents",
+	"@local/pi-dashboard",
 	"typebox",
 	"typebox/compile",
 	"typebox/value",

@@ -1,15 +1,15 @@
+import type { AnyEventCreator } from "@local/pi-subagents";
 import type { LionEvent, LionEventMap, LionEventType } from "../types.js";
-
-type LionListener<T extends LionEventType> = (event: LionEventMap[T]) => void;
 
 export class LionEventBus {
 	private listeners = new Map<LionEventType | "*", Set<(event: LionEvent) => void>>();
 
-	on<T extends LionEventType>(type: T | "*", listener: LionListener<T>): () => void {
+	on<T extends LionEventType>(type: T, listener: (event: LionEventMap[T]) => void): () => void;
+	on(type: "*", listener: (event: LionEvent) => void): () => void;
+	on(type: LionEventType | "*", listener: (event: LionEvent) => void): () => void {
 		if (!this.listeners.has(type)) this.listeners.set(type, new Set());
-		const wrapped = (event: LionEvent) => listener(event as LionEventMap[T]);
-		this.listeners.get(type)?.add(wrapped);
-		return () => this.listeners.get(type)?.delete(wrapped);
+		this.listeners.get(type)?.add(listener);
+		return () => this.listeners.get(type)?.delete(listener);
 	}
 
 	emit<T extends LionEventType>(event: LionEventMap[T]): void {
@@ -27,6 +27,21 @@ export class LionEventBus {
 				// Best-effort event emission.
 			}
 		}
+	}
+
+	publish<C extends AnyEventCreator>(creator: C, payload: Parameters<C>[0]): void {
+		const event = creator(payload);
+		const flatEvent = {
+			...event.payload,
+			type: event.type,
+			timestamp: event.timestamp,
+		} as LionEvent;
+		this.emit(flatEvent);
+	}
+
+	/** Wildcard subscription compatible with GenericEventBus */
+	subscribe(handler: (event: LionEvent) => void): () => void {
+		return this.on("*", handler);
 	}
 
 	clear(): void {

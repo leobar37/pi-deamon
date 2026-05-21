@@ -43,6 +43,10 @@ export class SubAgentEventBus {
 		this.listeners.get(type)?.delete(listener);
 	}
 
+	subscribe(handler: (event: SubAgentEvent) => void): () => void {
+		return this.on("*", handler);
+	}
+
 	clear(): void {
 		this.listeners.clear();
 	}

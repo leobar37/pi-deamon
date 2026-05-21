@@ -90,6 +90,28 @@ export interface LionPipelineOptions {
 	emit?: LionEventSink;
 }
 
+export type LionDelegationAgent = "executor" | "reviewer" | "validator";
+export type LionPlanValidationVerdict = "valid" | "needs_work" | "unknown";
+export type LionPlanValidationResult = {
+	verdict: LionPlanValidationVerdict;
+	status: DelegationStatus;
+	summary: string;
+	taskId: string;
+};
+
+export interface LionTaskWorkflowOptions {
+	controller: import("@local/pi-subagents").SubAgentController;
+	runId: string;
+	plan: LionPlan;
+	task: LionTask;
+	attempt: number;
+	prompt: string;
+	content: import("./types.js").LionPlanContent;
+	bus: import("./events/bus.js").LionEventBus;
+	config: LionPipelineConfig;
+	emit?: LionEventSink;
+}
+
 export interface LionPipelineAttempt {
 	attempt: number;
 	executorSummary: string;

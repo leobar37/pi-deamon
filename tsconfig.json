@@ -20,6 +20,8 @@
 			"@earendil-works/pi-web-ui/*": ["./packages/web-ui/src/*"],
 			"@local/pi-subagents": ["./packages/subagents/src/index.ts"],
 			"@local/pi-subagents/*": ["./packages/subagents/src/*"],
+			"@local/pi-dashboard": ["./packages/dashboard/src/index.ts"],
+			"@local/pi-dashboard/*": ["./packages/dashboard/src/*"],
 			"@earendil-works/pi-agent-old": ["./packages/agent-old/src/index.ts"],
 			"@earendil-works/pi-agent-old/*": ["./packages/agent-old/src/*"]
 		}

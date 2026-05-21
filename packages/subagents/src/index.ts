@@ -14,6 +14,11 @@ export {
 } from "./definitions/index.js";
 // Event bus
 export { SubAgentEventBus } from "./event-bus.js";
+export type { AnyEventCreator, EventCreator, TypedEvent } from "./event-core.js";
+// Event primitives
+export { createEvent, TypedEventBus } from "./event-core.js";
+// SubAgent event definitions
+export { SubAgentEvents } from "./event-defs.js";
 // Execution strategies
 export {
 	execute,

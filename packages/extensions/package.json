@@ -7,7 +7,8 @@
   "keywords": ["pi-package"],
   "scripts": {
     "build": "bun run build.ts",
-    "watch": "bun run build.ts --watch"
+    "watch": "bun run build.ts --watch",
+    "test:lion": "bun test/lion/workflow.test.ts"
   },
   "pi": {
     "extensions": ["./dist"],
@@ -21,6 +22,7 @@
     "./shared/*": "./src/shared/*.ts"
   },
 	"dependencies": {
+		"@local/pi-dashboard": "workspace:*",
 		"@local/pi-subagents": "workspace:*",
 		"diff": "^8.0.2"
 	},

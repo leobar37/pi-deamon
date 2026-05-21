@@ -4,6 +4,7 @@
 	"type": "module",
 	"workspaces": [
 		"packages/*",
+		"packages/dashboard/frontend",
 		"packages/web-ui/example",
 		"packages/coding-agent/examples/extensions/with-deps",
 		"packages/coding-agent/examples/extensions/custom-provider-anthropic",
@@ -35,6 +36,8 @@
 	"devDependencies": {
 		"@anthropic-ai/sandbox-runtime": "^0.0.26",
 		"@biomejs/biome": "2.3.5",
+		"@orpc/client": "^1.14.3",
+		"@orpc/server": "^1.14.3",
 		"@types/node": "^22.10.5",
 		"@typescript/native-preview": "7.0.0-dev.20260120.1",
 		"concurrently": "^9.2.1",
