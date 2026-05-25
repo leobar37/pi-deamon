@@ -40,7 +40,7 @@ export const LION_DEFAULT_MAX_ATTEMPTS = 3;
 
 export type LionMode = "planning" | "building";
 export type LionPlanKind = "structured" | "overview";
-export type LionTaskStatus = "pending" | "in_progress" | "complete" | "blocked";
+export type LionTaskStatus = "pending" | "in_progress" | "complete" | "blocked" | "retryable";
 export type LionReviewVerdict = "approved" | "rejected" | "unknown";
 export type LionBuildStatus = "approved" | "rejected" | "failed";
 
@@ -116,6 +116,7 @@ export type LionEventType = keyof LionEventMap;
 export type LionEvent = LionEventMap[LionEventType];
 
 export interface LionEventBase {
+	id?: string;
 	type: LionEventType;
 	timestamp: number;
 	runId: string;

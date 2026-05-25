@@ -1,110 +1,62 @@
-import { useEffect, useState } from "react";
-import { ConnectionStatus } from "./components/ConnectionStatus.js";
-import { EventLog } from "./components/EventLog.js";
-import { EventStream } from "./components/EventStream.js";
-import { OrchestratorPanel } from "./components/OrchestratorPanel.js";
-import { SessionList } from "./components/SessionList.js";
-import { SessionView } from "./components/SessionView.js";
+/**
+ * Main App — sidebar + chat view layout.
+ *
+ * Hash is the single source of truth for routing.
+ */
 
-type View = "dashboard" | "sessions" | "session";
+import { useState, useEffect } from "react";
+import { Sidebar } from "./components/Sidebar.js";
+import { ChatView } from "./components/ChatView.js";
+import { SessionRuntimeProvider } from "./store/provider.js";
 
-export default function App() {
-	const [view, setView] = useState<View>("dashboard");
-	const [sessionId, setSessionId] = useState<string | null>(null);
+const isDev = (import.meta as unknown as { env?: { DEV?: boolean } }).env?.DEV;
+const GrabProvider = isDev
+	? ({ children }: { children: React.ReactNode }) => {
+			import("react-grab");
+			return <>{children}</>;
+	  }
+	: ({ children }: { children: React.ReactNode }) => <>{children}</>;
 
-	// Handle URL routing
+function getHashSessionId(): string | null {
+	const hash = window.location.hash;
+	return hash.startsWith("#/session/") ? hash.slice("#/session/".length) : null;
+}
+
+function useHashSessionId(): string | null {
+	const [sessionId, setSessionId] = useState(() => getHashSessionId());
+
 	useEffect(() => {
-		const path = window.location.pathname;
-		if (path === "/sessions") {
-			setView("sessions");
-		} else if (path.startsWith("/session/")) {
-			const id = path.slice("/session/".length);
-			setSessionId(id);
-			setView("session");
-		} else {
-			setView("dashboard");
-		}
+		const handler = () => setSessionId(getHashSessionId());
+		window.addEventListener("hashchange", handler);
+		return () => window.removeEventListener("hashchange", handler);
 	}, []);
 
-	function navigateTo(newView: View, id?: string) {
-		setView(newView);
-		if (id) setSessionId(id);
+	return sessionId;
+}
 
-		switch (newView) {
-			case "dashboard":
-				window.history.pushState({}, "", "/");
-				break;
-			case "sessions":
-				window.history.pushState({}, "", "/sessions");
-				break;
-			case "session":
-				if (id) window.history.pushState({}, "", `/session/${id}`);
-				break;
-		}
-	}
+export function navigateToSession(id: string | null) {
+	window.location.hash = id ? `#/session/${id}` : "#/";
+}
+
+function AppContent() {
+	const sessionId = useHashSessionId();
 
 	return (
-		<div className="min-h-screen bg-gray-950 text-gray-100 flex flex-col">
-			<header className="px-4 py-3 bg-gray-900 border-b border-gray-800 flex items-center justify-between">
-				<div className="flex items-center gap-4">
-					<h1
-						className="text-lg font-bold tracking-tight cursor-pointer hover:text-gray-300"
-						onClick={() => navigateTo("dashboard")}
-					>
-						Pi Web
-					</h1>
-					<nav className="flex gap-2">
-						<button
-							onClick={() => navigateTo("dashboard")}
-							className={`text-sm px-2 py-1 rounded ${
-								view === "dashboard"
-									? "bg-gray-800 text-gray-100"
-									: "text-gray-500 hover:text-gray-300"
-							}`}
-						>
-							Dashboard
-						</button>
-						<button
-							onClick={() => navigateTo("sessions")}
-							className={`text-sm px-2 py-1 rounded ${
-								view === "sessions" || view === "session"
-									? "bg-gray-800 text-gray-100"
-									: "text-gray-500 hover:text-gray-300"
-							}`}
-						>
-							Sessions
-						</button>
-					</nav>
-				</div>
-				<span className="text-xs text-gray-500">
-					{view === "dashboard" && "Real-time orchestrator events"}
-					{view === "sessions" && "Manage Pi sessions"}
-					{view === "session" && "View session details"}
-				</span>
-			</header>
-
-			{view === "dashboard" && (
-				<>
-					<ConnectionStatus />
-					<OrchestratorPanel />
-					<main className="flex-1 flex flex-col min-h-0">
-						<EventLog />
-					</main>
-					<EventStream />
-				</>
-			)}
-
-			{view === "sessions" && (
-				<main className="flex-1 flex flex-col min-h-0">
-					<SessionList />
-				</main>
-			)}
-
-			{view === "session" && sessionId && (
-				<main className="flex-1 flex flex-col min-h-0 overflow-auto">
-					<SessionView sessionId={sessionId} />
-				</main>
-			)}
+		<div className="h-screen flex bg-bg-base text-text-primary overflow-hidden">
+			<Sidebar activeSessionId={sessionId} />
+			<main className="flex-1 flex flex-col min-w-0">
+				<ChatView sessionId={sessionId} />
+			</main>
 		</div>
+	);
+}
+
+export default function App() {
+	return (
+		<SessionRuntimeProvider>
+			<GrabProvider>
+				<AppContent />
+			</GrabProvider>
+		</SessionRuntimeProvider>
 	);
 }

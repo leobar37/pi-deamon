@@ -12,6 +12,7 @@ export class LionEventBus extends EventBusBase<LionEvent, LionEventType> {
 		const event = creator(payload);
 		const flatEvent = {
 			...event.payload,
+			id: event.id,
 			type: event.type,
 			timestamp: event.timestamp,
 		} as LionEvent;

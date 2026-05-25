@@ -1,0 +1,23 @@
+{
+	"compilerOptions": {
+		"target": "ES2022",
+		"module": "Node16",
+		"lib": ["ES2022"],
+		"jsx": "preserve",
+		"outDir": "./dist",
+		"rootDir": ".",
+		"moduleResolution": "Node16",
+		"resolveJsonModule": true,
+		"esModuleInterop": true,
+		"strict": true,
+		"skipLibCheck": true,
+		"forceConsistentCasingInFileNames": true,
+		"declaration": true,
+		"declarationMap": true,
+		"sourceMap": true,
+		"noEmit": true,
+		"types": ["node", "electron"]
+	},
+	"include": ["**/*.ts"],
+	"exclude": ["dist", "node_modules"]
+}

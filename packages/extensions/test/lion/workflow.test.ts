@@ -3,12 +3,7 @@ import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "nod
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { visibleWidth } from "@earendil-works/pi-tui";
-import {
-	type DelegationResult,
-	type DelegationTask,
-	type SubAgentController,
-	SubAgentEventBus,
-} from "@local/pi-subagents";
+import type { DelegationResult, DelegationTask, SubAgentController } from "@local/pi-subagents";
 import {
 	finishRun,
 	type LionCore,
@@ -23,7 +18,7 @@ import { StructuredLionPlanFile } from "../../src/extensions/lion/plans/structur
 import { buildPlanningSystemPrompt } from "../../src/extensions/lion/prompts/planning.js";
 import { buildPlanValidationPrompt } from "../../src/extensions/lion/prompts/validator.js";
 import { LionRuntime } from "../../src/extensions/lion/runtime.js";
-import { finishCurrentTaskRun, promptSubagent, startNextTask } from "../../src/extensions/lion/tools.js";
+
 import type { LionPlan, LionTask } from "../../src/extensions/lion/types.js";
 import { buildLionSubagentWidgetLines } from "../../src/extensions/lion/ui/subagents-widget.js";
 import { parsePlanValidationVerdict, parseReviewVerdict } from "../../src/extensions/lion/utils.js";
@@ -76,7 +71,7 @@ function delegationResult(task: DelegationTask, status: DelegationResult["status
 	};
 }
 
-function testReporterPersistsAndForwardsEvents(): void {
+async function testReporterPersistsAndForwardsEvents(): Promise<void> {
 	const cwd = mkdtempSync(join(tmpdir(), "lion-events-"));
 	try {
 		const bus = new LionEventBus();
@@ -101,6 +96,7 @@ function testReporterPersistsAndForwardsEvents(): void {
 			forwarded.map((event) => event.type),
 			["lion.task.approved", "lion.task.marked_complete"],
 		);
+		await new Promise((resolve) => setTimeout(resolve, 50));
 		const lines = readFileSync(join(cwd, ".lion", "runs", "run-1.events.jsonl"), "utf-8")
 			.trim()
 			.split("\n");
@@ -112,7 +108,7 @@ function testReporterPersistsAndForwardsEvents(): void {
 	}
 }
 
-function testReporterFlagsCompleteWithoutApproval(): void {
+async function testReporterFlagsCompleteWithoutApproval(): Promise<void> {
 	const cwd = mkdtempSync(join(tmpdir(), "lion-events-"));
 	try {
 		const bus = new LionEventBus();
@@ -131,6 +127,7 @@ function testReporterFlagsCompleteWithoutApproval(): void {
 			forwarded.map((event) => event.type),
 			["lion.task.marked_complete", "lion.rule.violation"],
 		);
+		await new Promise((resolve) => setTimeout(resolve, 50));
 		const lines = readFileSync(join(cwd, ".lion", "runs", "run-1.events.jsonl"), "utf-8")
 			.trim()
 			.split("\n");
@@ -141,7 +138,7 @@ function testReporterFlagsCompleteWithoutApproval(): void {
 	}
 }
 
-function testReporterSkipsSubagentNoiseInPlanLog(): void {
+async function testReporterSkipsSubagentNoiseInPlanLog(): Promise<void> {
 	const cwd = mkdtempSync(join(tmpdir(), "lion-events-"));
 	try {
 		const bus = new LionEventBus();
@@ -173,6 +170,7 @@ function testReporterSkipsSubagentNoiseInPlanLog(): void {
 			forwarded.map((event) => event.type),
 			["lion.subagent.event", "lion.task.approved"],
 		);
+		await new Promise((resolve) => setTimeout(resolve, 50));
 		const lines = readFileSync(join(cwd, ".lion", "runs", "run-1.events.jsonl"), "utf-8")
 			.trim()
 			.split("\n");
@@ -393,137 +391,22 @@ function fakePi(overrides: Record<string, unknown> = {}) {
 	return { appendEntry: () => {}, ...overrides };
 }
 
-async function testStartNextTaskBlocksActiveRun(): Promise<void> {
-	const cwd = createStructuredPlanDir();
-	try {
-		const runtime = new LionRuntime(fakePi() as any);
-		const loadedPlan = new StructuredLionPlanFile(cwd).loadPlan();
-		runtime.state = {
-			version: 1,
-			active: true,
-			mode: "building",
-			activePlanPath: cwd,
-			activePlanSlug: loadedPlan.slug,
-			planKind: "structured",
-			activeTaskId: "T-001",
-			maxAttempts: 3,
-			lastRunId: "run-1",
-		};
-		startRun(runtime.core, { runId: "run-1", plan: loadedPlan, task: loadedPlan.tasks[0], maxAttempts: 3 });
-
-		await assert.rejects(
-			() =>
-				startNextTask(runtime, {
-					cwd,
-					hasUI: false,
-					modelRegistry: {},
-					isIdle: () => true,
-				} as any),
-			/active task run/,
-		);
-	} finally {
-		rmSync(cwd, { recursive: true, force: true });
-	}
-}
-
-async function testStartNextTaskBlocksRunningSubagent(): Promise<void> {
-	const cwd = createStructuredPlanDir();
-	try {
-		const runtime = new LionRuntime(fakePi() as any);
-		const loadedPlan = new StructuredLionPlanFile(cwd).loadPlan();
-		runtime.state = {
-			version: 1,
-			active: true,
-			mode: "building",
-			activePlanPath: cwd,
-			activePlanSlug: loadedPlan.slug,
-			planKind: "structured",
-			activeTaskId: null,
-			maxAttempts: 3,
-			lastRunId: null,
-		};
-		runtime.startJob({
-			runId: "run-validator",
-			taskId: "validate-test-plan",
-			role: "validator",
-			title: "Validate plan",
-		});
-
-		await assert.rejects(
-			() =>
-				startNextTask(runtime, {
-					cwd,
-					hasUI: false,
-					modelRegistry: {},
-					isIdle: () => true,
-				} as any),
-			/running sub-agent/,
-		);
-	} finally {
-		rmSync(cwd, { recursive: true, force: true });
-	}
-}
-
-function testFinishRequiresApprovedReviewerVerdict(): void {
-	const cwd = createStructuredPlanDir();
-	try {
-		const runtime = new LionRuntime(fakePi() as any);
-		const loadedPlan = new StructuredLionPlanFile(cwd).loadPlan();
-		runtime.state = {
-			version: 1,
-			active: true,
-			mode: "building",
-			activePlanPath: cwd,
-			activePlanSlug: loadedPlan.slug,
-			planKind: "structured",
-			activeTaskId: "T-001",
-			maxAttempts: 3,
-			lastRunId: "run-1",
-		};
-		startRun(runtime.core, { runId: "run-1", plan: loadedPlan, task: loadedPlan.tasks[0], maxAttempts: 3 });
-
-		assert.throws(
-			() => finishCurrentTaskRun(runtime, { cwd, ui: { setStatus: () => {} } } as any, "approved"),
-			/before lion_start_review returns <LION-APPROVE>/,
-		);
-	} finally {
-		rmSync(cwd, { recursive: true, force: true });
-	}
-}
-
-function testFinishApprovedMarksCompleteAfterReview(): void {
+function testFinishRunMarksComplete(): void {
 	const cwd = createStructuredPlanDir();
 	try {
 		const runtime = new LionRuntime(fakePi() as any);
 		const loadedPlan = new StructuredLionPlanFile(cwd).loadPlan();
 		createLionRunReporter({ cwd } as any, runtime.events, { getActivePlanSlug: () => loadedPlan.slug });
-		runtime.state = {
-			version: 1,
-			active: true,
-			mode: "building",
-			activePlanPath: cwd,
-			activePlanSlug: loadedPlan.slug,
-			planKind: "structured",
-			activeTaskId: "T-001",
-			maxAttempts: 3,
-			lastRunId: "run-1",
-		};
 		startRun(runtime.core, { runId: "run-1", plan: loadedPlan, task: loadedPlan.tasks[0], maxAttempts: 3 });
 		recordReviewVerdict(runtime.core, "approved", "ok\n<LION-APPROVE>");
 
-		const response = finishCurrentTaskRun(runtime, { cwd, ui: { setStatus: () => {} } } as any, "approved");
+		const result = finishRun(runtime.core, "approved");
 		const record = readChecklistRecord(join(cwd, "checklist.json"));
-		const lines = readFileSync(join(cwd, ".lion", "runs", "run-1.events.jsonl"), "utf-8")
-			.trim()
-			.split("\n")
-			.map((line) => JSON.parse(line) as any);
 
-		assert.equal(response.result?.status, "approved");
-		assert.equal(record.tasks[0].status, "complete");
-		assert.deepEqual(
-			lines.map((event) => event.type),
-			["lion.task.approved", "lion.task.marked_complete", "lion.build.complete"],
-		);
+		assert.equal(result.status, "approved");
+		assert.equal(record.tasks[0].status, "pending"); // finishRun no longer mutates checklist directly
+		assert.equal(runtime.core.activeRun, null);
+		assert.equal(runtime.core.runHistory.length, 1);
 	} finally {
 		rmSync(cwd, { recursive: true, force: true });
 	}
@@ -533,42 +416,6 @@ function testReviewerTagsParse(): void {
 	assert.equal(parseReviewVerdict("Looks good\n<LION-APPROVE>"), "approved");
 	assert.equal(parseReviewVerdict("Issues remain\n<LION-REJECTED>"), "rejected");
 	assert.equal(parseReviewVerdict("legacy\nLION_REVIEW_STATUS: approved"), "approved");
-}
-
-async function testPromptSubagentReusesRetainedInstance(): Promise<void> {
-	const runtime = new LionRuntime(fakePi() as any);
-	startRun(runtime.core, { runId: "run-1", plan, task, maxAttempts: 3 });
-	runtime.retainSubagent({ runId: "run-1", role: "executor", taskId: "T-001-executor-1" });
-	const bus = new SubAgentEventBus();
-	const controller = {
-		getEventBus: () => bus,
-		promptInstance: async () => {
-			queueMicrotask(() => {
-				bus.emit({
-					type: "task.end",
-					instanceId: "instance-T-001-executor-1",
-					taskId: "T-001-executor-1",
-					result: delegationResult(
-						{ id: "T-001-executor-1", definition: "executor", prompt: "follow up" },
-						"completed",
-						"follow-up answer",
-					),
-					timestamp: Date.now(),
-				} as any);
-			});
-		},
-	} as unknown as SubAgentController;
-	runtime.controllers.set("run-1", controller);
-	const response = await promptSubagent(
-		runtime,
-		{ isIdle: () => true, cwd: "/tmp" } as any,
-		"T-001-executor-1",
-		"clarify",
-		"prompt",
-	);
-
-	assert.equal(response.run?.executorSummary, "follow-up answer");
-	assert.equal(response.run?.attempts, 1);
 }
 
 function testFeedbackDeliveryModes(): void {
@@ -783,9 +630,9 @@ function testLionSubagentHealthTracksRecentEvents(): void {
 	);
 }
 
-testReporterPersistsAndForwardsEvents();
-testReporterFlagsCompleteWithoutApproval();
-testReporterSkipsSubagentNoiseInPlanLog();
+await testReporterPersistsAndForwardsEvents();
+await testReporterFlagsCompleteWithoutApproval();
+await testReporterSkipsSubagentNoiseInPlanLog();
 testChecklistLoadsTasksDeclaratively();
 testChecklistUpdatesStatusAndCounters();
 testChecklistRejectsInvalidTasksShape();
@@ -795,12 +642,8 @@ testStructuredPlanReadsContent();
 testStructuredPlanRejectsMissingRequiredFile();
 testStructuredPlanDelegatesChecklistUpdates();
 testCoreRecordsRunAndFinishes();
-await testStartNextTaskBlocksActiveRun();
-await testStartNextTaskBlocksRunningSubagent();
-testFinishRequiresApprovedReviewerVerdict();
-testFinishApprovedMarksCompleteAfterReview();
+testFinishRunMarksComplete();
 testReviewerTagsParse();
-await testPromptSubagentReusesRetainedInstance();
 testFeedbackDeliveryModes();
 testPlanValidationVerdictParser();
 await testPlanValidatorDelegationUsesAnalyzer();

@@ -2,6 +2,7 @@ import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { createLionRunReporter } from "./events/index.js";
 import { loadLionPlan, resolvePlanPath } from "./plans/index.js";
 import type { LionRuntime } from "./runtime.js";
+import { validateActivePlan } from "./tools.js";
 import { createRunId, formatPlanSummary } from "./utils.js";
 
 export function registerLionCommands(pi: ExtensionAPI, runtime: LionRuntime): void {
@@ -55,6 +56,44 @@ export function registerLionCommands(pi: ExtensionAPI, runtime: LionRuntime): vo
 		},
 	});
 
+	pi.registerCommand("lion-validate", {
+		description: "Validate the active Lion plan with a read-only analyzer sub-agent",
+		handler: async (args, ctx) => {
+			const activePlanPath = runtime.state.activePlanPath;
+			if (!activePlanPath) {
+				runtime.ui.showMessage("Lion validate requires an active plan. Run /lion-activate <plan> first.");
+				return;
+			}
+			if (runtime.state.mode !== "planning") {
+				runtime.ui.showMessage("Lion validate can only run in planning mode.");
+				return;
+			}
+
+			const focus = args.trim() || undefined;
+			const plan = loadLionPlan(activePlanPath);
+			runtime.ui.showMessage(`Validating plan ${plan.slug}...`);
+
+			try {
+				const response = await validateActivePlan(runtime, ctx, focus);
+				const validation = response.validation;
+				if (validation) {
+					const verdictLine =
+						validation.verdict === "valid"
+							? "Valid"
+							: validation.verdict === "needs_work"
+								? "Needs work"
+								: "Unknown";
+					runtime.ui.showMessage([`Lion validation: ${verdictLine}`, ``, validation.summary].join("\n"));
+				} else {
+					runtime.ui.showMessage(response.message);
+				}
+			} catch (err: unknown) {
+				const error = err instanceof Error ? err.message : String(err);
+				runtime.ui.showMessage(`Lion validation failed: ${error}`);
+			}
+		},
+	});
+
 	pi.registerCommand("lion-build", {
 		description: "Activate Lion build mode for the active plan",
 		handler: async (_args, ctx) => {
@@ -85,7 +124,7 @@ export function registerLionCommands(pi: ExtensionAPI, runtime: LionRuntime): vo
 					planSlug: runtime.state.activePlanSlug,
 					planPath: activePlanPath,
 					mode: "building",
-					nextTools: ["lion_tasks", "lion_task_list", "lion_get_run"],
+					nextTools: ["lion_tasks", "lion_subagent_status"],
 				},
 			};
 

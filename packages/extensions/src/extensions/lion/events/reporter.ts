@@ -21,11 +21,13 @@ export function createLionRunReporter(
 	const monitor = new LionRuleMonitor((event) => bus.emit(event));
 
 	bus.on("*", (event) => {
+		store.save(event).catch((err) => {
+			console.error("[lion] event store save failed:", err);
+		});
 		try {
-			store.save(event);
-		} catch {
-			// Event logs are diagnostic; command behavior remains authoritative.
+			monitor.onEvent(event);
+		} catch (err) {
+			console.error("[lion] monitor onEvent failed:", err);
 		}
-		monitor.onEvent(event);
 	});
 }

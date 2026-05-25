@@ -1,8 +1,9 @@
 {
-  "name": "@earendil-works/pi-web",
+  "name": "@local/pi-dashboard",
   "version": "0.74.0",
   "description": "Web dashboard for Pi sessions",
   "type": "module",
+  "main": "electron/dist/main.js",
   "bin": {
     "pi-web": "dist/cli.js"
   },
@@ -17,6 +18,11 @@
     "watch": "bun run build.ts --watch",
     "build:frontend": "cd frontend && bun run build",
     "build:all": "bun run build && bun run build:frontend",
+    "build:binary": "bun run build.ts --binary",
+    "build:electron": "vite build -c electron/vite.config.ts",
+    "electron:dev": "bun run build:frontend && bun run build:binary && bun run build:electron && electron electron/dist/main.js",
+    "electron:build": "bun run build:all && bun run build:binary && bun run build:electron",
+    "electron:pack": "bun run electron:build && electron-builder",
     "test": "vitest --run"
   },
   "dependencies": {
@@ -25,11 +31,40 @@
     "zod": "^3.25.0"
   },
   "devDependencies": {
+    "electron": "^35.0.0",
+    "electron-builder": "^26.0.0",
+    "vite": "^6.0.0",
     "vitest": "^3.2.4"
   },
   "peerDependencies": {
     "@earendil-works/pi-agent-core": "*",
     "@earendil-works/pi-ai": "*",
     "@earendil-works/pi-tui": "*"
+  },
+  "build": {
+    "appId": "works.earendil.pi-dashboard",
+    "productName": "Pi Dashboard",
+    "directories": {
+      "output": "electron-dist"
+    },
+    "files": [
+      "frontend/dist/**/*",
+      "electron/dist/**/*"
+    ],
+    "extraResources": [
+      {
+        "from": "dist/pi-web-binary",
+        "to": "pi-web-binary"
+      }
+    ],
+    "mac": {
+      "target": "dmg"
+    },
+    "win": {
+      "target": "nsis"
+    },
+    "linux": {
+      "target": "AppImage"
+    }
   }
 }

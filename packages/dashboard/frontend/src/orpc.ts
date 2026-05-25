@@ -1,23 +1,31 @@
+/**
+ * Typed oRPC client for the dashboard API.
+ *
+ * In Electron, the backend URL is injected via query param (?backendUrl=...).
+ * In a regular browser, it falls back to window.location.origin.
+ */
+
 import { createORPCClient } from "@orpc/client";
 import { RPCLink } from "@orpc/client/fetch";
-import type { DashboardEventPayload, DashboardState } from "./store/dashboard.js";
+import type { DashboardClient } from "./api-types.js";
+
+function getBackendUrl(): string {
+	const params = new URLSearchParams(window.location.search);
+	const backendUrl = params.get("backendUrl");
+	if (backendUrl) {
+		return backendUrl;
+	}
+	return window.location.origin;
+}
 
 const link = new RPCLink({
-	url: `${window.location.origin}/api`,
+	url: `${getBackendUrl()}/api`,
 });
 
-// Base untyped client from oRPC
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-const base = createORPCClient(link) as any;
+const client = createORPCClient(link) as unknown as DashboardClient;
 
-/** Typed wrapper around the oRPC client */
-export const orpc = {
-	dashboard: {
-		state: {
-			get: (): Promise<DashboardState> => base.dashboard.state.get(),
-		},
-		events: {
-			stream: (): Promise<AsyncIterableIterator<DashboardEventPayload>> => base.dashboard.events.stream(),
-		},
-	},
-};
+export const orpc = client;
+
+// Re-export types for convenience
+export type { ServerEvent } from "./api-types.js";
+export type { SessionInfo, SessionStatus } from "@local/pi-dashboard";

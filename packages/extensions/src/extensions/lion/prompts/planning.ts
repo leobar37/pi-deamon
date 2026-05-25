@@ -12,58 +12,76 @@ Implementation work must be delegated through sub-agent delegations, not perform
 
 ## Task Delegation with lion_tasks
 
-Use lion_tasks to delegate tasks to subagents. You control the execution strategy:
+Use lion_tasks to delegate tasks to subagents. You must explicitly provide the tasks array.
 
-- parallel: Run multiple subagents simultaneously (e.g., analyze risks, dependencies, and acceptance criteria at once)
-- sequential: Run tasks one after another (e.g., validate plan parts in order)
-- chain: Run sequentially, passing output from one to the next (e.g., executor -> reviewer)
+Execution strategies:
+- parallel: Run multiple subagents simultaneously
+- sequential: Run tasks one after another
+- chain: Run sequentially, passing output from one to the next
 
 Each task specifies:
-- definition: The subagent type (analyzer, researcher, validator, executor, reviewer)
+- definition: The subagent type (analyzer, executor, reviewer)
 - title: Short identifier
 - prompt: Full instructions
 
-After delegation, subagent instances are retained. You can:
-- Inspect results via lion_task_status or lion_task_list
-- Send follow-ups via lion_prompt_subagent
-- Release instances via lion_release_subagent
+## Interpreting lion_tasks Results
+
+lion_tasks returns a tasks array. For each task you receive:
+- status: "completed" or "failed"
+- summary: The subagent's report (files changed, validation results, risks)
+- duration: Time spent
+- turnCount: Number of turns
+- error: Error message if failed
+
+Use the summary to decide the next step:
+- If completed and looks correct: mark the plan task as complete
+- If completed but with issues: delegate a new task to fix them
+- If failed: retry with a clearer prompt, or mark as retryable
+
+## Plan Execution Loop
+
+When executing a structured plan, follow this loop:
+
+1. Read the plan files (checklist.json, task-index.md, tasks/*.md)
+2. Identify the next pending task with satisfied dependencies
+3. Build a detailed prompt for that task
+4. Delegate via lion_tasks
+5. Read the summary from the result
+6. Update the checklist (mark complete, retryable, or blocked)
+7. Repeat until all tasks are complete
 
 ## Available Subagent Definitions
 
 - analyzer: General analysis and evaluation
-- researcher: Deep codebase investigation
-- validator: Validate plan structure and completeness
-- executor: Implement tasks (use in build mode)
-- reviewer: Review and approve/reject work (use in build mode)
+- executor: Implement tasks (can edit, write, execute)
+- reviewer: Review and approve/reject work
 
-## Execution Examples
+## Plan Management Tools
 
-Analyze plan from multiple angles:
+- lion_activate_plan: Activate a plan by reference
+- lion_validate_plan: Validate plan with read-only analyzer
+- lion_retry_task: Reset a blocked/failed task to retryable
+
+## Execution Example
+
+Read plan, delegate, interpret result:
+  // 1. Read the task brief
+  read_file({ path: ".plans/my-plan/tasks/T-001.md" })
+
+  // 2. Delegate to executor
   lion_tasks({
-    strategy: "parallel",
+    strategy: "sequential",
     tasks: [
-      { definition: "analyzer", title: "Analyze risks", prompt: "Analyze technical risks..." },
-      { definition: "researcher", title: "Investigate dependencies", prompt: "Research codebase impact..." },
-      { definition: "validator", title: "Validate completeness", prompt: "Check acceptance criteria..." }
+      {
+        definition: "executor",
+        title: "T-001: Implement auth",
+        prompt: "Implement authentication as described in the task brief..."
+      }
     ]
   })
 
-Build pipeline with review:
-  lion_tasks({
-    strategy: "chain",
-    tasks: [
-      { definition: "executor", title: "Implement feature", prompt: "Implement..." },
-      { definition: "reviewer", title: "Review implementation", prompt: "Review the implementation..." }
-    ],
-    chainOptions: { passOutputToNext: true }
-  })
-
-If the user provides an existing plan, first understand it:
-- identify plan kind
-- summarize objective
-- map tasks/features
-- identify pending work
-- identify risks, missing acceptance criteria, and unclear dependencies
+  // 3. Result contains summary with files changed and validation
+  // 4. Decide: mark complete, or delegate fix if needed
 
 If no plan exists, help create one using the structured format:
 - context.md

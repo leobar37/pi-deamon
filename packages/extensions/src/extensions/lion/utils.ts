@@ -22,6 +22,8 @@ export function normalizeTaskStatus(status: unknown): LionTaskStatus {
 			return "in_progress";
 		case "blocked":
 			return "blocked";
+		case "retryable":
+			return "retryable";
 		default:
 			return "pending";
 	}
@@ -50,11 +52,12 @@ export function formatPlanSummary(plan: LionPlan): string {
 	const complete = plan.tasks.filter((task) => task.status === "complete").length;
 	const pending = plan.tasks.filter((task) => task.status === "pending").length;
 	const blocked = plan.tasks.filter((task) => task.status === "blocked").length;
+	const retryable = plan.tasks.filter((task) => task.status === "retryable").length;
 	return [
 		`Plan: ${plan.slug}`,
 		`Kind: ${plan.kind}`,
 		`Path: ${plan.rootPath}`,
-		`Tasks: ${complete}/${plan.tasks.length} complete, ${pending} pending, ${blocked} blocked`,
+		`Tasks: ${complete}/${plan.tasks.length} complete, ${pending} pending, ${retryable} retryable, ${blocked} blocked`,
 	].join("\n");
 }
 

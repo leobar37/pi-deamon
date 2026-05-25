@@ -20,8 +20,8 @@ export class EventBusBase<TEvent extends { type: string }, TType extends string 
 			for (const listener of specific) {
 				try {
 					listener(event);
-				} catch {
-					// Best-effort event emission; swallow listener errors
+				} catch (err) {
+					console.error("[event-bus] listener error:", err);
 				}
 			}
 		}
@@ -30,8 +30,8 @@ export class EventBusBase<TEvent extends { type: string }, TType extends string 
 			for (const listener of wildcard) {
 				try {
 					listener(event);
-				} catch {
-					// Best-effort event emission; swallow listener errors
+				} catch (err) {
+					console.error("[event-bus] wildcard listener error:", err);
 				}
 			}
 		}

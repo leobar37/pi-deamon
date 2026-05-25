@@ -9,23 +9,14 @@ import type {
 } from "@local/pi-subagents";
 import { TaskExecutor } from "@local/pi-subagents";
 import { Type } from "typebox";
-import { finishRun, type LionRun, recordReviewVerdict, recordSubagentResult, setRunStatus, startRun } from "./core.js";
-import type { LionEventBus } from "./events/bus.js";
+import type { LionRun } from "./core.js";
 import { LionEvents } from "./events/defs.js";
-import {
-	getNextPendingTask,
-	loadLionPlan,
-	markStructuredTaskComplete,
-	readPlanContent,
-	resolvePlanReference,
-	updateStructuredTaskStatus,
-} from "./plans/index.js";
-import { buildExecutorPrompt, buildPlanValidationPrompt, buildReviewerPrompt } from "./prompts/index.js";
-import type { LionRuntime, LionSubagentJob } from "./runtime.js";
+import { loadLionPlan, resolvePlanReference, updateStructuredTaskStatus } from "./plans/index.js";
+import { buildPlanValidationPrompt } from "./prompts/index.js";
+import type { LionRuntime } from "./runtime.js";
 import { createLionSubAgentController } from "./subagents/index.js";
 import type {
 	LionBuildResult,
-	LionDelegationAgent,
 	LionPlan,
 	LionPlanValidationResult,
 	LionTask,
@@ -33,13 +24,7 @@ import type {
 	LionTasksResult,
 } from "./types.js";
 import { renderLionSubagentWidget } from "./ui/subagents-widget.js";
-import {
-	createRunId,
-	formatBuildResult,
-	formatPlanSummary,
-	parsePlanValidationVerdict,
-	parseReviewVerdict,
-} from "./utils.js";
+import { createRunId, formatPlanSummary, parsePlanValidationVerdict } from "./utils.js";
 
 const LionTasksParams = Type.Object({
 	tasks: Type.Array(
@@ -58,15 +43,17 @@ const LionTasksParams = Type.Object({
 				}),
 			),
 		}),
-		{ description: "Array of tasks to execute" },
+		{ description: "Array of tasks to execute. Must provide at least one task." },
 	),
-	strategy: Type.Union(
-		[
-			Type.Literal("parallel", { description: "Execute all tasks concurrently" }),
-			Type.Literal("sequential", { description: "Execute tasks one after another" }),
-			Type.Literal("chain", { description: "Execute sequentially, passing output to next task" }),
-		],
-		{ description: "Execution strategy" },
+	strategy: Type.Optional(
+		Type.Union(
+			[
+				Type.Literal("parallel", { description: "Execute all tasks concurrently" }),
+				Type.Literal("sequential", { description: "Execute tasks one after another" }),
+				Type.Literal("chain", { description: "Execute sequentially, passing output to next task" }),
+			],
+			{ description: "Execution strategy. Default: sequential" },
+		),
 	),
 	concurrency: Type.Optional(
 		Type.Number({
@@ -89,12 +76,12 @@ const LionTasksParams = Type.Object({
 	),
 });
 
-const TaskStatusParams = Type.Object({
-	task_id: Type.String({ description: "Task ID of the subagent to inspect" }),
-});
-
-const TaskHealthParams = Type.Object({
-	task_id: Type.Optional(Type.String({ description: "Optional task ID to inspect. If omitted, checks all tasks." })),
+const _SubagentStatusParams = Type.Object({
+	task_id: Type.Optional(
+		Type.String({
+			description: "Optional task ID for detailed status. If omitted, returns summary of all subagents.",
+		}),
+	),
 });
 
 const ActivatePlanParams = Type.Object({
@@ -104,41 +91,31 @@ const ActivatePlanParams = Type.Object({
 	}),
 });
 
-const PromptSubagentParams = Type.Object({
-	task_id: Type.String({
-		description: "Retained sub-agent task id returned by lion_start_next_task or lion_start_review.",
-	}),
-	message: Type.String({ description: "Prompt or follow-up to send to that retained sub-agent." }),
-	mode: Type.Optional(
-		Type.Union([Type.Literal("prompt"), Type.Literal("follow_up")], {
-			description: "Delivery mode. Use follow_up when the sub-agent is still busy; prompt is the default.",
-		}),
-	),
-});
-
 const ValidatePlanParams = Type.Object({
 	focus: Type.Optional(
 		Type.String({ description: "Optional validation focus for a specific part of the active plan." }),
 	),
 });
 
-const FinishCurrentTaskParams = Type.Object({
-	status: Type.Union([Type.Literal("approved"), Type.Literal("rejected"), Type.Literal("failed")], {
-		description: "Final status for the current Lion task run.",
-	}),
+const RetryTaskParams = Type.Object({
+	task_id: Type.String({ description: "Task ID to retry/reset in the active plan." }),
+	reset_dependencies: Type.Optional(
+		Type.Boolean({
+			description: "If true, also reset dependent tasks to pending so they can run again. Default: false.",
+		}),
+	),
 });
 
-const ReleaseSubagentParams = Type.Object({
-	task_id: Type.String({ description: "Retained sub-agent task id to release." }),
-});
-
-const _SubagentHealthParams = Type.Object({
-	task_id: Type.Optional(Type.String({ description: "Optional retained sub-agent task id to inspect." })),
-});
-
-const _CancelSubagentParams = Type.Object({
-	task_id: Type.String({ description: "Running or retained Lion sub-agent task id to cancel." }),
-});
+export interface LionTaskResult {
+	taskId: string;
+	title: string;
+	definition: string;
+	status: string;
+	summary: string;
+	duration: number;
+	turnCount: number;
+	error?: string;
+}
 
 export interface LionToolResponse {
 	message: string;
@@ -146,7 +123,7 @@ export interface LionToolResponse {
 	result?: LionBuildResult;
 	validation?: LionPlanValidationResult;
 	plan?: LionPlan;
-	subagents?: LionSubagentJob[];
+	tasks?: LionTaskResult[];
 	candidates?: Array<{
 		slug: string;
 		path: string;
@@ -157,56 +134,7 @@ export interface LionToolResponse {
 }
 
 export function registerLionTools(runtime: LionRuntime): void {
-	runtime.pi.registerTool({
-		name: "lion_task_status",
-		label: "Lion Task Status",
-		description:
-			"Get detailed status of a specific subagent task including state, duration, turns, tools, and current activity.",
-		promptSnippet: "Check the status of a running or retained subagent",
-		parameters: TaskStatusParams,
-		async execute(_toolCallId, params) {
-			const response = getTaskStatus(runtime, params.task_id);
-			return toToolResult(response);
-		},
-	});
-
-	runtime.pi.registerTool({
-		name: "lion_task_list",
-		label: "Lion Task List",
-		description: "List all active and retained subagent tasks with their status.",
-		promptSnippet: "List all subagent tasks",
-		parameters: Type.Object({}),
-		async execute() {
-			const response = listTasks(runtime);
-			return toToolResult(response);
-		},
-	});
-
-	runtime.pi.registerTool({
-		name: "lion_task_health",
-		label: "Lion Task Health",
-		description: "Check health of subagent tasks. Reports running, stuck, or failed tasks.",
-		promptSnippet: "Check subagent health",
-		parameters: TaskHealthParams,
-		async execute(_toolCallId, params) {
-			const response = checkTaskHealth(runtime, params.task_id);
-			return toToolResult(response);
-		},
-	});
-
-	runtime.pi.registerTool({
-		name: "lion_tasks",
-		label: "Lion Tasks",
-		description:
-			"Delegate one or more tasks to subagents with configurable execution strategy (parallel, sequential, or chain). Retains instances for follow-up via lion_prompt_subagent.",
-		promptSnippet: "Delegate tasks to subagents with parallel, sequential, or chain execution",
-		parameters: LionTasksParams,
-		async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
-			const response = await executeLionTasks(runtime, ctx, params);
-			return toToolResult(response);
-		},
-	});
-
+	// === Plan management ===
 	runtime.pi.registerTool({
 		name: "lion_activate_plan",
 		label: "Lion Activate Plan",
@@ -234,127 +162,28 @@ export function registerLionTools(runtime: LionRuntime): void {
 	});
 
 	runtime.pi.registerTool({
-		name: "lion_start_next_task",
-		label: "Lion Start Next Task",
+		name: "lion_reconcile_plan",
+		label: "Lion Reconcile Plan",
 		description:
-			"Start the next pending task from the active Lion plan by launching an executor sub-agent. Returns the executor result to the orchestrator; do not mark the task complete from this tool.",
-		promptSnippet: "Start the next Lion plan task through an executor sub-agent and inspect the returned feedback",
-		parameters: Type.Object({}),
-		async execute(_toolCallId, _params, _signal, _onUpdate, ctx) {
-			const response = await startNextTask(runtime, ctx);
+			"Reset a failed or blocked task to retryable/pending status, optionally resetting its dependents too. Use this when a task failed but you want to retry it without abandoning the whole plan.",
+		promptSnippet: "Reset a failed or blocked task for retry",
+		parameters: RetryTaskParams,
+		async execute(_toolCallId, params) {
+			const response = retryTask(runtime, params.task_id, params.reset_dependencies ?? false);
 			return toToolResult(response);
 		},
 	});
 
+	// === Task execution ===
 	runtime.pi.registerTool({
-		name: "lion_prompt_subagent",
-		label: "Lion Prompt Sub-agent",
+		name: "lion_tasks",
+		label: "Lion Tasks",
 		description:
-			"Send another prompt or follow-up to a retained Lion sub-agent before releasing it. Use this when the orchestrator has doubts or needs clarification.",
-		promptSnippet: "Prompt a retained Lion sub-agent again before deciding the next delegation",
-		parameters: PromptSubagentParams,
+			"Delegate one or more tasks to subagents with configurable execution strategy (parallel, sequential, or chain). The orchestrator must provide the tasks array explicitly. Subagent instances are retained for follow-up via lion_prompt_subagent.",
+		promptSnippet: "Delegate tasks to subagents with explicit task definitions",
+		parameters: LionTasksParams,
 		async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
-			const response = await promptSubagent(runtime, ctx, params.task_id, params.message, params.mode ?? "prompt");
-			return toToolResult(response);
-		},
-	});
-
-	runtime.pi.registerTool({
-		name: "lion_start_review",
-		label: "Lion Start Review",
-		description:
-			"Start a reviewer sub-agent for the current Lion task run. The reviewer inspects executor output and returns a verdict. Use this after the executor completes and the orchestrator has inspected its summary.",
-		promptSnippet: "Start reviewer sub-agent for the active Lion task run",
-		parameters: Type.Object({}),
-		async execute(_toolCallId, _params, _signal, _onUpdate, ctx) {
-			const response = await startReview(runtime, ctx);
-			return toToolResult(response);
-		},
-	});
-
-	runtime.pi.registerTool({
-		name: "lion_get_run",
-		label: "Lion Get Run",
-		description:
-			"Inspect the current active Lion task run including its status, attempts, executor/reviewer summaries, verdict, and subagent history.",
-		promptSnippet: "Get the current Lion task run details",
-		parameters: Type.Object({}),
-		async execute() {
-			const activeRun = runtime.core.activeRun;
-			if (!activeRun) {
-				return {
-					content: [
-						{
-							type: "text" as const,
-							text: JSON.stringify({ message: "No active Lion run.", run: null, subagents: [] }, null, 2),
-						},
-					],
-					details: { message: "No active Lion run.", run: null, subagents: [] },
-				};
-			}
-			const response: LionToolResponse = {
-				message: `Active run: ${activeRun.runId} (${activeRun.status})`,
-				run: activeRun,
-				subagents: runtime.getSubagentHealth(),
-			};
-			return toToolResult(response);
-		},
-	});
-
-	runtime.pi.registerTool({
-		name: "lion_subagent_health",
-		label: "Lion Sub-agent Health",
-		description:
-			"Check health of Lion subagent jobs. Reports running, queued, completed, failed, or stuck jobs across all Lion runs.",
-		promptSnippet: "Check the health and status of Lion subagent jobs",
-		parameters: _SubagentHealthParams,
-		async execute(_toolCallId, params) {
-			const response = getSubagentHealth(runtime, params.task_id);
-			return toToolResult(response);
-		},
-	});
-
-	runtime.pi.registerTool({
-		name: "lion_cancel_subagent",
-		label: "Lion Cancel Sub-agent",
-		description:
-			"Cancel a running or retained Lion sub-agent by its task id. Use this to stop a stuck sub-agent before launching another delegation.",
-		promptSnippet: "Cancel a running or retained Lion sub-agent",
-		parameters: _CancelSubagentParams,
-		async execute(_toolCallId, params) {
-			const response = await cancelSubagent(runtime, params.task_id);
-			return toToolResult(response);
-		},
-	});
-
-	runtime.pi.registerTool({
-		name: "lion_finish_current_task",
-		label: "Lion Finish Current Task",
-		description:
-			"Finalize only the current Lion task run after the orchestrator decides it is approved, rejected, or failed. This marks checklist state for that task and releases retained sub-agents for that run. Call lion_tasks again for the next task.",
-		promptSnippet: "Finish the current Lion task run and release retained sub-agents",
-		parameters: FinishCurrentTaskParams,
-		async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
-			const response = finishCurrentTaskRun(runtime, ctx, params.status);
-			return toToolResult(response);
-		},
-	});
-
-	runtime.pi.registerTool({
-		name: "lion_release_subagent",
-		label: "Lion Release Sub-agent",
-		description:
-			"Release a retained Lion sub-agent when the orchestrator no longer needs to ask it follow-up questions.",
-		promptSnippet: "Release a retained Lion sub-agent after its feedback is no longer needed",
-		parameters: ReleaseSubagentParams,
-		async execute(_toolCallId, params) {
-			const retained = runtime.retainedInstances.get(params.task_id);
-			if (!retained) throw new Error(`Lion sub-agent ${params.task_id} is not retained.`);
-			runtime.retainedInstances.delete(params.task_id);
-			const response = {
-				message: `Released Lion sub-agent ${params.task_id}.`,
-				run: runtime.core.activeRun,
-			};
+			const response = await executeLionTasks(runtime, ctx, params);
 			return toToolResult(response);
 		},
 	});
@@ -364,8 +193,13 @@ export async function executeLionTasks(
 	runtime: LionRuntime,
 	ctx: ExtensionContext,
 	params: {
-		tasks: Array<{ definition: string; title: string; prompt: string; capabilities?: Partial<SubAgentCapabilities> }>;
-		strategy: LionTaskStrategy;
+		tasks: Array<{
+			definition: string;
+			title: string;
+			prompt: string;
+			capabilities?: Partial<SubAgentCapabilities>;
+		}>;
+		strategy?: LionTaskStrategy;
 		concurrency?: number;
 		chainOptions?: {
 			passOutputToNext?: boolean;
@@ -375,40 +209,51 @@ export async function executeLionTasks(
 		};
 	},
 ): Promise<LionToolResponse> {
-	const activePlanPath = runtime.state.activePlanPath;
-	if (!activePlanPath) {
-		throw new Error("lion_tasks requires an active plan. Run lion_activate_plan first.");
+	if (!params.tasks || params.tasks.length === 0) {
+		throw new Error(
+			"lion_tasks requires at least one task. Provide tasks array with definitions, titles, and prompts.",
+		);
 	}
+
+	const activePlanPath = runtime.state.activePlanPath;
+	const plan = activePlanPath ? loadLionPlan(activePlanPath) : null;
 	runtime.rememberUiContext(ctx);
 
 	const runId = createRunId();
 	const bus = runtime.events;
-	const plan = loadLionPlan(activePlanPath);
+	const taskConfigs = params.tasks;
+	const strategy = params.strategy ?? "sequential";
 
-	const task: LionTask = {
+	const batchTask: LionTask = {
 		id: `tasks-${runId}`,
-		title: `Task execution (${params.strategy}, ${params.tasks.length} tasks)`,
-		file: "task-index.md",
+		title: `Batch ${strategy}: ${taskConfigs.length} tasks`,
+		file: "",
 		status: "pending",
 		dependencies: [],
 		requirements: [],
 	};
 
-	const controller = createController(runtime, ctx, runId, plan, task);
+	const controller = createController(
+		runtime,
+		ctx,
+		runId,
+		plan ?? { kind: "structured", slug: "batch", rootPath: ctx.cwd, tasks: [], indexFile: "" },
+		batchTask,
+	);
 
-	for (let i = 0; i < params.tasks.length; i++) {
+	for (let i = 0; i < taskConfigs.length; i++) {
 		const taskId = `${runId}-task-${i}`;
 		runtime.startJob({
 			runId,
 			taskId,
 			role: "executor",
-			title: params.tasks[i].title,
+			title: taskConfigs[i].title,
 		});
 		runtime.startSubagentUi({
 			runId,
 			taskId,
 			role: "executor",
-			title: params.tasks[i].title,
+			title: taskConfigs[i].title,
 		});
 	}
 	renderLionSubagentWidget(runtime, ctx);
@@ -416,19 +261,20 @@ export async function executeLionTasks(
 	const executor = new TaskExecutor({
 		controller,
 		onEvent: (event) => {
+			if (!plan) return;
 			bus.publish(LionEvents.subagentEvent, {
 				runId,
 				planSlug: plan.slug,
 				planPath: plan.rootPath,
-				taskId: task.id,
+				taskId: batchTask.id,
 				subagentEvent: event,
 			});
 		},
 	});
 
 	const executionPlan: ExecutionPlan = {
-		strategy: params.strategy,
-		tasks: params.tasks.map((t, i) => ({
+		strategy,
+		tasks: taskConfigs.map((t, i) => ({
 			id: `${runId}-task-${i}`,
 			definition: t.definition,
 			description: t.title,
@@ -439,23 +285,26 @@ export async function executeLionTasks(
 		chainOptions: params.chainOptions,
 	};
 
-	bus.publish(LionEvents.tasksStart, {
-		runId,
-		planSlug: plan.slug,
-		planPath: plan.rootPath,
-		strategy: params.strategy,
-		taskCount: params.tasks.length,
-		concurrency: params.concurrency,
-	});
+	if (plan) {
+		bus.publish(LionEvents.tasksStart, {
+			runId,
+			planSlug: plan.slug,
+			planPath: plan.rootPath,
+			strategy,
+			taskCount: taskConfigs.length,
+			concurrency: params.concurrency,
+		});
+	}
 
-	for (let i = 0; i < params.tasks.length; i++) {
+	for (let i = 0; i < taskConfigs.length; i++) {
+		if (!plan) continue;
 		bus.publish(LionEvents.tasksTaskStart, {
 			runId,
 			planSlug: plan.slug,
 			planPath: plan.rootPath,
 			index: i,
-			title: params.tasks[i].title,
-			definition: params.tasks[i].definition,
+			title: taskConfigs[i].title,
+			definition: taskConfigs[i].definition,
 		});
 	}
 
@@ -464,16 +313,17 @@ export async function executeLionTasks(
 		result = await executor.execute(executionPlan);
 	} catch (err: unknown) {
 		const error = err instanceof Error ? err.message : String(err);
-		for (let i = 0; i < params.tasks.length; i++) {
+		for (let i = 0; i < taskConfigs.length; i++) {
 			const taskId = `${runId}-task-${i}`;
 			runtime.finishJob(taskId, null, error);
+			if (!plan) continue;
 			bus.publish(LionEvents.tasksTaskEnd, {
 				runId,
 				planSlug: plan.slug,
 				planPath: plan.rootPath,
 				index: i,
-				title: params.tasks[i].title,
-				definition: params.tasks[i].definition,
+				title: taskConfigs[i].title,
+				definition: taskConfigs[i].definition,
 				status: "failed",
 				summary: error,
 			});
@@ -482,7 +332,6 @@ export async function executeLionTasks(
 		return {
 			message: `Task execution failed: ${error}`,
 			run: runtime.core.activeRun,
-			subagents: runtime.getSubagentHealth(),
 		};
 	}
 
@@ -491,15 +340,18 @@ export async function executeLionTasks(
 		const taskId = taskResult.taskId;
 
 		runtime.finishJob(taskId, taskResult, taskResult.error);
-		runtime.retainSubagent({ runId, role: "executor", taskId });
+		// Subagents are NOT retained. The orchestrator gets all information in the
+		// lion_tasks response and decides the next step without follow-up.
+		// If more work is needed, the orchestrator calls lion_tasks again.
 
+		if (!plan) continue;
 		bus.publish(LionEvents.tasksTaskEnd, {
 			runId,
 			planSlug: plan.slug,
 			planPath: plan.rootPath,
 			index: i,
-			title: params.tasks[i].title,
-			definition: params.tasks[i].definition,
+			title: taskConfigs[i].title,
+			definition: taskConfigs[i].definition,
 			status: taskResult.status,
 			summary: taskResult.summary,
 		});
@@ -508,11 +360,11 @@ export async function executeLionTasks(
 
 	const lionResult: LionTasksResult = {
 		runId,
-		strategy: params.strategy,
+		strategy,
 		tasks: result.results.map((r, i) => ({
 			taskId: r.taskId,
-			title: params.tasks[i].title,
-			definition: params.tasks[i].definition,
+			title: taskConfigs[i].title,
+			definition: taskConfigs[i].definition,
 			status: r.status,
 			summary: r.summary,
 			duration: r.duration,
@@ -524,15 +376,17 @@ export async function executeLionTasks(
 		completedAt: result.completedAt,
 	};
 
-	bus.publish(LionEvents.tasksComplete, {
-		runId,
-		planSlug: plan.slug,
-		planPath: plan.rootPath,
-		result: lionResult,
-	});
+	if (plan) {
+		bus.publish(LionEvents.tasksComplete, {
+			runId,
+			planSlug: plan.slug,
+			planPath: plan.rootPath,
+			result: lionResult,
+		});
+	}
 
 	const lines = [
-		`Task execution complete (${params.strategy}).`,
+		`Task execution complete (${strategy}).`,
 		`Tasks: ${lionResult.tasks.length}`,
 		`Completed: ${lionResult.completedCount}`,
 		`Failed: ${lionResult.failedCount}`,
@@ -542,108 +396,22 @@ export async function executeLionTasks(
 			(t) => `  [${t.taskId}] ${t.title} (${t.definition}): ${t.status}${t.error ? ` — ${t.error}` : ""}`,
 		),
 		"",
-		"Use lion_prompt_subagent with the task_id to follow up.",
-		"Use lion_release_subagent to release retained instances.",
+		"If more work is needed, call lion_tasks again with a new task.",
 	];
 
 	return {
 		message: lines.join("\n"),
 		run: runtime.core.activeRun,
-		subagents: runtime.getSubagentHealth(),
-	};
-}
-
-function getTaskStatus(runtime: LionRuntime, taskId: string): LionToolResponse {
-	const job = runtime.subagentJobs.get(taskId);
-	const ui = runtime.subagentUi.get(taskId);
-	const retained = runtime.retainedInstances.get(taskId);
-
-	if (!job && !ui && !retained) {
-		throw new Error(`Task ${taskId} not found.`);
-	}
-
-	const controller = retained ? runtime.controllers.get(retained.runId) : null;
-	const instance = controller?.getInstance(taskId);
-	const state = instance?.getState();
-
-	const now = Date.now();
-	const elapsedMs = state?.startTime ? now - state.startTime : 0;
-
-	return {
-		message: `Task status for ${taskId}`,
-		run: runtime.core.activeRun,
-		subagents: [
-			{
-				taskId,
-				role: retained?.role ?? "unknown",
-				title: ui?.title ?? job?.title ?? "unknown",
-				status: ui?.status ?? job?.status ?? "unknown",
-				state: state?.state ?? "unknown",
-				elapsedMs,
-				turnCount: state?.turnCount ?? ui?.turnCount ?? 0,
-				toolCount: state?.toolCount ?? ui?.toolCount ?? 0,
-				currentTool: state?.currentTool ?? ui?.currentTool ?? null,
-				summary: ui?.summary ?? job?.result?.summary ?? null,
-				error: job?.error ?? state?.error ?? null,
-			},
-		] as unknown as LionSubagentJob[],
-	};
-}
-
-function listTasks(runtime: LionRuntime): LionToolResponse {
-	const jobs = Array.from(runtime.subagentJobs.values())
-		.sort((a, b) => b.updatedAt - a.updatedAt)
-		.map((job) => ({
-			taskId: job.taskId,
-			role: job.role,
-			title: job.title,
-			status: job.status,
-			startedAt: job.startedAt,
-			completedAt: job.completedAt,
-		}));
-
-	return {
-		message: jobs.length ? `Found ${jobs.length} tasks.` : "No tasks found.",
-		run: runtime.core.activeRun,
-		subagents: jobs as unknown as LionSubagentJob[],
-	};
-}
-
-function checkTaskHealth(runtime: LionRuntime, taskId?: string): LionToolResponse {
-	const jobs = runtime.getSubagentHealth(taskId);
-	const now = Date.now();
-
-	const stuckThreshold = 5 * 60 * 1000;
-
-	const health = jobs.map((job) => {
-		const lastActivity =
-			job.lastEvents.length > 0
-				? Math.max(...job.lastEvents.map((e) => ("timestamp" in e ? e.timestamp : 0)))
-				: job.startedAt;
-		const inactiveMs = now - lastActivity;
-		const isStuck = job.status === "running" && inactiveMs > stuckThreshold;
-
-		return {
-			taskId: job.taskId,
-			status: job.status,
-			isStuck,
-			inactiveMs,
-			lastEvent: job.lastEvents[job.lastEvents.length - 1]?.type ?? null,
-			error: job.error,
-		};
-	});
-
-	const stuck = health.filter((h) => h.isStuck);
-	const failed = health.filter((h) => h.status === "failed");
-
-	return {
-		message: [
-			`Health check: ${health.length} tasks`,
-			stuck.length ? `Stuck: ${stuck.map((s) => s.taskId).join(", ")}` : "No stuck tasks",
-			failed.length ? `Failed: ${failed.map((f) => f.taskId).join(", ")}` : "No failed tasks",
-		].join("\n"),
-		run: runtime.core.activeRun,
-		subagents: health as unknown as LionSubagentJob[],
+		tasks: lionResult.tasks.map((t) => ({
+			taskId: t.taskId,
+			title: t.title,
+			definition: t.definition,
+			status: t.status,
+			summary: t.summary,
+			duration: t.duration,
+			turnCount: t.turnCount,
+			error: t.error,
+		})),
 	};
 }
 
@@ -696,7 +464,6 @@ export async function validateActivePlan(
 	const activePlanPath = runtime.state.activePlanPath;
 	if (!activePlanPath)
 		throw new Error("Lion validate requires an active plan. Run /lion-activate or lion_activate_plan first.");
-	assertNoRunningSubagents(runtime);
 	runtime.rememberUiContext(ctx);
 
 	const runId = createRunId();
@@ -704,6 +471,8 @@ export async function validateActivePlan(
 	const plan = loadLionPlan(activePlanPath);
 	const task = createPlanValidationTask(plan);
 	const prompt = buildPlanValidationPrompt(plan, focus);
+	const validatorTaskId = `${plan.slug}-validator-${runId}`;
+
 	bus.publish(LionEvents.validationStart, {
 		runId,
 		planSlug: plan.slug,
@@ -711,18 +480,16 @@ export async function validateActivePlan(
 		taskId: task.id,
 		focus,
 	});
-	emitPromptCreated(bus, runId, plan, task, "validator", 1, prompt.length);
 
-	const controller = createController(runtime, ctx, runId, plan, task);
-	runtime.startSubagentUi({
-		runId,
-		taskId: `${plan.slug}-validator-${runId}`,
-		role: "validator",
-		title: task.title,
-	});
-	renderLionSubagentWidget(runtime, ctx);
-	const validatorTaskId = `${plan.slug}-validator-${runId}`;
 	runtime.startJob({ runId, taskId: validatorTaskId, role: "validator", title: task.title });
+
+	// Controller temporal para validacion read-only; NO se registra en runtime
+	const controller = createLionSubAgentController({
+		ctx: ctx as ExtensionCommandContext,
+		runId,
+		plan,
+		task,
+	});
 
 	const delegationTask: DelegationTask = {
 		id: validatorTaskId,
@@ -733,432 +500,52 @@ export async function validateActivePlan(
 		capabilities: { canEdit: false, canWrite: false, canExecute: false, canResearch: true },
 		disabledTools: ["edit", "write", "multi-edit"],
 	};
-	bus.publish(LionEvents.delegationStart, {
-		runId,
-		planSlug: plan.slug,
-		planPath: plan.rootPath,
-		taskId: validatorTaskId,
-		attempt: 1,
-		agent: "validator",
-	});
-	void controller
-		.executeTask(delegationTask)
-		.then((result) => {
-			bus.publish(LionEvents.delegationEnd, {
-				runId,
-				planSlug: plan.slug,
-				planPath: plan.rootPath,
-				taskId: validatorTaskId,
-				attempt: 1,
-				agent: "validator",
-				status: result.status,
-				summary: result.summary,
-			});
-			runtime.finishJob(result.taskId, result);
-			const verdict = parsePlanValidationVerdict(result.summary);
-			const validation: LionPlanValidationResult = {
-				verdict,
-				status: result.status,
-				summary: result.summary,
-				taskId: result.taskId,
-			};
-			runtime.retainSubagent({ runId, role: "validator", taskId: result.taskId });
-			bus.publish(LionEvents.validationEnd, {
-				runId,
-				planSlug: plan.slug,
-				planPath: plan.rootPath,
-				taskId: result.taskId,
-				status: result.status,
-				summary: result.summary,
-			});
-			bus.publish(LionEvents.validationVerdict, {
-				runId,
-				planSlug: plan.slug,
-				planPath: plan.rootPath,
-				taskId: result.taskId,
-				verdict,
-				summary: result.summary,
-			});
-			renderLionSubagentWidget(runtime, ctx);
-			queueValidationFeedback(runtime, ctx, validation);
-		})
-		.catch((err: unknown) => {
-			const error = err instanceof Error ? err.message : String(err);
-			runtime.finishJob(validatorTaskId, null, error);
-			renderLionSubagentWidget(runtime, ctx);
+
+	try {
+		const result = await controller.executeTask(delegationTask);
+		runtime.finishJob(result.taskId, result);
+		const verdict = parsePlanValidationVerdict(result.summary);
+
+		bus.publish(LionEvents.validationEnd, {
+			runId,
+			planSlug: plan.slug,
+			planPath: plan.rootPath,
+			taskId: result.taskId,
+			status: result.status,
+			summary: result.summary,
 		});
-	renderLionSubagentWidget(runtime, ctx);
-
-	return {
-		message: `Lion plan validation started for ${plan.slug}. Use lion_subagent_health to inspect progress.`,
-		run: runtime.core.activeRun,
-		subagents: runtime.getSubagentHealth(validatorTaskId),
-	};
-}
-
-function queueValidationFeedback(
-	runtime: LionRuntime,
-	ctx: ExtensionContext,
-	validation: LionPlanValidationResult,
-): void {
-	runtime.queueFeedback(
-		ctx,
-		[
-			"Lion validator returned.",
-			`Verdict: ${validation.verdict}`,
-			`Task id: ${validation.taskId}`,
-			"Inspect the summary and decide whether to refine the plan, ask the validator a follow-up, or proceed.",
-			"",
-			validation.summary,
-		].join("\n"),
-		{ validation, nextTools: ["lion_prompt_subagent", "lion_validate_plan", "lion_start_next_task"] },
-	);
-}
-
-export function getSubagentHealth(runtime: LionRuntime, taskId?: string): LionToolResponse {
-	const subagents = runtime.getSubagentHealth(taskId);
-	return {
-		message: subagents.length ? "Lion sub-agent health." : "No Lion sub-agents found.",
-		run: runtime.core.activeRun,
-		subagents,
-	};
-}
-
-export async function cancelSubagent(runtime: LionRuntime, taskId: string): Promise<LionToolResponse> {
-	const job = runtime.subagentJobs.get(taskId);
-	if (!job) throw new Error(`Lion sub-agent ${taskId} was not found.`);
-	const controller = runtime.controllers.get(job.runId);
-	if (!controller) throw new Error(`Lion run ${job.runId} no longer has a live controller.`);
-	await controller.cancelInstance(taskId);
-	return {
-		message: `Cancelled Lion sub-agent ${taskId}.`,
-		run: runtime.core.activeRun,
-		subagents: runtime.getSubagentHealth(taskId),
-	};
-}
-
-export async function startNextTask(runtime: LionRuntime, ctx: ExtensionContext): Promise<LionToolResponse> {
-	const activePlanPath = runtime.state.activePlanPath;
-	if (!activePlanPath)
-		throw new Error("Lion requires an active plan. Run /lion-activate or lion_activate_plan first.");
-	assertNoRunningSubagents(runtime);
-	if (runtime.core.activeRun) {
-		throw new Error(
-			`Lion already has an active task run for ${runtime.core.activeRun.taskId}. Inspect it with lion_get_run, then call lion_start_review or lion_finish_current_task before starting the next task.`,
-		);
-	}
-	runtime.rememberUiContext(ctx);
-
-	const runId = createRunId();
-	const bus = runtime.events;
-	const plan = loadLionPlan(activePlanPath);
-	const task = getNextPendingTask(plan);
-	if (!task) {
-		return { message: `No pending unblocked tasks in ${plan.slug}.`, run: runtime.core.activeRun };
-	}
-
-	runtime.setActiveTask(task.id);
-	runtime.setMode("building");
-	runtime.setLastRun(runId);
-	runtime.persist("build");
-	updateStructuredTaskStatus(plan, task.id, "in_progress");
-
-	const startedRun = startRun(runtime.core, { runId, plan, task, maxAttempts: runtime.state.maxAttempts });
-	runtime.saveCore("start");
-	emitBuildStart(bus, runId, plan, task);
-
-	const content = readPlanContent(plan, task);
-	const controller = createController(runtime, ctx, runId, plan, task);
-	const prompt = buildExecutorPrompt(plan, task, content);
-	emitPromptCreated(bus, runId, plan, task, "executor", startedRun.attempts || 1, prompt.length);
-	const executorTaskId = `${task.id}-executor-1`;
-	runtime.startJob({ runId, taskId: executorTaskId, role: "executor", title: task.title });
-	runtime.startSubagentUi({ runId, taskId: executorTaskId, role: "executor", title: task.title });
-	renderLionSubagentWidget(runtime, ctx);
-
-	const executorDelegationTask: DelegationTask = {
-		id: executorTaskId,
-		definition: "executor",
-		description: `Implement ${task.id}: ${task.title}`,
-		prompt,
-		systemPromptMode: "append",
-	};
-	bus.publish(LionEvents.delegationStart, {
-		runId,
-		planSlug: plan.slug,
-		planPath: plan.rootPath,
-		taskId: task.id,
-		attempt: 1,
-		agent: "executor",
-	});
-	void controller
-		.executeTask(executorDelegationTask)
-		.then((result) => {
-			bus.publish(LionEvents.delegationEnd, {
-				runId,
-				planSlug: plan.slug,
-				planPath: plan.rootPath,
-				taskId: task.id,
-				attempt: 1,
-				agent: "executor",
-				status: result.status,
-				summary: result.summary,
-			});
-			runtime.finishJob(result.taskId, result);
-			const run = recordSubagentResult(runtime.core, "executor", result);
-			runtime.retainSubagent({ runId, role: "executor", taskId: result.taskId });
-			runtime.saveCore("record");
-			renderLionSubagentWidget(runtime, ctx);
-			runtime.queueFeedback(
-				ctx,
-				[
-					"Lion executor returned.",
-					`Task: ${task.id}`,
-					`Sub-agent task id: ${result.taskId}`,
-					"Inspect the result and decide whether to prompt the same sub-agent again, start review, or fail the task.",
-					"",
-					result.summary,
-				].join("\n"),
-				{
-					run,
-					result,
-					nextTools: ["lion_prompt_subagent", "lion_start_review", "lion_get_run"],
-				},
-			);
-		})
-		.catch((err: unknown) => {
-			const error = err instanceof Error ? err.message : String(err);
-			runtime.finishJob(executorTaskId, null, error);
-			setRunStatus(runtime.core, "failed");
-			runtime.saveCore("record");
-			renderLionSubagentWidget(runtime, ctx);
-			runtime.queueFeedback(ctx, `Lion executor failed for ${task.id}.\n\n${error}`, {
-				runId,
-				taskId: task.id,
-				error,
-				nextTools: ["lion_get_run", "lion_finish_current_task"],
-			});
+		bus.publish(LionEvents.validationVerdict, {
+			runId,
+			planSlug: plan.slug,
+			planPath: plan.rootPath,
+			taskId: result.taskId,
+			verdict,
+			summary: result.summary,
 		});
 
-	return {
-		message: `Executor started for ${task.id}. Use lion_subagent_health or lion_get_run to inspect progress.`,
-		run: startedRun,
-		subagents: runtime.getSubagentHealth(executorTaskId),
-	};
-}
-
-export async function promptSubagent(
-	runtime: LionRuntime,
-	_ctx: ExtensionContext,
-	taskId: string,
-	message: string,
-	mode: "prompt" | "follow_up",
-): Promise<LionToolResponse> {
-	const retained = runtime.retainedInstances.get(taskId);
-	if (!retained) throw new Error(`Lion sub-agent ${taskId} is not retained or has already been released.`);
-	const controller = runtime.controllers.get(retained.runId);
-	if (!controller) throw new Error(`Lion run ${retained.runId} no longer has a live controller.`);
-
-	const resultPromise = waitForTaskEnd(controller, taskId);
-	if (mode === "follow_up") {
-		await controller.instanceFollowUp(taskId, message);
-	} else {
-		await controller.promptInstance(taskId, message);
-	}
-	const result = await resultPromise;
-	if (retained.role === "validator") {
 		return {
-			message: `Validator sub-agent ${taskId} returned feedback.\n\n${result.summary}`,
+			message: [`Lion validation: ${verdict}`, "", result.summary].join("\n"),
 			run: runtime.core.activeRun,
-		};
-	}
-	const run = recordSubagentResult(runtime.core, retained.role, result);
-	runtime.saveCore("record");
-
-	return { message: `Sub-agent ${taskId} returned feedback.`, run };
-}
-
-export async function startReview(runtime: LionRuntime, ctx: ExtensionContext): Promise<LionToolResponse> {
-	const activeRun = runtime.core.activeRun;
-	if (!activeRun) throw new Error("Lion has no active run to review.");
-	assertNoRunningSubagents(runtime);
-	const controller = runtime.controllers.get(activeRun.runId);
-	if (!controller) throw new Error(`Lion run ${activeRun.runId} no longer has a live controller.`);
-	const plan = loadLionPlan(activeRun.planPath);
-	const task = findTask(plan, activeRun.taskId);
-	const content = readPlanContent(plan, task);
-	const bus = runtime.events;
-	runtime.rememberUiContext(ctx);
-	setRunStatus(runtime.core, "reviewing");
-	runtime.saveCore("record");
-
-	const prompt = buildReviewerPrompt(plan, task, content, activeRun.executorSummary);
-	emitPromptCreated(bus, activeRun.runId, plan, task, "reviewer", activeRun.attempts, prompt.length);
-	const reviewerTaskId = `${task.id}-reviewer-${Math.max(activeRun.attempts, 1)}`;
-	runtime.startJob({
-		runId: activeRun.runId,
-		taskId: reviewerTaskId,
-		role: "reviewer",
-		title: task.title,
-	});
-	runtime.startSubagentUi({
-		runId: activeRun.runId,
-		taskId: reviewerTaskId,
-		role: "reviewer",
-		title: task.title,
-	});
-	renderLionSubagentWidget(runtime, ctx);
-	const reviewerDelegationTask: DelegationTask = {
-		id: reviewerTaskId,
-		definition: "reviewer",
-		description: `Review ${task.id}: ${task.title}`,
-		prompt,
-		systemPromptMode: "append",
-	};
-	bus.publish(LionEvents.delegationStart, {
-		runId: activeRun.runId,
-		planSlug: plan.slug,
-		planPath: plan.rootPath,
-		taskId: task.id,
-		attempt: activeRun.attempts,
-		agent: "reviewer",
-	});
-	void controller
-		.executeTask(reviewerDelegationTask)
-		.then((result) => {
-			bus.publish(LionEvents.delegationEnd, {
-				runId: activeRun.runId,
-				planSlug: plan.slug,
-				planPath: plan.rootPath,
-				taskId: task.id,
-				attempt: activeRun.attempts,
-				agent: "reviewer",
+			validation: {
+				verdict,
 				status: result.status,
 				summary: result.summary,
-			});
-			runtime.finishJob(result.taskId, result);
-			recordSubagentResult(runtime.core, "reviewer", result);
-			const verdict = parseReviewVerdict(result.summary);
-			const run = recordReviewVerdict(runtime.core, verdict, result.summary);
-			runtime.retainSubagent({ runId: activeRun.runId, role: "reviewer", taskId: result.taskId });
-			runtime.saveCore("record");
-			renderLionSubagentWidget(runtime, ctx);
-			bus.publish(LionEvents.reviewVerdict, {
-				runId: activeRun.runId,
-				planSlug: plan.slug,
-				planPath: plan.rootPath,
-				taskId: task.id,
-				attempt: activeRun.attempts,
-				verdict,
-				summary: result.summary,
-			});
-			runtime.queueFeedback(
-				ctx,
-				[
-					"Lion reviewer returned.",
-					`Task: ${task.id}`,
-					`Verdict: ${verdict}`,
-					`Sub-agent task id: ${result.taskId}`,
-					"Decide whether to finish the current task, ask follow-up questions, or prompt the executor again.",
-					"",
-					result.summary,
-				].join("\n"),
-				{
-					run,
-					result,
-					verdict,
-					nextTools: ["lion_finish_current_task", "lion_prompt_subagent", "lion_get_run"],
-				},
-			);
-		})
-		.catch((err: unknown) => {
-			const error = err instanceof Error ? err.message : String(err);
-			runtime.finishJob(reviewerTaskId, null, error);
-			setRunStatus(runtime.core, "failed");
-			runtime.saveCore("record");
-			renderLionSubagentWidget(runtime, ctx);
-			runtime.queueFeedback(ctx, `Lion reviewer failed for ${task.id}.\n\n${error}`, {
-				runId: activeRun.runId,
-				taskId: task.id,
-				error,
-				nextTools: ["lion_get_run", "lion_finish_current_task"],
-			});
+				taskId: result.taskId,
+			},
+		};
+	} catch (err: unknown) {
+		const error = err instanceof Error ? err.message : String(err);
+		runtime.finishJob(validatorTaskId, null, error);
+		bus.publish(LionEvents.validationEnd, {
+			runId,
+			planSlug: plan.slug,
+			planPath: plan.rootPath,
+			taskId: validatorTaskId,
+			status: "failed",
+			summary: error,
 		});
-
-	return {
-		message: `Reviewer started for ${task.id}. Use lion_subagent_health or lion_get_run to inspect progress.`,
-		run: runtime.core.activeRun,
-		subagents: runtime.getSubagentHealth(reviewerTaskId),
-	};
-}
-
-export function finishCurrentTaskRun(
-	runtime: LionRuntime,
-	ctx: ExtensionCommandContext | ExtensionContext,
-	status: "approved" | "rejected" | "failed",
-): LionToolResponse {
-	const activeRun = runtime.core.activeRun;
-	if (!activeRun) throw new Error("Lion has no active task run to finish.");
-	if (status === "approved" && activeRun.verdict !== "approved") {
-		throw new Error("Lion cannot approve the current task before lion_start_review returns <LION-APPROVE>.");
+		throw new Error(`Lion validation failed: ${error}`);
 	}
-	const plan = loadLionPlan(activeRun.planPath);
-	const bus = runtime.events;
-	if (status === "approved") {
-		bus.publish(LionEvents.taskApproved, {
-			runId: activeRun.runId,
-			planSlug: activeRun.planSlug,
-			planPath: activeRun.planPath,
-			taskId: activeRun.taskId,
-		});
-		markStructuredTaskComplete(plan, activeRun.taskId);
-		bus.publish(LionEvents.taskMarkedComplete, {
-			runId: activeRun.runId,
-			planSlug: activeRun.planSlug,
-			planPath: activeRun.planPath,
-			taskId: activeRun.taskId,
-		});
-	} else {
-		updateStructuredTaskStatus(plan, activeRun.taskId, "blocked");
-		bus.publish(LionEvents.taskRejected, {
-			runId: activeRun.runId,
-			planSlug: activeRun.planSlug,
-			planPath: activeRun.planPath,
-			taskId: activeRun.taskId,
-			reason: activeRun.error ?? `Task finished with ${status}.`,
-		});
-	}
-	const result = finishRun(runtime.core, status);
-	if (status === "failed") {
-		bus.publish(LionEvents.buildFailed, {
-			runId: activeRun.runId,
-			planSlug: activeRun.planSlug,
-			planPath: activeRun.planPath,
-			taskId: activeRun.taskId,
-			error: result.error ?? "Lion task run failed.",
-		});
-	} else {
-		bus.publish(LionEvents.buildComplete, {
-			runId: activeRun.runId,
-			planSlug: activeRun.planSlug,
-			planPath: activeRun.planPath,
-			taskId: activeRun.taskId,
-			attempt: activeRun.attempts,
-			result,
-		});
-	}
-	runtime.applyBuildResult(result);
-	runtime.persist("build");
-	runtime.saveCore("finish");
-	runtime.releaseRun(activeRun.runId);
-	if ("ui" in ctx) {
-		ctx.ui.setStatus("lion", undefined);
-	}
-	return {
-		message: `Lion current task run finished.\n\n${formatBuildResult(result)}`,
-		run: runtime.core.activeRun,
-		result,
-	};
 }
 
 function createController(
@@ -1181,55 +568,24 @@ function createController(
 	return controller;
 }
 
-function assertNoRunningSubagents(runtime: LionRuntime): void {
-	const running = runtime
-		.getSubagentHealth()
-		.filter((subagent) => subagent.status === "queued" || subagent.status === "running");
-	if (!running.length) return;
-	const summary = running.map((subagent) => `${subagent.taskId} (${subagent.role}, ${subagent.status})`).join(", ");
-	throw new Error(
-		`Lion already has a running sub-agent: ${summary}. Wait for it to finish, inspect it with lion_subagent_health, or cancel it with lion_cancel_subagent before launching another delegation.`,
-	);
-}
+const LION_SUBAGENT_TIMEOUT_MS = 10 * 60 * 1000; // 10 minutes
 
-function waitForTaskEnd(controller: SubAgentController, taskId: string): Promise<DelegationResult> {
-	return new Promise((resolve) => {
+function _waitForTaskEnd(
+	controller: SubAgentController,
+	taskId: string,
+	timeoutMs = LION_SUBAGENT_TIMEOUT_MS,
+): Promise<DelegationResult> {
+	return new Promise((resolve, reject) => {
+		const timer = setTimeout(() => {
+			unsubscribe();
+			reject(new Error(`Timed out waiting for Lion sub-agent ${taskId} after ${timeoutMs}ms.`));
+		}, timeoutMs);
 		const unsubscribe = controller.getEventBus().on("task.end", (event) => {
 			if (event.taskId !== taskId) return;
+			clearTimeout(timer);
 			unsubscribe();
 			resolve(event.result);
 		});
-	});
-}
-
-function emitBuildStart(bus: LionEventBus, runId: string, plan: LionPlan, task: LionTask): void {
-	bus.publish(LionEvents.buildStart, { runId, planSlug: plan.slug, planPath: plan.rootPath });
-	bus.publish(LionEvents.taskSelected, {
-		runId,
-		planSlug: plan.slug,
-		planPath: plan.rootPath,
-		taskId: task.id,
-		title: task.title,
-	});
-}
-
-function emitPromptCreated(
-	bus: LionEventBus,
-	runId: string,
-	plan: LionPlan,
-	task: LionTask,
-	agent: LionDelegationAgent,
-	attempt: number,
-	promptLength: number,
-): void {
-	bus.publish(LionEvents.delegationPromptCreated, {
-		runId,
-		planSlug: plan.slug,
-		planPath: plan.rootPath,
-		taskId: task.id,
-		attempt,
-		agent,
-		promptLength,
 	});
 }
 
@@ -1244,7 +600,7 @@ function createPlanValidationTask(plan: LionPlan): LionTask {
 	};
 }
 
-function findTask(plan: LionPlan, taskId: string): LionTask {
+function _findTask(plan: LionPlan, taskId: string): LionTask {
 	const task = plan.tasks.find((candidate) => candidate.id === taskId);
 	if (!task) throw new Error(`Task ${taskId} not found in plan ${plan.slug}`);
 	return task;
@@ -1270,5 +626,46 @@ function toToolResult(response: LionToolResponse) {
 	return {
 		content: [{ type: "text" as const, text: JSON.stringify(response, null, 2) }],
 		details: response,
+	};
+}
+
+// =============================================================================
+// Task retry
+// =============================================================================
+
+export function retryTask(runtime: LionRuntime, taskId: string, resetDependencies: boolean): LionToolResponse {
+	const activePlanPath = runtime.state.activePlanPath;
+	if (!activePlanPath) throw new Error("No active plan. Run lion_activate_plan first.");
+
+	const plan = loadLionPlan(activePlanPath);
+	const task = plan.tasks.find((t) => t.id === taskId);
+	if (!task) throw new Error(`Task ${taskId} not found in plan ${plan.slug}`);
+
+	if (task.status !== "blocked" && task.status !== "retryable") {
+		throw new Error(`Task ${taskId} is ${task.status}. Only blocked or retryable tasks can be retried.`);
+	}
+
+	updateStructuredTaskStatus(plan, taskId, "retryable");
+
+	const resetIds: string[] = [];
+	if (resetDependencies) {
+		for (const t of plan.tasks) {
+			if (t.dependencies.includes(taskId) && t.status === "blocked") {
+				updateStructuredTaskStatus(plan, t.id, "pending");
+				resetIds.push(t.id);
+			}
+		}
+	}
+
+	const lines = [`Task ${taskId} reset to retryable.`];
+	if (resetIds.length > 0) {
+		lines.push(`Reset ${resetIds.length} dependent tasks to pending: ${resetIds.join(", ")}`);
+	}
+	lines.push("", "You can now call lion_tasks to retry this task.");
+
+	return {
+		message: lines.join("\n"),
+		run: runtime.core.activeRun,
+		plan,
 	};
 }

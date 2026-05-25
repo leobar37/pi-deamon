@@ -235,8 +235,10 @@ export class LionRuntime {
 			if (subagent.runId === runId) this.#retainedInstances.delete(taskId);
 		});
 		this.#controllers.delete(runId);
-		if (this.#activeRunId === runId) this.#activeRunId = null;
-		if (this.#activeController && this.#core.activeRun?.runId !== runId) this.#activeController = null;
+		if (this.#activeRunId === runId) {
+			this.#activeRunId = null;
+			this.#activeController = null;
+		}
 	}
 
 	startJob(options: {
