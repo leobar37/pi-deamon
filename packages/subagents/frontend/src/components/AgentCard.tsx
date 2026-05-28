@@ -31,7 +31,7 @@ export function AgentCard({ agent, isSelected, onClick }: AgentCardProps) {
         <div className="flex items-center gap-2 min-w-0">
           <StatusBadge state={agent.state} pulse={isRunning} />
           <span className="text-sm font-medium text-text-primary truncate">
-            {agent.definitionName}
+            {agent.description || agent.definitionName}
           </span>
         </div>
         <span className="text-xs text-text-muted shrink-0">

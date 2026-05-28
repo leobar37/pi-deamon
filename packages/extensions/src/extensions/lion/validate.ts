@@ -41,7 +41,7 @@ export class Validator {
 		this.runtime.startSubagentUi({ runId, taskId: validatorTaskId, role: "validator", title: task.title });
 		renderLionSubagentWidget(this.runtime, ctx);
 
-		const controller = this.runtime.createSubAgentController(ctx, runId);
+		const controller = this.runtime.ensureController(ctx);
 
 		const unsubscribeEvents = controller.getEventBus().subscribe((event: SubAgentEvent) => {
 			if (!("taskId" in event)) return;
@@ -66,7 +66,6 @@ export class Validator {
 
 		try {
 			const result = await controller.executeTask(delegationTask);
-			unsubscribeEvents();
 			this.runtime.finishJob(result.taskId, result);
 			renderLionSubagentWidget(this.runtime, ctx);
 
@@ -84,7 +83,6 @@ export class Validator {
 				validation: { status: result.status, summary: result.summary, taskId: result.taskId },
 			};
 		} catch (err: unknown) {
-			unsubscribeEvents();
 			const error = err instanceof Error ? err.message : String(err);
 			this.runtime.finishJob(validatorTaskId, null, error);
 			bus.publish(LionEvents.validationEnd, {
@@ -97,11 +95,7 @@ export class Validator {
 			});
 			throw new Error(`Lion validation failed: ${error}`);
 		} finally {
-			this.runtime.controllers.delete(runId);
-			if (this.runtime.activeRunId === runId) {
-				this.runtime.activeRunId = null;
-				this.runtime.activeController = null;
-			}
+			unsubscribeEvents();
 		}
 	}
 }

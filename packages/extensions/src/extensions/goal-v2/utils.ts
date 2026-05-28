@@ -16,7 +16,9 @@ export function cloneGoal(goal: Goal): Goal {
 		id: goal.id,
 		objective: goal.objective,
 		status: goal.status,
+		phase: goal.phase ?? (goal.status === "complete" ? "complete" : "executing"),
 		timeUsedSeconds: goal.timeUsedSeconds,
+		blockerReason: goal.blockerReason,
 		contextPath: goal.contextPath,
 		createdAt: goal.createdAt,
 		updatedAt: goal.updatedAt,
@@ -50,6 +52,8 @@ export function statusLabel(status: GoalStatus): string {
 			return "active";
 		case "paused":
 			return "paused";
+		case "blocked":
+			return "blocked";
 		case "complete":
 			return "complete";
 	}
@@ -65,7 +69,9 @@ export function toWireFormat(goal: Goal, sessionId: string): GoalWireFormat {
 		threadId: sessionId,
 		objective: goal.objective,
 		status: goal.status,
+		phase: goal.phase,
 		timeUsedSeconds: goal.timeUsedSeconds,
+		blockerReason: goal.blockerReason ?? null,
 		contextPath: goal.contextPath ?? null,
 		createdAt: goal.createdAt,
 		updatedAt: goal.updatedAt,
@@ -76,9 +82,13 @@ export function goalSummary(goal: Goal): string {
 	const lines = [
 		"Goal",
 		`Status: ${statusLabel(goal.status)}`,
+		`Phase: ${goal.phase}`,
 		`Objective: ${goal.objective}`,
 		`Time used: ${formatElapsedSeconds(goal.timeUsedSeconds)}`,
 	];
+	if (goal.blockerReason) {
+		lines.push(`Blocker: ${goal.blockerReason}`);
+	}
 	if (goal.contextPath) {
 		lines.push(`Context: ${goal.contextPath}`);
 	}
@@ -91,6 +101,8 @@ export function commandHint(status: GoalStatus): string {
 		case "active":
 			return "Commands: /goal pause, /goal clear";
 		case "paused":
+			return "Commands: /goal resume, /goal clear";
+		case "blocked":
 			return "Commands: /goal resume, /goal clear";
 		case "complete":
 			return "Commands: /goal clear";

@@ -11,14 +11,19 @@ export function registerLionCommands(pi: ExtensionAPI, runtime: LionRuntime): vo
 		description: "Activate Lion planning/orchestration mode",
 		handler: async (args, ctx) => {
 			const runId = createRunId();
-			createLionRunReporter(ctx, runtime.events);
+			createLionRunReporter(ctx, runtime.events, runtime.logger, {
+				getActivePlanSlug: () => runtime.state.activePlanSlug,
+			});
 			const input = args.trim();
 			runtime.emit({ type: "lion.activate.start", timestamp: Date.now(), runId, input });
+			runtime.logState("command_lion_activate", { runId, input });
 
 			if (!input) {
 				runtime.activatePlanning();
 				runtime.persist("activate");
 				runtime.ui.updateStatus(ctx, runtime.state);
+				// Ensure a persistent subagent controller exists from activation
+				runtime.ensureController(ctx);
 				runtime.emit({ type: "lion.activate.complete", timestamp: Date.now(), runId, mode: runtime.state.mode });
 				runtime.ui.showMessage(
 					runtime.state.activePlanSlug
@@ -33,6 +38,8 @@ export function registerLionCommands(pi: ExtensionAPI, runtime: LionRuntime): vo
 				runtime.activatePlanning();
 				runtime.persist("activate");
 				runtime.ui.updateStatus(ctx, runtime.state);
+				// Ensure a persistent subagent controller exists from activation
+				runtime.ensureController(ctx);
 				runtime.ui.showMessage(
 					`Lion planning mode active\n\nPlan not found: ${input}\n\nI can help create it if you authorize plan-file edits.`,
 				);
@@ -42,6 +49,8 @@ export function registerLionCommands(pi: ExtensionAPI, runtime: LionRuntime): vo
 			const plan = loadLionPlan(planPath);
 			runtime.activatePlan(plan);
 			runtime.persist("activate");
+			// Ensure a persistent subagent controller exists from activation
+			runtime.ensureController(ctx);
 			runtime.ui.updateStatus(ctx, runtime.state);
 			runtime.emit({
 				type: "lion.plan.loaded",
@@ -74,6 +83,7 @@ export function registerLionCommands(pi: ExtensionAPI, runtime: LionRuntime): vo
 			const plan = loadLionPlan(activePlanPath);
 			runtime.ui.showMessage(`Reviewing plan ${plan.slug} as a second opinion...`);
 
+			runtime.logState("command_lion_validate", { focus });
 			try {
 				const validator = new Validator(runtime);
 				const response = await validator.validate(ctx, focus);
@@ -89,6 +99,7 @@ export function registerLionCommands(pi: ExtensionAPI, runtime: LionRuntime): vo
 				}
 			} catch (err: unknown) {
 				const error = err instanceof Error ? err.message : String(err);
+				runtime.logError("lion-validate", err);
 				runtime.ui.showMessage(`Lion validation failed: ${error}`);
 			}
 		},
@@ -105,6 +116,7 @@ export function registerLionCommands(pi: ExtensionAPI, runtime: LionRuntime): vo
 
 			await ctx.waitForIdle();
 			const runId = createRunId();
+			runtime.logState("command_lion_build", { runId, planPath: activePlanPath });
 			runtime.setMode("building");
 			runtime.persist("mode");
 			runtime.ui.updateStatus(ctx, runtime.state);
@@ -152,6 +164,7 @@ export function registerLionCommands(pi: ExtensionAPI, runtime: LionRuntime): vo
 				runtime.ui.showMessage(`Lion dashboard opened at ${url.href}`);
 			} catch (err: unknown) {
 				const error = err instanceof Error ? err.message : String(err);
+				runtime.logError("lion-dashboard", err);
 				runtime.ui.showMessage(`Failed to open Lion dashboard: ${error}`);
 			}
 		},

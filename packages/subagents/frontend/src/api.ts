@@ -1,4 +1,5 @@
 import type { ChatMessage, SubAgentEvent, SubAgentInstanceState } from "./types.ts";
+import { convertAgentMessages } from "./utils/message-converter.ts";
 
 const BASE = "";
 
@@ -21,5 +22,6 @@ export async function fetchAgentEvents(instanceId: string): Promise<SubAgentEven
 }
 
 export async function fetchAgentMessages(instanceId: string): Promise<ChatMessage[]> {
-	return fetchJson<ChatMessage[]>(`/api/instances/${encodeURIComponent(instanceId)}/messages`);
+	const raw = await fetchJson<Array<Record<string, unknown>>>(`/api/instances/${encodeURIComponent(instanceId)}/messages`);
+	return convertAgentMessages(instanceId, raw as any[]);
 }

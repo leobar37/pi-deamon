@@ -39,8 +39,13 @@ sequenceDiagram
 | Tool | Proposito |
 |------|-----------|
 | `lion_activate_plan` | Activar un plan por referencia (slug, path, o nombre) |
-| `lion_validate_plan` | Validar plan con analyzer read-only |
 | `lion_retry_task` | Resetear tarea blocked/failed a retryable |
+
+### Commands
+
+| Command | Proposito |
+|---------|-----------|
+| `/lion-validate` | Revisar el plan como segunda opinion y corregir errores automaticamente |
 
 ### Task Execution
 

@@ -1,4 +1,5 @@
 import type { ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
+import type { SessionLogger } from "@local/pi-logger";
 import type { LionEventBus } from "./bus.js";
 import { LionRuleMonitor } from "./rule-monitor.js";
 import { LionEventStore } from "./store.js";
@@ -15,6 +16,7 @@ export interface LionRunReporterOptions {
 export function createLionRunReporter(
 	ctx: Pick<ExtensionCommandContext, "cwd">,
 	bus: LionEventBus,
+	logger: SessionLogger | null,
 	_options: LionRunReporterOptions = {},
 ): void {
 	const store = new LionEventStore(ctx.cwd);
@@ -24,6 +26,17 @@ export function createLionRunReporter(
 		store.save(event).catch((err) => {
 			console.error("[lion] event store save failed:", err);
 		});
+		if (logger) {
+			try {
+				logger.log({
+					type: "event",
+					source: "lion",
+					data: event,
+				});
+			} catch (err) {
+				console.error("[lion] logger.log failed:", err);
+			}
+		}
 		try {
 			monitor.onEvent(event);
 		} catch (err) {

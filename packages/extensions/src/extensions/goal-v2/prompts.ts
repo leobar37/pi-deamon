@@ -3,7 +3,7 @@
  * All LLM-facing text lives here.
  */
 
-import type { Goal } from "./types.js";
+import type { Goal, GoalContextDocument } from "./types.js";
 import { escapeXmlText } from "./utils.js";
 
 export function continuationPrompt(goal: Goal): string {
@@ -20,6 +20,7 @@ ${objective}
 ${contextPath}
 
 Avoid repeating work that is already done. Choose the next concrete action toward the objective.
+Use record_goal_progress whenever you learn durable information about the goal: success criteria, relevant files, constraints, blockers, decisions, work completed, or verification evidence. Keep the goal context file current before continuing or completing the goal.
 
 Before deciding that the goal is achieved, perform a completion audit against the actual current state:
 - Restate the objective as concrete deliverables or success criteria.
@@ -29,6 +30,7 @@ Before deciding that the goal is achieved, perform a completion audit against th
 - Do not accept proxy signals as completion by themselves. Passing tests, a complete manifest, a successful verifier, or substantial implementation effort are useful evidence only if they cover every requirement in the objective.
 - Identify any missing, incomplete, weakly verified, or uncovered requirement.
 - Treat uncertainty as not achieved; do more verification or continue the work.
+- If progress is blocked by missing user input or an external-state change, record the blocker and call update_goal with status "blocked" instead of spinning.
 
 Do not rely on intent, partial progress, elapsed effort, memory of earlier work, or a plausible final answer as proof of completion. Only mark the goal achieved when the audit shows that the objective has actually been achieved and no required work remains. If any requirement is missing, incomplete, or unverified, keep working instead of marking the goal complete. If the objective is achieved, call update_goal with status "complete" so usage accounting is preserved. Report the final elapsed time to the user after update_goal succeeds.
 
@@ -45,8 +47,38 @@ ${escapeXmlText(goal.objective)}
 </untrusted_objective>
 
 Goal status: ${goal.status}
+Goal phase: ${goal.phase}
 Time spent pursuing goal: ${goal.timeUsedSeconds} seconds
 ${contextPath}
 
-If the goal is achieved and no required work remains, call update_goal with status "complete". Do not mark it complete merely because you are stopping.`;
+Maintain the goal context file using record_goal_progress when you discover success criteria, files, constraints, decisions, blockers, work completed, or verification evidence.
+If the goal is achieved and no required work remains, call update_goal with status "complete". If progress is blocked by missing user input or an external-state change, record the blocker and call update_goal with status "blocked". Do not mark it complete merely because you are stopping.`;
+}
+
+export function goalCompactionInstructions(goal: Goal, context: GoalContextDocument | null): string {
+	const contextSummary = context
+		? [
+				`Clarified objective: ${context.clarifiedObjective ?? "none"}`,
+				`Success criteria: ${context.successCriteria.join("; ") || "none recorded"}`,
+				`Relevant files: ${context.relevantFiles.join("; ") || "none recorded"}`,
+				`Constraints: ${context.constraints.join("; ") || "none recorded"}`,
+				`Blockers: ${context.blockers.join("; ") || "none recorded"}`,
+				`Recent iterations: ${
+					context.iterations
+						.slice(-5)
+						.map((iteration) => `${iteration.kind}: ${iteration.summary}`)
+						.join("; ") || "none recorded"
+				}`,
+			].join("\n")
+		: "No goal context document was available.";
+
+	return `A goal-v2 thread goal is active. Preserve the goal state, objective, phase, blockers, success criteria, relevant files, and latest evidence in the compaction summary.
+
+Goal objective: ${goal.objective}
+Goal status: ${goal.status}
+Goal phase: ${goal.phase}
+Elapsed goal time: ${goal.timeUsedSeconds} seconds
+Goal context file: ${goal.contextPath ?? "not recorded"}
+
+${contextSummary}`;
 }

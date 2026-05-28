@@ -1,6 +1,8 @@
-import { useEffect, useState } from "react";
-import type { ChatMessage, SubAgentInstanceState } from "../types.ts";
-import { fetchAgent, fetchAgentMessages } from "../api.ts";
+import { useEffect } from "react";
+import type { SubAgentEvent, SubAgentInstanceState } from "../types.ts";
+import { useAgent } from "../hooks/use-agent.ts";
+import { useAgentEvents } from "../hooks/use-agent-events.ts";
+import { useAgentMessages } from "../hooks/use-agent-messages.ts";
 import { ChatView } from "./ChatView.tsx";
 import { StatusBadge } from "./StatusBadge.tsx";
 import { useSubAgentStore } from "../store/use-subagent-store.ts";
@@ -20,27 +22,31 @@ function elapsed(ms: number): string {
 }
 
 export function AgentDetail({ instanceId, onBack }: AgentDetailProps) {
-  const [agent, setAgent] = useState<SubAgentInstanceState | null>(null);
+  const { data: fetchedAgent } = useAgent(instanceId);
+  const { data: fetchedEvents } = useAgentEvents(instanceId);
+  const { data: fetchedMessages } = useAgentMessages(instanceId);
+
   const setMessages = useSessionMessagesStore((s) => s.setMessages);
+  const setEvents = useSubAgentStore((s) => s.setEvents);
   const agents = useSubAgentStore((s) => s.agents);
 
-  // Try to get from store first, then fetch
   const storeAgent = agents.find((a) => a.instanceId === instanceId);
 
+  // Sync TanStack Query data into zustand stores on mount / change
   useEffect(() => {
-    if (storeAgent) {
-      setAgent(storeAgent);
+    if (fetchedEvents) {
+      setEvents(fetchedEvents as SubAgentEvent[]);
     }
-    fetchAgent(instanceId)
-      .then((data) => setAgent(data))
-      .catch((err) => console.error("[AgentDetail] failed to load agent:", err));
+  }, [fetchedEvents, setEvents]);
 
-    fetchAgentMessages(instanceId)
-      .then((data) => setMessages(instanceId, data as ChatMessage[]))
-      .catch((err) => console.error("[AgentDetail] failed to load messages:", err));
-  }, [instanceId, storeAgent, setMessages]);
+  useEffect(() => {
+    if (fetchedMessages) {
+      setMessages(instanceId, fetchedMessages);
+    }
+  }, [fetchedMessages, instanceId, setMessages]);
 
-  const displayAgent = agent ?? storeAgent;
+  const displayAgent: SubAgentInstanceState | undefined =
+    storeAgent ?? fetchedAgent ?? undefined;
 
   return (
     <div className="flex flex-col h-full">
@@ -55,7 +61,7 @@ export function AgentDetail({ instanceId, onBack }: AgentDetailProps) {
           <div className="flex items-center gap-2 min-w-0">
             <StatusBadge state={displayAgent.state} pulse={displayAgent.state === "running"} />
             <span className="text-sm font-medium text-text-primary truncate">
-              {displayAgent.definitionName}
+              {displayAgent.description || displayAgent.definitionName}
             </span>
             <span className="text-xs text-text-muted shrink-0">
               {displayAgent.taskId}
@@ -82,6 +88,10 @@ export function AgentDetail({ instanceId, onBack }: AgentDetailProps) {
               <div>
                 <div className="text-xs text-text-muted uppercase tracking-wider">Task ID</div>
                 <div className="text-sm text-text-primary mt-1 font-mono">{displayAgent.taskId}</div>
+              </div>
+              <div>
+                <div className="text-xs text-text-muted uppercase tracking-wider">Description</div>
+                <div className="text-sm text-text-primary mt-1">{displayAgent.description || displayAgent.definitionName}</div>
               </div>
               <div>
                 <div className="text-xs text-text-muted uppercase tracking-wider">Definition</div>

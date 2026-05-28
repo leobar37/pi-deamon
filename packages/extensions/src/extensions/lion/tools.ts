@@ -105,7 +105,9 @@ export function registerLionTools(runtime: LionRuntime): void {
 		promptSnippet: "Resolve the user's plan reference and activate the correct Lion plan before starting work",
 		parameters: ActivatePlanParams,
 		async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
-			return toToolResult(activator.activate(ctx, params.reference));
+			const result = activator.activate(ctx, params.reference);
+			runtime.logTool("lion_activate_plan", { reference: params.reference }, result);
+			return toToolResult(result);
 		},
 	});
 
@@ -116,7 +118,13 @@ export function registerLionTools(runtime: LionRuntime): void {
 		promptSnippet: "Reset a failed or blocked task for retry",
 		parameters: RetryTaskParams,
 		async execute(_toolCallId, params) {
-			return toToolResult(reconciler.reconcile(params.task_id, params.reset_dependencies ?? false));
+			const result = reconciler.reconcile(params.task_id, params.reset_dependencies ?? false);
+			runtime.logTool(
+				"lion_reconcile_plan",
+				{ task_id: params.task_id, reset_dependencies: params.reset_dependencies },
+				result,
+			);
+			return toToolResult(result);
 		},
 	});
 
@@ -128,7 +136,9 @@ export function registerLionTools(runtime: LionRuntime): void {
 		promptSnippet: "Delegate tasks to subagents with explicit task definitions",
 		parameters: LionTasksParams,
 		async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
-			return toToolResult(await runner.run(ctx, params));
+			const result = await runner.run(ctx, params);
+			runtime.logTool("lion_tasks", { strategy: params.strategy, taskCount: params.tasks.length }, result);
+			return toToolResult(result);
 		},
 	});
 }

@@ -16,7 +16,23 @@ export class LionChecklistFile {
 		if (!Array.isArray(record.tasks)) {
 			throw new Error("Invalid checklist: tasks must be an array");
 		}
-		return record.tasks;
+		const validStatuses = new Set<LionTask["status"]>(["pending", "in_progress", "complete", "blocked", "retryable"]);
+		return record.tasks.map((t) => ({
+			...t,
+			title: t.title ?? (t as any).name ?? "",
+			dependencies: Array.isArray(t.dependencies)
+				? t.dependencies.filter((d): d is string => typeof d === "string")
+				: [],
+			requirements: Array.isArray(t.requirements)
+				? t.requirements.filter((r): r is string => typeof r === "string")
+				: [],
+			status:
+				(t.status as string) === "running"
+					? "in_progress"
+					: validStatuses.has(t.status as LionTask["status"])
+						? (t.status as LionTask["status"])
+						: "pending",
+		}));
 	}
 
 	updateTaskStatus(taskId: string, status: string): void {

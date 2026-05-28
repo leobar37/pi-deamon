@@ -49,12 +49,13 @@ export class StructuredLionPlanFile {
 		};
 	}
 
-	readContent(plan: StructuredPlan, _task: LionTask): LionPlanContent {
+	readContent(plan: StructuredPlan, task: LionTask): LionPlanContent {
+		const taskBriefPath = task.file ? join(plan.rootPath, task.file) : "";
 		return {
 			context: readFileSync(plan.contextFile, "utf-8"),
 			requirements: readFileSync(join(plan.rootPath, "requirements.md"), "utf-8"),
 			taskIndex: readFileSync(plan.indexFile, "utf-8"),
-			taskBrief: "",
+			taskBrief: taskBriefPath && existsSync(taskBriefPath) ? readFileSync(taskBriefPath, "utf-8") : "",
 		};
 	}
 

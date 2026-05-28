@@ -80,9 +80,10 @@ export function buildLionSubagentWidgetLines(
 					?.split("\n")
 					.find((line) => line.trim())
 					?.trim();
+		const displayTitle = state.title || `${state.role} ${state.taskId}`;
 		lines.push(
 			clip(
-				`${glyph(state, theme)} ${theme.bold(state.role)} ${theme.fg("accent", state.taskId)} ${theme.fg("dim", "·")} ${theme.fg("dim", state.status)}${state.definition ? ` ${theme.fg("dim", "·")} ${state.definition}` : ""}${stats ? ` ${theme.fg("dim", "·")} ${stats}` : ""}`,
+				`${glyph(state, theme)} ${theme.bold(displayTitle)} ${theme.fg("dim", "·")} ${theme.fg("dim", state.status)}${state.definition ? ` ${theme.fg("dim", "·")} ${state.definition}` : ""}${stats ? ` ${theme.fg("dim", "·")} ${stats}` : ""}`,
 				width,
 			),
 		);

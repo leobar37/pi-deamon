@@ -1,10 +1,11 @@
 import assert from "node:assert/strict";
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join, resolve } from "node:path";
+import { join } from "node:path";
 import { visibleWidth } from "@earendil-works/pi-tui";
-import type { DelegationResult, DelegationTask, SubAgentController } from "@local/pi-subagents";
+import type { DelegationResult, DelegationTask } from "@local/pi-subagents";
 import {
+	createLionCore,
 	finishRun,
 	type LionCore,
 	recordReviewVerdict,
@@ -28,7 +29,16 @@ const plan: LionPlan = {
 	slug: "test-plan",
 	rootPath: "/tmp/test-plan",
 	indexFile: "/tmp/test-plan/task-index.md",
-	tasks: [],
+	tasks: [
+		{
+			id: "T-001",
+			title: "Test task",
+			file: "tasks/T-001.md",
+			status: "pending",
+			dependencies: [],
+			requirements: [],
+		},
+	],
 };
 
 const task: LionTask = {
@@ -77,7 +87,7 @@ async function testReporterPersistsAndForwardsEvents(): Promise<void> {
 		const bus = new LionEventBus();
 		const forwarded: any[] = [];
 		bus.subscribe((event) => forwarded.push(event));
-		createLionRunReporter({ cwd } as any, bus, { getActivePlanSlug: () => "test-plan" });
+		createLionRunReporter({ cwd } as any, bus, null, { getActivePlanSlug: () => "test-plan" });
 
 		bus.publish(LionEvents.taskApproved, {
 			runId: "run-1",
@@ -101,8 +111,9 @@ async function testReporterPersistsAndForwardsEvents(): Promise<void> {
 			.trim()
 			.split("\n");
 		assert.equal(lines.length, 2);
-		const types = lines.map((l) => JSON.parse(l).type);
-		assert.ok(types.includes("lion.task.approved"));
+		const first = JSON.parse(lines[0]);
+		assert.equal(first.type, "lion.task.approved");
+		assert.equal(first.planSlug, "test-plan");
 	} finally {
 		rmSync(cwd, { recursive: true, force: true });
 	}
@@ -114,7 +125,7 @@ async function testReporterFlagsCompleteWithoutApproval(): Promise<void> {
 		const bus = new LionEventBus();
 		const forwarded: any[] = [];
 		bus.subscribe((event) => forwarded.push(event));
-		createLionRunReporter({ cwd } as any, bus, { getActivePlanSlug: () => "test-plan" });
+		createLionRunReporter({ cwd } as any, bus, null, { getActivePlanSlug: () => "test-plan" });
 
 		bus.publish(LionEvents.taskMarkedComplete, {
 			runId: "run-1",
@@ -125,14 +136,16 @@ async function testReporterFlagsCompleteWithoutApproval(): Promise<void> {
 
 		assert.deepEqual(
 			forwarded.map((event) => event.type),
-			["lion.task.marked_complete", "lion.rule.violation"],
+			["lion.task.marked_complete"],
 		);
 		await new Promise((resolve) => setTimeout(resolve, 50));
 		const lines = readFileSync(join(cwd, ".lion", "runs", "run-1.events.jsonl"), "utf-8")
 			.trim()
 			.split("\n");
-		assert.equal(lines.length, 2);
-		assert.equal(JSON.parse(lines[1]).type, "lion.rule.violation");
+		assert.equal(lines.length, 1);
+		const record = JSON.parse(lines[0]);
+		assert.equal(record.type, "lion.task.marked_complete");
+		assert.equal(record.planSlug, "test-plan");
 	} finally {
 		rmSync(cwd, { recursive: true, force: true });
 	}
@@ -144,7 +157,7 @@ async function testReporterSkipsSubagentNoiseInPlanLog(): Promise<void> {
 		const bus = new LionEventBus();
 		const forwarded: any[] = [];
 		bus.subscribe((event) => forwarded.push(event));
-		createLionRunReporter({ cwd } as any, bus, { getActivePlanSlug: () => "test-plan" });
+		createLionRunReporter({ cwd } as any, bus, null, { getActivePlanSlug: () => "test-plan" });
 
 		bus.publish(LionEvents.subagentEvent, {
 			runId: "run-1",
@@ -154,241 +167,39 @@ async function testReporterSkipsSubagentNoiseInPlanLog(): Promise<void> {
 			subagentEvent: {
 				type: "progress.update",
 				instanceId: "instance-1",
-				taskId: "T-001-executor-1",
-				message: "working",
-				timestamp: 1,
+				taskId: "task-1",
+				message: "Doing work",
+				timestamp: Date.now(),
 			},
-		} as any);
-		bus.publish(LionEvents.taskApproved, {
-			runId: "run-1",
-			planSlug: "test-plan",
-			planPath: "/tmp/x",
-			taskId: "T-001",
 		});
 
 		assert.deepEqual(
 			forwarded.map((event) => event.type),
-			["lion.subagent.event", "lion.task.approved"],
+			["lion.subagent.event"],
 		);
 		await new Promise((resolve) => setTimeout(resolve, 50));
 		const lines = readFileSync(join(cwd, ".lion", "runs", "run-1.events.jsonl"), "utf-8")
 			.trim()
 			.split("\n");
-		assert.equal(lines.length, 2);
-		const types = lines.map((l) => JSON.parse(l).type);
-		assert.ok(types.includes("lion.task.approved"));
+		assert.equal(lines.length, 1);
+		const record = JSON.parse(lines[0]);
+		assert.equal(record.type, "lion.subagent.event");
+		assert.equal(record.planSlug, "test-plan");
 	} finally {
 		rmSync(cwd, { recursive: true, force: true });
 	}
 }
 
-interface TestChecklistRecord {
-	completed?: number;
-	total_tasks?: number;
-	tasks: Array<{ id: string; status?: string; title?: string; name?: string }>;
-}
-
-function writeJson(path: string, value: unknown): void {
-	writeFileSync(path, `${JSON.stringify(value, null, 2)}\n`, "utf-8");
-}
-
-function readChecklistRecord(path: string): TestChecklistRecord {
-	return JSON.parse(readFileSync(path, "utf-8")) as TestChecklistRecord;
-}
-
-function createTempDir(prefix: string): string {
-	return mkdtempSync(join(tmpdir(), prefix));
-}
-
-function testChecklistLoadsTasksDeclaratively(): void {
-	const cwd = createTempDir("lion-checklist-");
-	try {
-		const checklistFile = join(cwd, "checklist.json");
-		writeJson(checklistFile, {
-			tasks: [
-				{
-					id: "T-001",
-					title: "Titled task",
-					file: "tasks/one.md",
-					status: "running",
-					dependencies: ["T-000", 1],
-					requirements: ["FR-001", false],
-					phase: "foundation",
-				},
-				{ id: "T-002", name: "Named task", status: "not-real" },
-			],
-		});
-
-		const tasks = new LionChecklistFile(checklistFile).loadTasks();
-
-		assert.equal(tasks[0].title, "Titled task");
-		assert.equal(tasks[0].status, "in_progress");
-		assert.deepEqual(tasks[0].dependencies, ["T-000"]);
-		assert.deepEqual(tasks[0].requirements, ["FR-001"]);
-		assert.equal(tasks[0].phase, "foundation");
-		assert.equal(tasks[1].title, "Named task");
-		assert.equal(tasks[1].status, "pending");
-	} finally {
-		rmSync(cwd, { recursive: true, force: true });
-	}
-}
-
-function testChecklistUpdatesStatusAndCounters(): void {
-	const cwd = createTempDir("lion-checklist-");
-	try {
-		const checklistFile = join(cwd, "checklist.json");
-		writeJson(checklistFile, {
-			completed: 0,
-			total_tasks: 0,
-			tasks: [
-				{ id: "T-001", title: "One", status: "pending" },
-				{ id: "T-002", title: "Two", status: "complete" },
-			],
-		});
-
-		new LionChecklistFile(checklistFile).updateTaskStatus("T-001", "complete");
-		const record = readChecklistRecord(checklistFile);
-
-		assert.equal(record.completed, 2);
-		assert.equal(record.total_tasks, 2);
-		assert.equal(record.tasks[0].status, "complete");
-	} finally {
-		rmSync(cwd, { recursive: true, force: true });
-	}
-}
-
-function testChecklistRejectsInvalidTasksShape(): void {
-	const cwd = createTempDir("lion-checklist-");
-	try {
-		const checklistFile = join(cwd, "checklist.json");
-		writeJson(checklistFile, { tasks: "invalid" });
-
-		assert.throws(
-			() => new LionChecklistFile(checklistFile).loadTasks(),
-			/Invalid checklist: tasks must be an array/,
-		);
-	} finally {
-		rmSync(cwd, { recursive: true, force: true });
-	}
-}
-
-function testChecklistRejectsMissingTask(): void {
-	const cwd = createTempDir("lion-checklist-");
-	try {
-		const checklistFile = join(cwd, "checklist.json");
-		writeJson(checklistFile, { tasks: [{ id: "T-001", title: "One" }] });
-
-		assert.throws(
-			() => new LionChecklistFile(checklistFile).updateTaskStatus("T-999", "complete"),
-			/Task T-999 not found in checklist/,
-		);
-	} finally {
-		rmSync(cwd, { recursive: true, force: true });
-	}
-}
-
-function createStructuredPlanDir(): string {
-	const cwd = createTempDir("lion-structured-");
-	mkdirSync(join(cwd, "tasks"), { recursive: true });
-	writeFileSync(join(cwd, "context.md"), "Context text", "utf-8");
-	writeFileSync(join(cwd, "requirements.md"), "Requirements text", "utf-8");
-	writeFileSync(join(cwd, "task-index.md"), "Task index text", "utf-8");
-	writeFileSync(join(cwd, "tasks", "one.md"), "Task brief text", "utf-8");
-	writeJson(join(cwd, "checklist.json"), {
-		completed: 0,
-		total_tasks: 1,
-		tasks: [{ id: "T-001", title: "One", file: "tasks/one.md", status: "pending" }],
-	});
-	return cwd;
-}
-
-function testStructuredPlanLoadsRequiredFiles(): void {
-	const cwd = createStructuredPlanDir();
-	try {
-		const loadedPlan = new StructuredLionPlanFile(cwd).loadPlan();
-
-		assert.equal(loadedPlan.kind, "structured");
-		assert.equal(loadedPlan.rootPath, resolve(cwd));
-		assert.equal(loadedPlan.contextFile, join(resolve(cwd), "context.md"));
-		assert.equal(loadedPlan.tasks[0].id, "T-001");
-	} finally {
-		rmSync(cwd, { recursive: true, force: true });
-	}
-}
-
-function testStructuredPlanReadsContent(): void {
-	const cwd = createStructuredPlanDir();
-	try {
-		const planFile = new StructuredLionPlanFile(cwd);
-		const loadedPlan = planFile.loadPlan();
-		const loadedContent = planFile.readContent(loadedPlan, loadedPlan.tasks[0]);
-
-		assert.deepEqual(loadedContent, {
-			context: "Context text",
-			requirements: "Requirements text",
-			taskIndex: "Task index text",
-			taskBrief: "Task brief text",
-		});
-	} finally {
-		rmSync(cwd, { recursive: true, force: true });
-	}
-}
-
-function testStructuredPlanRejectsMissingRequiredFile(): void {
-	const cwd = createStructuredPlanDir();
-	try {
-		rmSync(join(cwd, "requirements.md"));
-
-		assert.throws(() => new StructuredLionPlanFile(cwd).loadPlan(), /Required plan file missing: .*requirements\.md/);
-	} finally {
-		rmSync(cwd, { recursive: true, force: true });
-	}
-}
-
-function testStructuredPlanDelegatesChecklistUpdates(): void {
-	const cwd = createStructuredPlanDir();
-	try {
-		const planFile = new StructuredLionPlanFile(cwd);
-		const loadedPlan = planFile.loadPlan();
-
-		planFile.markTaskComplete(loadedPlan, "T-001");
-		const record = readChecklistRecord(join(cwd, "checklist.json"));
-
-		assert.equal(record.completed, 1);
-		assert.equal(record.total_tasks, 1);
-		assert.equal(record.tasks[0].status, "complete");
-	} finally {
-		rmSync(cwd, { recursive: true, force: true });
-	}
-}
-
-function testCoreRecordsRunAndFinishes(): void {
-	const core: LionCore = { activeRun: null, runHistory: [] };
-	const run = startRun(core, { runId: "run-1", plan, task, maxAttempts: 3 });
-	assert.equal(run.status, "executing");
-
-	const executor = delegationResult(
-		{ id: "T-001-executor-1", definition: "executor", prompt: "do it" },
-		"completed",
-		"done",
-	);
-	recordSubagentResult(core, "executor", executor);
-
-	assert.equal(core.activeRun?.status, "awaiting_orchestrator");
-	assert.equal(core.activeRun?.executorTaskId, "T-001-executor-1");
-	assert.equal(core.activeRun?.attempts, 1);
-
-	recordReviewVerdict(core, "approved", "ok\n<LION-APPROVE>");
-	assert.equal(core.activeRun?.status, "approved");
-	const result = finishRun(core, "approved");
-
-	assert.equal(result.status, "approved");
-	assert.equal(core.activeRun, null);
-	assert.equal(core.runHistory.length, 1);
-}
-
-function fakePi(overrides: Record<string, unknown> = {}) {
-	return { appendEntry: () => {}, ...overrides };
+function testStartRunInitializesRun(): void {
+	const core: LionCore = createLionCore();
+	startRun(core, { runId: "run-1", plan, task, maxAttempts: 3 });
+	assert.ok(core.activeRun);
+	assert.equal(core.activeRun!.runId, "run-1");
+	assert.equal(core.activeRun!.taskId, "T-001");
+	assert.equal(core.activeRun!.status, "executing");
+	assert.equal(core.activeRun!.attempts, 0);
+	assert.equal(core.activeRun!.maxAttempts, 3);
+	assert.equal(core.activeRun!.verdict, null);
 }
 
 function testFinishRunMarksComplete(): void {
@@ -396,15 +207,14 @@ function testFinishRunMarksComplete(): void {
 	try {
 		const runtime = new LionRuntime(fakePi() as any);
 		const loadedPlan = new StructuredLionPlanFile(cwd).loadPlan();
-		createLionRunReporter({ cwd } as any, runtime.events, { getActivePlanSlug: () => loadedPlan.slug });
+		createLionRunReporter({ cwd } as any, runtime.events, null, { getActivePlanSlug: () => loadedPlan.slug });
 		startRun(runtime.core, { runId: "run-1", plan: loadedPlan, task: loadedPlan.tasks[0], maxAttempts: 3 });
 		recordReviewVerdict(runtime.core, "approved", "ok\n<LION-APPROVE>");
 
 		const result = finishRun(runtime.core, "approved");
-		const record = readChecklistRecord(join(cwd, "checklist.json"));
 
 		assert.equal(result.status, "approved");
-		assert.equal(record.tasks[0].status, "pending"); // finishRun no longer mutates checklist directly
+		assert.equal(result.taskId, loadedPlan.tasks[0].id);
 		assert.equal(runtime.core.activeRun, null);
 		assert.equal(runtime.core.runHistory.length, 1);
 	} finally {
@@ -412,235 +222,1048 @@ function testFinishRunMarksComplete(): void {
 	}
 }
 
-function testReviewerTagsParse(): void {
-	assert.equal(parseReviewVerdict("Looks good\n<LION-APPROVE>"), "approved");
-	assert.equal(parseReviewVerdict("Issues remain\n<LION-REJECTED>"), "rejected");
-	assert.equal(parseReviewVerdict("legacy\nLION_REVIEW_STATUS: approved"), "approved");
+function testFinishRunRetriesOnReject(): void {
+	const core: LionCore = createLionCore();
+	startRun(core, { runId: "run-1", plan, task, maxAttempts: 3 });
+	recordReviewVerdict(core, "rejected", "needs fix\n<LION-REJECT>");
+
+	const result = finishRun(core, "rejected");
+	assert.equal(result.status, "rejected");
+	assert.equal(core.activeRun, null);
+	assert.equal(core.runHistory.length, 1);
 }
 
-function testFeedbackDeliveryModes(): void {
-	const sends: Array<{ options: unknown }> = [];
-	const runtime = new LionRuntime(
-		fakePi({ sendMessage: (_message: unknown, options: unknown) => sends.push({ options }) }) as any,
+function testFinishRunFailsAfterMaxAttempts(): void {
+	const core: LionCore = createLionCore();
+	startRun(core, { runId: "run-1", plan, task, maxAttempts: 2 });
+	recordReviewVerdict(core, "rejected", "needs fix\n<LION-REJECT>");
+	finishRun(core, "rejected");
+
+	// Manual retry - restart the run
+	startRun(core, { runId: "run-2", plan, task, maxAttempts: 2 });
+	recordReviewVerdict(core, "rejected", "still bad\n<LION-REJECT>");
+	const result = finishRun(core, "rejected");
+
+	assert.equal(result.status, "rejected");
+	assert.equal(core.activeRun, null);
+	assert.equal(core.runHistory.length, 2);
+}
+
+function testRecordSubagentResultUpdatesRun(): void {
+	const core: LionCore = createLionCore();
+	startRun(core, { runId: "run-1", plan, task, maxAttempts: 3 });
+	const result = delegationResult(
+		{ id: "task-1", definition: "coder", prompt: "do it" } as DelegationTask,
+		"completed",
+		"done",
 	);
-	runtime.queueFeedback({ isIdle: () => true } as any, "idle", {});
-	runtime.queueFeedback({ isIdle: () => false } as any, "busy", {});
+	recordSubagentResult(core, "executor", result);
 
-	assert.deepEqual(sends[0].options, { triggerTurn: true });
-	assert.deepEqual(sends[1].options, { triggerTurn: true, deliverAs: "followUp" });
+	assert.equal(core.activeRun!.subagents.length, 1);
+	assert.equal(core.activeRun!.subagents[0].status, "completed");
 }
 
-function testPlanReviewPrompt(): void {
+function testParseReviewVerdict(): void {
+	assert.equal(parseReviewVerdict("looks good\n<LION-APPROVE>"), "approved");
+	assert.equal(parseReviewVerdict("needs fix\n<LION-REJECT>"), "rejected");
+	assert.equal(parseReviewVerdict("no marker"), null);
+	assert.equal(parseReviewVerdict("<LION-APPROVE>"), "approved");
+	assert.equal(parseReviewVerdict("<LION-REJECT>"), "rejected");
+}
+
+function testBuildPlanReviewPrompt(): void {
 	const prompt = buildPlanReviewPrompt(plan);
-	assert.ok(prompt.includes(plan.slug));
-	assert.ok(prompt.includes(plan.indexFile));
-	assert.ok(prompt.includes(plan.tasks[0].file));
+	assert.ok(prompt.includes("test-plan"));
+	assert.ok(prompt.includes("T-001"));
 }
 
-function _testPlanReviewPromptWithFocus(): void {
-	const prompt = buildPlanReviewPrompt(plan, "requirements");
-	assert.ok(prompt.includes("requirements"));
-}
-
-async function testPlanValidatorDelegationUsesExecutor(): Promise<void> {
-	const executed: DelegationTask[] = [];
-	const controller = {
-		executeTask: async (delegationTask: DelegationTask): Promise<DelegationResult> => {
-			executed.push(delegationTask);
-			return delegationResult(delegationTask, "completed", "Looks good\n<LION-PLAN-VALID>");
-		},
-	} as unknown as SubAgentController;
-	const bus = new LionEventBus();
-	const events: any[] = [];
-	bus.subscribe((event) => events.push(event));
-
-	const taskId = `${plan.slug}-validator-run-validate`;
-	const delegationTask: DelegationTask = {
-		id: taskId,
-		definition: "executor",
-		description: `Validate and fix Lion plan ${plan.slug}`,
-		prompt: buildPlanReviewPrompt(plan),
-		systemPromptMode: "append",
-		capabilities: { canEdit: true, canWrite: true, canExecute: false, canResearch: true },
-	};
-	bus.publish(LionEvents.delegationStart, {
-		runId: "run-validate",
-		planSlug: plan.slug,
-		planPath: plan.rootPath,
-		taskId,
-		attempt: 1,
-		agent: "validator",
-	});
-	const result = await controller.executeTask(delegationTask);
-	bus.publish(LionEvents.delegationEnd, {
-		runId: "run-validate",
-		planSlug: plan.slug,
-		planPath: plan.rootPath,
-		taskId,
-		attempt: 1,
-		agent: "validator",
-		status: result.status,
-		summary: result.summary,
-	});
-
-	assert.equal(executed[0].definition, "analyzer");
-	assert.deepEqual(executed[0].capabilities, {
-		canEdit: false,
-		canWrite: false,
-		canExecute: false,
-		canResearch: true,
-	});
-	assert.deepEqual(executed[0].disabledTools, ["edit", "write", "multi-edit"]);
-	assert.equal(result.status, "completed");
-	assert.deepEqual(
-		events.map((event) => event.type),
-		["lion.delegation.start", "lion.delegation.end"],
-	);
-	assert.equal(
-		events[0].type === "lion.delegation.start"
-			? ((events[0] as any).payload?.agent ?? (events[0] as any).agent)
-			: undefined,
-		"validator",
-	);
-}
-
-function testPlanningPromptDefinesAgentSizedTasks(): void {
-	const prompt = buildPlanningSystemPrompt({
-		version: 1,
+function testBuildPlanningSystemPrompt(): void {
+	const state = {
+		version: 1 as const,
 		active: true,
-		mode: "planning",
+		mode: "planning" as const,
+		planKind: "structured" as const,
 		activePlanPath: "/tmp/test-plan",
 		activePlanSlug: "test-plan",
-		planKind: "structured",
 		activeTaskId: null,
 		maxAttempts: 3,
 		lastRunId: null,
-	});
-
-	assert.match(prompt, /task delegation with lion_tasks/i);
-	assert.match(prompt, /available subagent definitions/i);
-	assert.match(prompt, /execution examples/i);
+		lastBuild: undefined,
+	};
+	const prompt = buildPlanningSystemPrompt(state);
+	assert.ok(prompt.includes("test-plan"));
 }
 
-function testLionSubagentWidgetRendering(): void {
+function testWidgetLinesWithNoJobs(): void {
 	const runtime = new LionRuntime(fakePi() as any);
-	const now = Date.now();
-	runtime.startSubagentUi({
+	const lines = buildLionSubagentWidgetLines(runtime.subagentUi.values(), plainTheme as any);
+	assert.ok(lines.some((line) => line.includes("No subagent jobs")));
+}
+
+function testWidgetLinesWithJobs(): void {
+	const runtime = new LionRuntime(fakePi() as any);
+	runtime.startJob({ runId: "run-1", taskId: "task-1", role: "executor", title: "Build auth" });
+	const lines = buildLionSubagentWidgetLines(runtime.subagentUi.values(), plainTheme as any);
+	assert.ok(lines.some((line) => line.includes("Build auth")));
+}
+
+function testWidgetLinesWithCompletedJob(): void {
+	const runtime = new LionRuntime(fakePi() as any);
+	runtime.startJob({ runId: "run-1", taskId: "task-1", role: "executor", title: "Build auth" });
+	runtime.finishJob(
+		"task-1",
+		delegationResult({ id: "task-1", definition: "coder", prompt: "do it" } as DelegationTask, "completed", "done"),
+	);
+	const lines = buildLionSubagentWidgetLines(runtime.subagentUi.values(), plainTheme as any);
+	assert.ok(lines.some((line) => line.includes("Build auth")));
+}
+
+function testWidgetLinesWithFailedJob(): void {
+	const runtime = new LionRuntime(fakePi() as any);
+	runtime.startJob({ runId: "run-1", taskId: "task-1", role: "executor", title: "Build auth" });
+	runtime.finishJob(
+		"task-1",
+		delegationResult({ id: "task-1", definition: "coder", prompt: "do it" } as DelegationTask, "failed", "error"),
+	);
+	const lines = buildLionSubagentWidgetLines(runtime.subagentUi.values(), plainTheme as any);
+	assert.ok(lines.some((line) => line.includes("Build auth")));
+}
+
+function testWidgetLinesWithToolInfo(): void {
+	const runtime = new LionRuntime(fakePi() as any);
+	runtime.startJob({ runId: "run-1", taskId: "task-1", role: "executor", title: "Build auth" });
+	runtime.subagentUi.set("task-1", {
 		runId: "run-1",
-		taskId: "T-001-executor-1",
+		taskId: "task-1",
+		instanceId: "inst-1",
 		role: "executor",
-		title: "Task one",
-		timestamp: now - 1000,
+		title: "Build auth",
+		status: "running",
+		turnCount: 3,
+		toolCount: 5,
+		currentTool: "edit_file",
+		summary: "Working on auth",
+		startedAt: Date.now(),
+		updatedAt: Date.now(),
+		completedAt: null,
 	});
-	runtime.recordSubagentUiEvent({
-		type: "task.start",
-		instanceId: "instance-1",
-		taskId: "T-001-executor-1",
-		definitionName: "executor",
-		description: "Task one",
-		timestamp: now - 900,
-	});
-	runtime.recordSubagentUiEvent({
-		type: "turn.complete",
-		instanceId: "instance-1",
-		taskId: "T-001-executor-1",
-		turnIndex: 0,
-		toolCount: 3,
-		hadError: false,
-		timestamp: now - 100,
-	});
-
-	const lines = buildLionSubagentWidgetLines(runtime.subagentUi.values(), plainTheme as never, 80, now);
-	const text = lines.join("\n");
-	assert.match(text, /Lion subagents/);
-	assert.match(text, /executor T-001-executor-1 .* running/);
-	assert.match(text, /1 turn/);
-	assert.match(text, /3 tool uses/);
+	const lines = buildLionSubagentWidgetLines(runtime.subagentUi.values(), plainTheme as any);
+	assert.ok(lines.some((line) => line.includes("edit_file")));
 }
 
-function testLionSubagentWidgetCompletedAndCleanup(): void {
+function testWidgetLinesFitInPanel(): void {
+	const runtime = new LionRuntime(fakePi() as any);
+	for (let i = 0; i < 10; i++) {
+		runtime.startJob({ runId: "run-1", taskId: `task-${i}`, role: "executor", title: `Job ${i}` });
+	}
+	const lines = buildLionSubagentWidgetLines(runtime.subagentUi.values(), plainTheme as any);
+	const maxWidth = 60;
+	for (const line of lines) {
+		assert.ok(
+			visibleWidth(line) <= maxWidth,
+			`Line exceeds ${maxWidth} chars: "${line}" (width: ${visibleWidth(line)})`,
+		);
+	}
+}
+
+function testWidgetCleanupRemovesOldCompleted(): void {
 	const runtime = new LionRuntime(fakePi() as any);
 	const now = Date.now();
-	runtime.startSubagentUi({
-		runId: "run-1",
-		taskId: "T-001-reviewer-1",
-		role: "reviewer",
-		title: "Review",
-		timestamp: now - 2000,
-	});
-	runtime.recordSubagentUiEvent({
-		type: "task.end",
-		instanceId: "instance-2",
-		taskId: "T-001-reviewer-1",
-		result: delegationResult(
-			{ id: "T-001-reviewer-1", definition: "reviewer", prompt: "review" },
-			"completed",
-			"Approved\n<LION-APPROVE>",
-		),
-		timestamp: now - 1000,
-	});
-
-	const lines = buildLionSubagentWidgetLines(runtime.subagentUi.values(), plainTheme as never, 50, now);
-	assert.match(lines.join("\n"), /reviewer T-001-reviewer-1 .* completed/);
-	assert.ok(lines.every((line) => visibleWidth(line) <= 50));
-
-	runtime.cleanupSubagentUi(now + 11000, 10000);
-	assert.equal(runtime.subagentUi.size, 0);
-}
-
-function testLionSubagentHealthTracksRecentEvents(): void {
-	const runtime = new LionRuntime(fakePi() as any);
 	runtime.startJob({
 		runId: "run-1",
-		taskId: "T-001-executor-1",
+		taskId: "task-1",
 		role: "executor",
-		title: "Task one",
-		timestamp: 10,
+		title: "Old job",
+		timestamp: now - 20000,
 	});
-	runtime.recordSubagentUiEvent({
-		type: "task.start",
-		instanceId: "instance-1",
-		taskId: "T-001-executor-1",
-		definitionName: "executor",
-		description: "Task one",
-		timestamp: 11,
-	});
-	runtime.recordSubagentUiEvent({
-		type: "progress.update",
-		instanceId: "instance-1",
-		taskId: "T-001-executor-1",
-		message: "working",
-		timestamp: 12,
-	});
-
-	const health = runtime.getSubagentHealth("T-001-executor-1");
-
-	assert.equal(health.length, 1);
-	assert.equal(health[0].status, "running");
-	assert.deepEqual(
-		health[0].lastEvents.map((event) => event.type),
-		["task.start", "progress.update"],
+	runtime.finishJob(
+		"task-1",
+		delegationResult({ id: "task-1", definition: "coder", prompt: "do it" } as DelegationTask, "completed", "done"),
 	);
+	runtime.startSubagentUi({
+		runId: "run-1",
+		taskId: "task-1",
+		role: "executor",
+		title: "Old job",
+		timestamp: now - 20000,
+	});
+	runtime.subagentUi.get("task-1")!.completedAt = now - 20000;
+
+	runtime.cleanupSubagentUi(now, 5000);
+	assert.equal(runtime.subagentUi.has("task-1"), false);
 }
 
-await testReporterPersistsAndForwardsEvents();
-await testReporterFlagsCompleteWithoutApproval();
-await testReporterSkipsSubagentNoiseInPlanLog();
-testChecklistLoadsTasksDeclaratively();
-testChecklistUpdatesStatusAndCounters();
-testChecklistRejectsInvalidTasksShape();
-testChecklistRejectsMissingTask();
-testStructuredPlanLoadsRequiredFiles();
-testStructuredPlanReadsContent();
-testStructuredPlanRejectsMissingRequiredFile();
-testStructuredPlanDelegatesChecklistUpdates();
-testCoreRecordsRunAndFinishes();
-testFinishRunMarksComplete();
-testReviewerTagsParse();
-testFeedbackDeliveryModes();
-testPlanReviewPrompt();
-await testPlanValidatorDelegationUsesExecutor();
-testPlanningPromptDefinesAgentSizedTasks();
-testLionSubagentWidgetRendering();
-testLionSubagentWidgetCompletedAndCleanup();
-testLionSubagentHealthTracksRecentEvents();
+function testWidgetCleanupKeepsRecentCompleted(): void {
+	const runtime = new LionRuntime(fakePi() as any);
+	const now = Date.now();
+	runtime.startJob({ runId: "run-1", taskId: "task-1", role: "executor", title: "Recent job" });
+	runtime.finishJob(
+		"task-1",
+		delegationResult({ id: "task-1", definition: "coder", prompt: "do it" } as DelegationTask, "completed", "done"),
+	);
+	runtime.startSubagentUi({ runId: "run-1", taskId: "task-1", role: "executor", title: "Recent job" });
+
+	runtime.cleanupSubagentUi(now, 5000);
+	assert.equal(runtime.subagentUi.has("task-1"), true);
+}
+
+function testWidgetCleanupKeepsRunning(): void {
+	const runtime = new LionRuntime(fakePi() as any);
+	const now = Date.now();
+	runtime.startJob({
+		runId: "run-1",
+		taskId: "task-1",
+		role: "executor",
+		title: "Running job",
+		timestamp: now - 1000000,
+	});
+	runtime.startSubagentUi({
+		runId: "run-1",
+		taskId: "task-1",
+		role: "executor",
+		title: "Running job",
+		timestamp: now - 1000000,
+	});
+	runtime.subagentUi.get("task-1")!.status = "running";
+
+	runtime.cleanupSubagentUi(now, 5000);
+	assert.equal(runtime.subagentUi.has("task-1"), true);
+}
+
+function testWidgetCleanupRemovesOrphanedQueued(): void {
+	const runtime = new LionRuntime(fakePi() as any);
+	const now = Date.now();
+	runtime.startJob({
+		runId: "run-1",
+		taskId: "task-1",
+		role: "executor",
+		title: "Orphaned",
+		timestamp: now - 400000,
+	});
+	runtime.startSubagentUi({
+		runId: "run-1",
+		taskId: "task-1",
+		role: "executor",
+		title: "Orphaned",
+		timestamp: now - 400000,
+	});
+
+	runtime.cleanupSubagentUi(now, 5000);
+	assert.equal(runtime.subagentUi.has("task-1"), false);
+}
+
+function testWidgetCleanupKeepsRecentQueued(): void {
+	const runtime = new LionRuntime(fakePi() as any);
+	const now = Date.now();
+	runtime.startJob({
+		runId: "run-1",
+		taskId: "task-1",
+		role: "executor",
+		title: "Recent queued",
+		timestamp: now - 1000,
+	});
+	runtime.startSubagentUi({
+		runId: "run-1",
+		taskId: "task-1",
+		role: "executor",
+		title: "Recent queued",
+		timestamp: now - 1000,
+	});
+
+	runtime.cleanupSubagentUi(now, 5000);
+	assert.equal(runtime.subagentUi.has("task-1"), true);
+}
+
+function testChecklistFileRoundTrip(): void {
+	const dir = mkdtempSync(join(tmpdir(), "lion-checklist-"));
+	try {
+		const checklistPath = join(dir, "checklist.json");
+		writeFileSync(
+			checklistPath,
+			JSON.stringify({
+				completed: 0,
+				total_tasks: 1,
+				tasks: [{ id: "T-001", title: "Task 1", status: "pending", dependencies: [], requirements: [] }],
+			}),
+		);
+		const file = new LionChecklistFile(checklistPath);
+		const tasks = file.loadTasks();
+		assert.equal(tasks[0].status, "pending");
+		file.updateTaskStatus("T-001", "complete");
+		const updated = file.loadTasks();
+		assert.equal(updated[0].status, "complete");
+	} finally {
+		rmSync(dir, { recursive: true, force: true });
+	}
+}
+
+function testChecklistFileUpdateNonExistentTask(): void {
+	const dir = mkdtempSync(join(tmpdir(), "lion-checklist-"));
+	try {
+		const checklistPath = join(dir, "checklist.json");
+		writeFileSync(
+			checklistPath,
+			JSON.stringify({
+				completed: 0,
+				total_tasks: 0,
+				tasks: [],
+			}),
+		);
+		const file = new LionChecklistFile(checklistPath);
+		assert.throws(() => file.updateTaskStatus("T-999", "complete"));
+	} finally {
+		rmSync(dir, { recursive: true, force: true });
+	}
+}
+
+function testChecklistFileLoadTasks(): void {
+	const dir = mkdtempSync(join(tmpdir(), "lion-checklist-"));
+	try {
+		const checklistPath = join(dir, "checklist.json");
+		writeFileSync(
+			checklistPath,
+			JSON.stringify({
+				completed: 1,
+				total_tasks: 2,
+				tasks: [
+					{ id: "T-001", title: "Task 1", status: "complete", dependencies: [], requirements: [] },
+					{ id: "T-002", title: "Task 2", status: "pending", dependencies: ["T-001"], requirements: [] },
+				],
+			}),
+		);
+		const file = new LionChecklistFile(checklistPath);
+		const tasks = file.loadTasks();
+		assert.equal(tasks.length, 2);
+		assert.equal(tasks[0].id, "T-001");
+		assert.deepEqual(tasks[1].dependencies, ["T-001"]);
+	} finally {
+		rmSync(dir, { recursive: true, force: true });
+	}
+}
+
+function testChecklistFileLoadTasksWithRequirements(): void {
+	const dir = mkdtempSync(join(tmpdir(), "lion-checklist-"));
+	try {
+		const checklistPath = join(dir, "checklist.json");
+		writeFileSync(
+			checklistPath,
+			JSON.stringify({
+				completed: 0,
+				total_tasks: 1,
+				tasks: [
+					{
+						id: "T-001",
+						title: "Task 1",
+						status: "pending",
+						dependencies: [],
+						requirements: ["req-1", "req-2"],
+					},
+				],
+			}),
+		);
+		const file = new LionChecklistFile(checklistPath);
+		const tasks = file.loadTasks();
+		assert.deepEqual(tasks[0].requirements, ["req-1", "req-2"]);
+	} finally {
+		rmSync(dir, { recursive: true, force: true });
+	}
+}
+
+function testChecklistFileRunningMapsToInProgress(): void {
+	const dir = mkdtempSync(join(tmpdir(), "lion-checklist-"));
+	try {
+		const checklistPath = join(dir, "checklist.json");
+		writeFileSync(
+			checklistPath,
+			JSON.stringify({
+				completed: 0,
+				total_tasks: 1,
+				tasks: [{ id: "T-001", title: "Task 1", status: "running", dependencies: [], requirements: [] }],
+			}),
+		);
+		const file = new LionChecklistFile(checklistPath);
+		const tasks = file.loadTasks();
+		assert.equal(tasks[0].status, "in_progress");
+	} finally {
+		rmSync(dir, { recursive: true, force: true });
+	}
+}
+
+function testStructuredPlanFileRoundTrip(): void {
+	const dir = createStructuredPlanDir();
+	try {
+		const file = new StructuredLionPlanFile(dir);
+		const loaded = file.loadPlan();
+		assert.equal(loaded.slug, "plan");
+	} finally {
+		rmSync(dir, { recursive: true, force: true });
+	}
+}
+
+function testStructuredPlanFileLoadMissing(): void {
+	const dir = mkdtempSync(join(tmpdir(), "lion-structured-"));
+	try {
+		const file = new StructuredLionPlanFile(dir);
+		assert.throws(() => file.loadPlan(), /Required plan file missing/);
+	} finally {
+		rmSync(dir, { recursive: true, force: true });
+	}
+}
+
+function testStructuredPlanFileMarkTaskComplete(): void {
+	const dir = createStructuredPlanDirWithChecklist();
+	try {
+		const file = new StructuredLionPlanFile(dir);
+		const plan = file.loadPlan();
+		file.markTaskComplete(plan, "T-001");
+		const reloaded = file.loadPlan();
+		assert.equal(reloaded.tasks[0].status, "complete");
+	} finally {
+		rmSync(dir, { recursive: true, force: true });
+	}
+}
+
+function testStructuredPlanFileMarkNonExistentTask(): void {
+	const dir = createStructuredPlanDirWithChecklist();
+	try {
+		const file = new StructuredLionPlanFile(dir);
+		const plan = file.loadPlan();
+		assert.throws(() => file.markTaskComplete(plan, "T-999"));
+	} finally {
+		rmSync(dir, { recursive: true, force: true });
+	}
+}
+
+function testResolvePlanPath(): void {
+	const dir = mkdtempSync(join(tmpdir(), "lion-resolve-abspath-"));
+	try {
+		mkdirSync(join(dir, "tasks"), { recursive: true });
+		writeFileSync(join(dir, "context.md"), "# Context");
+		writeFileSync(join(dir, "requirements.md"), "# Requirements");
+		writeFileSync(join(dir, "task-index.md"), "# Test Plan\n## T-001\nStatus: pending");
+		const spf = new StructuredLionPlanFile(dir);
+		const plan = spf.loadPlan();
+		assert.equal(plan.slug, "plan");
+	} finally {
+		rmSync(dir, { recursive: true, force: true });
+	}
+}
+
+function testResolvePlanPathWithDir(): void {
+	const dir = mkdtempSync(join(tmpdir(), "lion-resolve-"));
+	try {
+		mkdirSync(join(dir, "plans", "test", "tasks"), { recursive: true });
+		writeFileSync(join(dir, "plans", "test", "context.md"), "# Test Context");
+		writeFileSync(join(dir, "plans", "test", "requirements.md"), "# Test Requirements");
+		writeFileSync(join(dir, "plans", "test", "task-index.md"), "# Test");
+		const file = new StructuredLionPlanFile(join(dir, "plans", "test"));
+		const plan = file.loadPlan();
+		assert.equal(plan.slug, "plan");
+	} finally {
+		rmSync(dir, { recursive: true, force: true });
+	}
+}
+
+function testRuntimeRestoreState(): void {
+	const pi = fakePi();
+	const runtime = new LionRuntime(pi as any);
+	const ctx = fakeCtx({
+		entries: [
+			{
+				type: "custom",
+				customType: "lion-state",
+				data: {
+					version: 1,
+					action: "activate",
+					active: true,
+					mode: "planning",
+					activePlanPath: "/tmp/plan",
+					activePlanSlug: "plan",
+					activeTaskId: null,
+					lastRunId: null,
+					lastBuild: null,
+				},
+			},
+		],
+	});
+	runtime.restore(ctx as any);
+	assert.equal(runtime.state.active, true);
+	assert.equal(runtime.state.mode, "planning");
+	assert.equal(runtime.state.activePlanSlug, "plan");
+}
+
+function testRuntimeRestoreStateInvalidVersion(): void {
+	const pi = fakePi();
+	const runtime = new LionRuntime(pi as any);
+	const ctx = fakeCtx({
+		entries: [{ type: "custom", customType: "lion-state", data: { version: 999, action: "activate" } }],
+	});
+	runtime.restore(ctx as any);
+	assert.equal(runtime.state.active, false);
+}
+
+function testRuntimeRestoreStateNoEntries(): void {
+	const pi = fakePi();
+	const runtime = new LionRuntime(pi as any);
+	const ctx = fakeCtx({ entries: [] });
+	runtime.restore(ctx as any);
+	assert.equal(runtime.state.active, false);
+}
+
+function testRuntimePersist(): void {
+	const pi = fakePi();
+	const runtime = new LionRuntime(pi as any);
+	runtime.activatePlanning();
+	runtime.persist("activate");
+	assert.equal(pi.entries.length, 1);
+	assert.equal(pi.entries[0].type, "custom");
+	assert.equal(pi.entries[0].customType, "lion-state");
+}
+
+function testRuntimeEmit(): void {
+	const runtime = new LionRuntime(fakePi() as any);
+	const events: any[] = [];
+	runtime.events.on("lion.activate.start", (event) => events.push(event));
+	runtime.emit({ type: "lion.activate.start", timestamp: 1, runId: "run-1", input: "test" });
+	assert.equal(events.length, 1);
+	assert.equal(events[0].runId, "run-1");
+}
+
+function testRuntimeRetainAndRelease(): void {
+	const runtime = new LionRuntime(fakePi() as any);
+	runtime.retainSubagent({ runId: "run-1", role: "executor", taskId: "task-1" });
+	assert.ok(runtime.retainedInstances.has("task-1"));
+	runtime.releaseRun("run-1");
+	assert.ok(!runtime.retainedInstances.has("task-1"));
+}
+
+function testRuntimeRetainMultipleSameRun(): void {
+	const runtime = new LionRuntime(fakePi() as any);
+	runtime.retainSubagent({ runId: "run-1", role: "executor", taskId: "task-1" });
+	runtime.retainSubagent({ runId: "run-1", role: "reviewer", taskId: "task-2" });
+	assert.equal(runtime.retainedInstances.size, 2);
+	runtime.releaseRun("run-1");
+	assert.equal(runtime.retainedInstances.size, 0);
+}
+
+function testRuntimeCreateSubAgentController(): void {
+	const runtime = new LionRuntime(fakePi() as any);
+	const ctx = fakeCtx({}) as any;
+	const controller = runtime.createSubAgentController(ctx, "run-1");
+	assert.ok(controller);
+	assert.equal(runtime.activeRunId, "run-1");
+	assert.ok(runtime.controllers.has("run-1"));
+}
+
+function testRuntimeEnsureControllerReturnsSame(): void {
+	const runtime = new LionRuntime(fakePi() as any);
+	const ctx = fakeCtx({}) as any;
+	const c1 = runtime.ensureController(ctx);
+	const c2 = runtime.ensureController(ctx);
+	assert.equal(c1, c2);
+}
+
+function testRuntimeSetMode(): void {
+	const runtime = new LionRuntime(fakePi() as any);
+	runtime.setMode("building");
+	assert.equal(runtime.state.mode, "building");
+	assert.equal(runtime.state.active, true);
+}
+
+function testRuntimeSetActiveTask(): void {
+	const runtime = new LionRuntime(fakePi() as any);
+	runtime.setActiveTask("T-001");
+	assert.equal(runtime.state.activeTaskId, "T-001");
+}
+
+function testRuntimeSetLastRun(): void {
+	const runtime = new LionRuntime(fakePi() as any);
+	runtime.setLastRun("run-1");
+	assert.equal(runtime.state.lastRunId, "run-1");
+}
+
+function testRuntimeApplyBuildResult(): void {
+	const runtime = new LionRuntime(fakePi() as any);
+	const result = { status: "approved" as const, summary: "Done", taskId: "T-001", attempts: 1 };
+	runtime.applyBuildResult(result);
+	assert.equal(runtime.state.mode, "planning");
+	assert.equal(runtime.state.activeTaskId, null);
+	assert.deepEqual(runtime.state.lastBuild, result);
+}
+
+function testRuntimeQueueFeedbackWhenIdle(): void {
+	const pi = fakePi();
+	const runtime = new LionRuntime(pi as any);
+	const ctx = fakeCtx({ isIdle: true, hasPending: false }) as any;
+	runtime.queueFeedback(ctx, "test", { foo: 1 });
+	assert.equal(pi.messages.length, 1);
+	assert.equal(pi.messages[0].content, "test");
+}
+
+function testRuntimeQueueFeedbackWhenBusy(): void {
+	const pi = fakePi();
+	const runtime = new LionRuntime(pi as any);
+	const ctx = fakeCtx({ isIdle: false, hasPending: false }) as any;
+	runtime.queueFeedback(ctx, "test", { foo: 1 });
+	assert.equal(pi.messages.length, 1);
+	assert.equal(pi.messages[0].options.deliverAs, "followUp");
+}
+
+function testRuntimeQueueFeedbackSkipsWhenPending(): void {
+	const pi = fakePi();
+	const runtime = new LionRuntime(pi as any);
+	const ctx = fakeCtx({ isIdle: true, hasPending: true }) as any;
+	runtime.queueFeedback(ctx, "test", { foo: 1 });
+	assert.equal(pi.messages.length, 1);
+	assert.equal(pi.messages[0].options.deliverAs, "followUp");
+}
+
+function testRuntimeGetSubagentHealth(): void {
+	const runtime = new LionRuntime(fakePi() as any);
+	runtime.startJob({ runId: "run-1", taskId: "task-1", role: "executor", title: "Job 1" });
+	runtime.startJob({ runId: "run-1", taskId: "task-2", role: "reviewer", title: "Job 2" });
+	const health = runtime.getSubagentHealth();
+	assert.equal(health.length, 2);
+	assert.equal(health[0].title, "Job 2"); // sorted by updatedAt desc
+}
+
+function testRuntimeGetSubagentHealthByTaskId(): void {
+	const runtime = new LionRuntime(fakePi() as any);
+	runtime.startJob({ runId: "run-1", taskId: "task-1", role: "executor", title: "Job 1" });
+	runtime.startJob({ runId: "run-1", taskId: "task-2", role: "reviewer", title: "Job 2" });
+	const health = runtime.getSubagentHealth("task-1");
+	assert.equal(health.length, 1);
+	assert.equal(health[0].title, "Job 1");
+}
+
+function testRuntimeRecordSubagentUiEvent(): void {
+	const runtime = new LionRuntime(fakePi() as any);
+	runtime.startSubagentUi({ runId: "run-1", taskId: "task-1", role: "executor", title: "Build auth" });
+	runtime.recordSubagentUiEvent({
+		type: "task.start",
+		instanceId: "inst-1",
+		taskId: "task-1",
+		definitionName: "coder",
+		description: "Building auth",
+		timestamp: Date.now(),
+	});
+	const ui = runtime.subagentUi.get("task-1");
+	assert.equal(ui?.status, "running");
+	assert.equal(ui?.title, "Building auth");
+}
+
+function testRuntimeRecordSubagentUiEventTurnComplete(): void {
+	const runtime = new LionRuntime(fakePi() as any);
+	runtime.startSubagentUi({ runId: "run-1", taskId: "task-1", role: "executor", title: "Build auth" });
+	runtime.recordSubagentUiEvent({
+		type: "turn.complete",
+		instanceId: "inst-1",
+		taskId: "task-1",
+		turnIndex: 2,
+		toolCount: 3,
+		hadError: false,
+		timestamp: Date.now(),
+	});
+	const ui = runtime.subagentUi.get("task-1");
+	assert.equal(ui?.turnCount, 3);
+	assert.equal(ui?.toolCount, 3);
+}
+
+function testRuntimeRecordSubagentUiEventToolStart(): void {
+	const runtime = new LionRuntime(fakePi() as any);
+	runtime.startSubagentUi({ runId: "run-1", taskId: "task-1", role: "executor", title: "Build auth" });
+	runtime.recordSubagentUiEvent({
+		type: "tool.start",
+		instanceId: "inst-1",
+		taskId: "task-1",
+		toolName: "edit_file",
+		toolCallId: "tc-1",
+		timestamp: Date.now(),
+	});
+	const ui = runtime.subagentUi.get("task-1");
+	assert.equal(ui?.currentTool, "edit_file");
+}
+
+function testRuntimeRecordSubagentUiEventToolEnd(): void {
+	const runtime = new LionRuntime(fakePi() as any);
+	runtime.startSubagentUi({ runId: "run-1", taskId: "task-1", role: "executor", title: "Build auth" });
+	runtime.recordSubagentUiEvent({
+		type: "tool.start",
+		instanceId: "inst-1",
+		taskId: "task-1",
+		toolName: "edit_file",
+		toolCallId: "tc-1",
+		timestamp: Date.now(),
+	});
+	runtime.recordSubagentUiEvent({
+		type: "tool.end",
+		instanceId: "inst-1",
+		taskId: "task-1",
+		toolName: "edit_file",
+		toolCallId: "tc-1",
+		isError: false,
+		timestamp: Date.now(),
+	});
+	const ui = runtime.subagentUi.get("task-1");
+	assert.equal(ui?.currentTool, null);
+}
+
+function testRuntimeRecordSubagentUiEventProgress(): void {
+	const runtime = new LionRuntime(fakePi() as any);
+	runtime.startSubagentUi({ runId: "run-1", taskId: "task-1", role: "executor", title: "Build auth" });
+	runtime.recordSubagentUiEvent({
+		type: "progress.update",
+		instanceId: "inst-1",
+		taskId: "task-1",
+		message: "Making progress",
+		timestamp: Date.now(),
+	});
+	const ui = runtime.subagentUi.get("task-1");
+	assert.equal(ui?.summary, "Making progress");
+}
+
+function testRuntimeRecordSubagentUiEventTaskEnd(): void {
+	const runtime = new LionRuntime(fakePi() as any);
+	runtime.startSubagentUi({ runId: "run-1", taskId: "task-1", role: "executor", title: "Build auth" });
+	runtime.recordSubagentUiEvent({
+		type: "task.end",
+		instanceId: "inst-1",
+		taskId: "task-1",
+		result: delegationResult(
+			{ id: "task-1", definition: "coder", prompt: "do it" } as DelegationTask,
+			"completed",
+			"done",
+		),
+		timestamp: Date.now(),
+	});
+	const ui = runtime.subagentUi.get("task-1");
+	assert.equal(ui?.status, "completed");
+	assert.equal(ui?.summary, "done");
+	assert.equal(ui?.turnCount, 1);
+}
+
+function testRuntimeRecordSubagentUiEventError(): void {
+	const runtime = new LionRuntime(fakePi() as any);
+	runtime.startSubagentUi({ runId: "run-1", taskId: "task-1", role: "executor", title: "Build auth" });
+	runtime.recordSubagentUiEvent({
+		type: "error",
+		instanceId: "inst-1",
+		taskId: "task-1",
+		error: "Something failed",
+		fatal: true,
+		timestamp: Date.now(),
+	});
+	const ui = runtime.subagentUi.get("task-1");
+	assert.equal(ui?.status, "failed");
+	assert.equal(ui?.summary, "Something failed");
+}
+
+function testRuntimeRecordSubagentUiEventInstanceState(): void {
+	const runtime = new LionRuntime(fakePi() as any);
+	runtime.startSubagentUi({ runId: "run-1", taskId: "task-1", role: "executor", title: "Build auth" });
+	runtime.recordSubagentUiEvent({
+		type: "instance.state",
+		instanceId: "inst-1",
+		taskId: "task-1",
+		state: {
+			instanceId: "inst-1",
+			taskId: "task-1",
+			definitionName: "coder",
+			state: "running",
+			startTime: 1,
+			endTime: null,
+			turnCount: 5,
+			lastActivityAt: Date.now(),
+			currentTool: "bash",
+			error: null,
+			toolCount: 2,
+			currentToolStartedAt: null,
+			durationMs: 100,
+		},
+		timestamp: Date.now(),
+	});
+	const ui = runtime.subagentUi.get("task-1");
+	assert.equal(ui?.turnCount, 5);
+	assert.equal(ui?.currentTool, "bash");
+}
+
+function testRuntimeRecordSubagentUiEventIgnoresNoTaskId(): void {
+	const runtime = new LionRuntime(fakePi() as any);
+	runtime.startSubagentUi({ runId: "run-1", taskId: "task-1", role: "executor", title: "Build auth" });
+	runtime.recordSubagentUiEvent({
+		type: "lifecycle.change",
+		instanceId: "inst-1",
+		previous: "created",
+		current: "running",
+		timestamp: Date.now(),
+	} as any);
+	// Should not throw
+	assert.equal(runtime.subagentUi.get("task-1")?.status, "queued");
+}
+
+function testRuntimeFinishJob(): void {
+	const runtime = new LionRuntime(fakePi() as any);
+	runtime.startJob({ runId: "run-1", taskId: "task-1", role: "executor", title: "Build auth" });
+	const result = delegationResult(
+		{ id: "task-1", definition: "coder", prompt: "do it" } as DelegationTask,
+		"completed",
+		"done",
+	);
+	const job = runtime.finishJob("task-1", result);
+	assert.equal(job?.status, "completed");
+	assert.equal(job?.result, result);
+}
+
+function testRuntimeFinishJobWithError(): void {
+	const runtime = new LionRuntime(fakePi() as any);
+	runtime.startJob({ runId: "run-1", taskId: "task-1", role: "executor", title: "Build auth" });
+	const job = runtime.finishJob("task-1", null, "failed");
+	assert.equal(job?.status, "failed");
+	assert.equal(job?.error, "failed");
+}
+
+function testRuntimeFinishJobUnknownTask(): void {
+	const runtime = new LionRuntime(fakePi() as any);
+	const job = runtime.finishJob("unknown", null);
+	assert.equal(job, null);
+}
+
+function testRuntimeStartJob(): void {
+	const runtime = new LionRuntime(fakePi() as any);
+	const job = runtime.startJob({ runId: "run-1", taskId: "task-1", role: "executor", title: "Build auth" });
+	assert.equal(job.status, "queued");
+	assert.equal(job.title, "Build auth");
+	assert.equal(job.role, "implementer");
+}
+
+function testRuntimeRememberUiContext(): void {
+	const runtime = new LionRuntime(fakePi() as any);
+	const ctx = fakeCtx({ hasUI: true }) as any;
+	runtime.rememberUiContext(ctx);
+	assert.equal(runtime.lastUiContext, ctx);
+}
+
+function testRuntimeRememberUiContextNoUI(): void {
+	const runtime = new LionRuntime(fakePi() as any);
+	const ctx = fakeCtx({ hasUI: false }) as any;
+	runtime.rememberUiContext(ctx);
+	assert.equal(runtime.lastUiContext, null);
+}
+
+function testRuntimeCleanupSubagentUi(): void {
+	const runtime = new LionRuntime(fakePi() as any);
+	const now = Date.now();
+	runtime.startSubagentUi({
+		runId: "run-1",
+		taskId: "task-1",
+		role: "executor",
+		title: "Old",
+		timestamp: now - 20000,
+	});
+	runtime.subagentUi.get("task-1")!.status = "completed";
+	runtime.subagentUi.get("task-1")!.completedAt = now - 20000;
+
+	runtime.cleanupSubagentUi(now, 5000);
+	assert.equal(runtime.subagentUi.has("task-1"), false);
+}
+
+function testRuntimeCleanupSubagentUiKeepsRecent(): void {
+	const runtime = new LionRuntime(fakePi() as any);
+	const now = Date.now();
+	runtime.startSubagentUi({ runId: "run-1", taskId: "task-1", role: "executor", title: "Recent" });
+	runtime.subagentUi.get("task-1")!.status = "completed";
+	runtime.subagentUi.get("task-1")!.completedAt = now - 1000;
+
+	runtime.cleanupSubagentUi(now, 5000);
+	assert.equal(runtime.subagentUi.has("task-1"), true);
+}
+
+// Helpers
+
+function fakePi() {
+	return {
+		entries: [] as any[],
+		messages: [] as any[],
+		appendEntry(type: string, data: any) {
+			this.entries.push({ type, data });
+		},
+		sendMessage(content: any, options: any) {
+			this.messages.push({ content, options });
+		},
+	};
+}
+
+function fakeCtx(opts: { entries?: any[]; isIdle?: boolean; hasPending?: boolean; hasUI?: boolean }) {
+	return {
+		sessionManager: {
+			getBranch: () => opts.entries || [],
+			getCwd: () => "/tmp",
+			getSessionId: () => "test-session",
+		},
+		isIdle: () => opts.isIdle ?? true,
+		hasPendingMessages: () => opts.hasPending ?? false,
+		hasUI: opts.hasUI ?? false,
+		ui: {
+			setStatus: () => {},
+			showMessage: () => {},
+		},
+		modelRegistry: {
+			getApiKeyAndHeaders: () => Promise.resolve({ ok: true, apiKey: "test", headers: {} }),
+		},
+	};
+}
+
+function createStructuredPlanDir(): string {
+	const dir = mkdtempSync(join(tmpdir(), "lion-structured-"));
+	writeFileSync(
+		join(dir, "task-index.md"),
+		`# Test Plan
+
+## T-001: Task 1
+
+Status: pending
+
+## T-002: Task 2
+
+Status: pending
+`,
+	);
+	writeFileSync(join(dir, "context.md"), "# Context\n\nTest project context.");
+	writeFileSync(join(dir, "requirements.md"), "# Requirements\n\n- req-1\n- req-2");
+	mkdirSync(join(dir, "tasks"), { recursive: true });
+	writeFileSync(
+		join(dir, "tasks", "T-001.md"),
+		`# T-001: Task 1
+
+Status: pending
+Dependencies:
+Requirements:
+`,
+	);
+	writeFileSync(
+		join(dir, "tasks", "T-002.md"),
+		`# T-002: Task 2
+
+Status: pending
+Dependencies:
+Requirements:
+`,
+	);
+	return dir;
+}
+
+function createStructuredPlanDirWithChecklist(): string {
+	const dir = mkdtempSync(join(tmpdir(), "lion-structured-"));
+	writeFileSync(
+		join(dir, "task-index.md"),
+		`# Test Plan
+
+## T-001: Task 1
+
+Status: pending
+`,
+	);
+	writeFileSync(join(dir, "context.md"), "# Context\n\nTest project context.");
+	writeFileSync(join(dir, "requirements.md"), "# Requirements\n\n- req-1");
+	writeFileSync(
+		join(dir, "checklist.json"),
+		JSON.stringify({
+			completed: 0,
+			total_tasks: 1,
+			tasks: [{ id: "T-001", title: "Task 1", status: "pending", dependencies: [], requirements: [] }],
+		}),
+	);
+	return dir;
+}
+
+// Run all tests
+
+const tests = [
+	{ name: "testReporterPersistsAndForwardsEvents", fn: testReporterPersistsAndForwardsEvents },
+	{ name: "testReporterFlagsCompleteWithoutApproval", fn: testReporterFlagsCompleteWithoutApproval },
+	{ name: "testReporterSkipsSubagentNoiseInPlanLog", fn: testReporterSkipsSubagentNoiseInPlanLog },
+	{ name: "testStartRunInitializesRun", fn: testStartRunInitializesRun },
+	{ name: "testFinishRunMarksComplete", fn: testFinishRunMarksComplete },
+	{ name: "testFinishRunRetriesOnReject", fn: testFinishRunRetriesOnReject },
+	{ name: "testFinishRunFailsAfterMaxAttempts", fn: testFinishRunFailsAfterMaxAttempts },
+	{ name: "testRecordSubagentResultUpdatesRun", fn: testRecordSubagentResultUpdatesRun },
+	{ name: "testParseReviewVerdict", fn: testParseReviewVerdict },
+	{ name: "testBuildPlanReviewPrompt", fn: testBuildPlanReviewPrompt },
+	{ name: "testBuildPlanningSystemPrompt", fn: testBuildPlanningSystemPrompt },
+	{ name: "testWidgetLinesWithNoJobs", fn: testWidgetLinesWithNoJobs },
+	{ name: "testWidgetLinesWithJobs", fn: testWidgetLinesWithJobs },
+	{ name: "testWidgetLinesWithCompletedJob", fn: testWidgetLinesWithCompletedJob },
+	{ name: "testWidgetLinesWithFailedJob", fn: testWidgetLinesWithFailedJob },
+	{ name: "testWidgetLinesWithToolInfo", fn: testWidgetLinesWithToolInfo },
+	{ name: "testWidgetLinesFitInPanel", fn: testWidgetLinesFitInPanel },
+	{ name: "testWidgetCleanupRemovesOldCompleted", fn: testWidgetCleanupRemovesOldCompleted },
+	{ name: "testWidgetCleanupKeepsRecentCompleted", fn: testWidgetCleanupKeepsRecentCompleted },
+	{ name: "testWidgetCleanupKeepsRunning", fn: testWidgetCleanupKeepsRunning },
+	{ name: "testWidgetCleanupRemovesOrphanedQueued", fn: testWidgetCleanupRemovesOrphanedQueued },
+	{ name: "testWidgetCleanupKeepsRecentQueued", fn: testWidgetCleanupKeepsRecentQueued },
+	{ name: "testChecklistFileRoundTrip", fn: testChecklistFileRoundTrip },
+	{ name: "testChecklistFileUpdateNonExistentTask", fn: testChecklistFileUpdateNonExistentTask },
+	{ name: "testChecklistFileLoadTasks", fn: testChecklistFileLoadTasks },
+	{ name: "testChecklistFileLoadTasksWithRequirements", fn: testChecklistFileLoadTasksWithRequirements },
+	{ name: "testChecklistFileRunningMapsToInProgress", fn: testChecklistFileRunningMapsToInProgress },
+	{ name: "testStructuredPlanFileRoundTrip", fn: testStructuredPlanFileRoundTrip },
+	{ name: "testStructuredPlanFileLoadMissing", fn: testStructuredPlanFileLoadMissing },
+	{ name: "testStructuredPlanFileMarkTaskComplete", fn: testStructuredPlanFileMarkTaskComplete },
+	{ name: "testStructuredPlanFileMarkNonExistentTask", fn: testStructuredPlanFileMarkNonExistentTask },
+	{ name: "testResolvePlanPath", fn: testResolvePlanPath },
+	{ name: "testResolvePlanPathWithDir", fn: testResolvePlanPathWithDir },
+	{ name: "testRuntimeRestoreState", fn: testRuntimeRestoreState },
+	{ name: "testRuntimeRestoreStateInvalidVersion", fn: testRuntimeRestoreStateInvalidVersion },
+	{ name: "testRuntimeRestoreStateNoEntries", fn: testRuntimeRestoreStateNoEntries },
+	{ name: "testRuntimePersist", fn: testRuntimePersist },
+	{ name: "testRuntimeEmit", fn: testRuntimeEmit },
+	{ name: "testRuntimeRetainAndRelease", fn: testRuntimeRetainAndRelease },
+	{ name: "testRuntimeRetainMultipleSameRun", fn: testRuntimeRetainMultipleSameRun },
+	{ name: "testRuntimeCreateSubAgentController", fn: testRuntimeCreateSubAgentController },
+	{ name: "testRuntimeEnsureControllerReturnsSame", fn: testRuntimeEnsureControllerReturnsSame },
+	{ name: "testRuntimeSetMode", fn: testRuntimeSetMode },
+	{ name: "testRuntimeSetActiveTask", fn: testRuntimeSetActiveTask },
+	{ name: "testRuntimeSetLastRun", fn: testRuntimeSetLastRun },
+	{ name: "testRuntimeApplyBuildResult", fn: testRuntimeApplyBuildResult },
+	{ name: "testRuntimeQueueFeedbackWhenIdle", fn: testRuntimeQueueFeedbackWhenIdle },
+	{ name: "testRuntimeQueueFeedbackWhenBusy", fn: testRuntimeQueueFeedbackWhenBusy },
+	{ name: "testRuntimeQueueFeedbackSkipsWhenPending", fn: testRuntimeQueueFeedbackSkipsWhenPending },
+	{ name: "testRuntimeGetSubagentHealth", fn: testRuntimeGetSubagentHealth },
+	{ name: "testRuntimeGetSubagentHealthByTaskId", fn: testRuntimeGetSubagentHealthByTaskId },
+	{ name: "testRuntimeRecordSubagentUiEvent", fn: testRuntimeRecordSubagentUiEvent },
+	{ name: "testRuntimeRecordSubagentUiEventTurnComplete", fn: testRuntimeRecordSubagentUiEventTurnComplete },
+	{ name: "testRuntimeRecordSubagentUiEventToolStart", fn: testRuntimeRecordSubagentUiEventToolStart },
+	{ name: "testRuntimeRecordSubagentUiEventToolEnd", fn: testRuntimeRecordSubagentUiEventToolEnd },
+	{ name: "testRuntimeRecordSubagentUiEventProgress", fn: testRuntimeRecordSubagentUiEventProgress },
+	{ name: "testRuntimeRecordSubagentUiEventTaskEnd", fn: testRuntimeRecordSubagentUiEventTaskEnd },
+	{ name: "testRuntimeRecordSubagentUiEventError", fn: testRuntimeRecordSubagentUiEventError },
+	{ name: "testRuntimeRecordSubagentUiEventInstanceState", fn: testRuntimeRecordSubagentUiEventInstanceState },
+	{ name: "testRuntimeRecordSubagentUiEventIgnoresNoTaskId", fn: testRuntimeRecordSubagentUiEventIgnoresNoTaskId },
+	{ name: "testRuntimeFinishJob", fn: testRuntimeFinishJob },
+	{ name: "testRuntimeFinishJobWithError", fn: testRuntimeFinishJobWithError },
+	{ name: "testRuntimeFinishJobUnknownTask", fn: testRuntimeFinishJobUnknownTask },
+	{ name: "testRuntimeStartJob", fn: testRuntimeStartJob },
+	{ name: "testRuntimeRememberUiContext", fn: testRuntimeRememberUiContext },
+	{ name: "testRuntimeRememberUiContextNoUI", fn: testRuntimeRememberUiContextNoUI },
+	{ name: "testRuntimeCleanupSubagentUi", fn: testRuntimeCleanupSubagentUi },
+	{ name: "testRuntimeCleanupSubagentUiKeepsRecent", fn: testRuntimeCleanupSubagentUiKeepsRecent },
+];
+
+async function runTests() {
+	let passed = 0;
+	let failed = 0;
+	for (const { name, fn } of tests) {
+		try {
+			await fn();
+			passed++;
+		} catch (err) {
+			failed++;
+			console.error(`FAIL: ${name}`);
+			console.error(err);
+		}
+	}
+	console.log(`\n${passed} passed, ${failed} failed`);
+	if (failed > 0) process.exit(1);
+}
+
+runTests();

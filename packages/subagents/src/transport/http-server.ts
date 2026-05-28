@@ -16,14 +16,23 @@ export interface HttpServerTransportOptions {
 }
 
 interface SseClient {
-	controller: ReadableStreamDefaultController<string>;
+	controller: ReadableStreamDefaultController<Uint8Array>;
+	instanceId?: string;
 }
+
+const encoder = new TextEncoder();
 
 function resolveStaticDir(options: HttpServerTransportOptions): string {
 	if (options.staticDir) return options.staticDir;
 	// Default: frontend/dist relative to this file's location in dist/
 	return join(import.meta.dirname ?? ".", "..", "..", "frontend", "dist");
 }
+
+const CORS_HEADERS = {
+	"Access-Control-Allow-Origin": "*",
+	"Access-Control-Allow-Methods": "GET, OPTIONS",
+	"Access-Control-Allow-Headers": "Content-Type",
+};
 
 export class HttpServerTransport implements SubAgentTransport {
 	readonly id = "http-server";
@@ -32,9 +41,11 @@ export class HttpServerTransport implements SubAgentTransport {
 	private instanceStates = new Map<string, SubAgentInstanceState>();
 	private eventLogs = new Map<string, SubAgentEvent[]>();
 	private staticDir: string;
+	private sseCleanupTimer: ReturnType<typeof setInterval> | null = null;
 
 	constructor(private options: HttpServerTransportOptions) {
 		this.staticDir = resolveStaticDir(options);
+		this.sseCleanupTimer = setInterval(() => this.cleanupStaleSseClients(), 30000);
 	}
 
 	get port(): number {
@@ -50,6 +61,10 @@ export class HttpServerTransport implements SubAgentTransport {
 	}
 
 	async stop(): Promise<void> {
+		if (this.sseCleanupTimer) {
+			clearInterval(this.sseCleanupTimer);
+			this.sseCleanupTimer = null;
+		}
 		for (const client of this.clients) {
 			try {
 				client.controller.close();
@@ -74,8 +89,12 @@ export class HttpServerTransport implements SubAgentTransport {
 			this.eventLogs.set(event.instanceId, log);
 		}
 
-		const payload = `data: ${JSON.stringify(event)}\n\n`;
+		const payload = encoder.encode(`data: ${JSON.stringify(event)}\n\n`);
 		for (const client of this.clients) {
+			// If client subscribed to a specific instance, filter
+			if (client.instanceId && "instanceId" in event && event.instanceId !== client.instanceId) {
+				continue;
+			}
 			try {
 				client.controller.enqueue(payload);
 			} catch {
@@ -89,6 +108,10 @@ export class HttpServerTransport implements SubAgentTransport {
 		const url = new URL(req.url);
 		const pathname = url.pathname;
 
+		if (req.method === "OPTIONS") {
+			return new Response(null, { status: 204, headers: CORS_HEADERS });
+		}
+
 		if (req.method === "GET" && pathname === "/") {
 			return this.serveStaticFile("index.html", "text/html; charset=utf-8");
 		}
@@ -98,7 +121,7 @@ export class HttpServerTransport implements SubAgentTransport {
 		}
 
 		if (req.method === "GET" && pathname === "/api/instances") {
-			return this.serveInstances();
+			return this.withCors(this.serveInstances());
 		}
 
 		if (req.method === "GET" && pathname.startsWith("/api/instances/")) {
@@ -107,13 +130,16 @@ export class HttpServerTransport implements SubAgentTransport {
 			const instanceId = decodeURIComponent(segments[0]);
 
 			if (segments.length === 1) {
-				return this.serveInstance(instanceId);
+				return this.withCors(this.serveInstance(instanceId));
 			}
 			if (segments.length === 2 && segments[1] === "session") {
-				return this.serveSession(instanceId);
+				return this.withCors(this.serveSession(instanceId));
 			}
 			if (segments.length === 2 && segments[1] === "events") {
-				return this.serveInstanceEvents(instanceId);
+				return this.withCors(this.serveInstanceEvents(instanceId));
+			}
+			if (segments.length === 2 && segments[1] === "messages") {
+				return this.withCors(this.serveMessages(instanceId));
 			}
 		}
 
@@ -127,6 +153,13 @@ export class HttpServerTransport implements SubAgentTransport {
 		}
 
 		return new Response("Not Found", { status: 404 });
+	}
+
+	private withCors(response: Response): Response {
+		for (const [key, value] of Object.entries(CORS_HEADERS)) {
+			response.headers.set(key, value);
+		}
+		return response;
 	}
 
 	private serveStaticFile(filename: string, contentType: string): Response {
@@ -198,10 +231,21 @@ export class HttpServerTransport implements SubAgentTransport {
 		});
 	}
 
-	private serveEvents(req: Request, _url: URL): Response {
-		const stream = new ReadableStream<string>({
+	private serveMessages(instanceId: string): Response {
+		const instance = this.options.controller.getInstanceById(instanceId);
+		if (!instance) {
+			return new Response("Not Found", { status: 404 });
+		}
+		const messages = instance.getMessages();
+		return Response.json(messages);
+	}
+
+	private serveEvents(req: Request, url: URL): Response {
+		const instanceId = url.searchParams.get("instanceId") ?? undefined;
+
+		const stream = new ReadableStream<Uint8Array>({
 			start: (controller) => {
-				const client: SseClient = { controller };
+				const client: SseClient = { controller, instanceId };
 				this.clients.add(client);
 
 				req.signal.addEventListener("abort", () => {
@@ -220,7 +264,19 @@ export class HttpServerTransport implements SubAgentTransport {
 				"Content-Type": "text/event-stream",
 				"Cache-Control": "no-cache",
 				Connection: "keep-alive",
+				...CORS_HEADERS,
 			},
 		});
+	}
+
+	private cleanupStaleSseClients(): void {
+		const heartbeat = encoder.encode(":heartbeat\n\n");
+		for (const client of this.clients) {
+			try {
+				client.controller.enqueue(heartbeat);
+			} catch {
+				this.clients.delete(client);
+			}
+		}
 	}
 }

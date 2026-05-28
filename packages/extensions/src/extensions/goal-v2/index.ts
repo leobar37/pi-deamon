@@ -8,7 +8,7 @@
  */
 
 import { StringEnum } from "@earendil-works/pi-ai";
-import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
+import { compact, type ExtensionAPI, type ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
 import { GoalContextTracker } from "./context-store.js";
 import {
@@ -19,10 +19,11 @@ import {
 	currentGoalSnapshot,
 	restoreFromState,
 	setGoal,
+	setGoalPhase,
 	setGoalStatus,
 } from "./core.js";
-import { activeGoalSystemPrompt, continuationPrompt } from "./prompts.js";
-import type { PersistedGoalState } from "./types.js";
+import { activeGoalSystemPrompt, continuationPrompt, goalCompactionInstructions } from "./prompts.js";
+import type { GoalContextDocument, PersistedGoalState } from "./types.js";
 import { goalResponse, goalSummary, validateObjective } from "./utils.js";
 
 const STATE_TYPE = "goal-v2";
@@ -37,7 +38,33 @@ const CreateGoalParams = Type.Object({
 });
 
 const UpdateGoalParams = Type.Object({
-	status: StringEnum(["complete"] as const),
+	status: StringEnum(["complete", "blocked"] as const),
+	blocker_reason: Type.Optional(
+		Type.String({
+			description: "Required when status is blocked. Explain the missing user input or external-state change.",
+		}),
+	),
+});
+
+const RecordGoalProgressParams = Type.Object({
+	kind: StringEnum(["context", "plan", "work", "verification", "blocker", "decision", "status"] as const),
+	summary: Type.String({
+		description: "Concise durable progress summary.",
+	}),
+	details: Type.Optional(Type.String({ description: "Additional details to persist in the goal context." })),
+	evidence: Type.Optional(
+		Type.Array(Type.String({ description: "Concrete evidence such as files, commands, or results." })),
+	),
+	phase: Type.Optional(
+		StringEnum(["context_gathering", "executing", "verifying", "blocked"] as const, {
+			description: "Current phase after recording this progress.",
+		}),
+	),
+	success_criteria: Type.Optional(Type.Array(Type.String())),
+	relevant_files: Type.Optional(Type.Array(Type.String())),
+	constraints: Type.Optional(Type.Array(Type.String())),
+	blockers: Type.Optional(Type.Array(Type.String())),
+	notes: Type.Optional(Type.Array(Type.String())),
 });
 
 export default function goalV2Extension(pi: ExtensionAPI) {
@@ -61,6 +88,9 @@ export default function goalV2Extension(pi: ExtensionAPI) {
 			}
 			case "paused":
 				ctx.ui.setStatus("goal-v2", theme.fg("warning", "Goal paused (/goal resume)"));
+				break;
+			case "blocked":
+				ctx.ui.setStatus("goal-v2", theme.fg("warning", "Goal blocked (/goal resume)"));
 				break;
 			case "complete":
 				ctx.ui.setStatus("goal-v2", theme.fg("success", "Goal complete"));
@@ -97,6 +127,46 @@ export default function goalV2Extension(pi: ExtensionAPI) {
 		await tracker.recordWork(core.goal, summary, details);
 	}
 
+	async function readGoalContext(ctx: ExtensionContext): Promise<GoalContextDocument | null> {
+		if (!core.goal) return null;
+		const tracker = new GoalContextTracker(ctx.sessionManager.getCwd(), ctx.sessionManager.getSessionId());
+		return tracker.read(core.goal);
+	}
+
+	async function recordGoalProgress(
+		ctx: ExtensionContext,
+		params: {
+			kind: "context" | "plan" | "work" | "verification" | "blocker" | "decision" | "status";
+			summary: string;
+			details?: string;
+			evidence?: string[];
+			success_criteria?: string[];
+			relevant_files?: string[];
+			constraints?: string[];
+			blockers?: string[];
+			notes?: string[];
+		},
+	): Promise<void> {
+		if (!core.goal) return;
+		const tracker = new GoalContextTracker(ctx.sessionManager.getCwd(), ctx.sessionManager.getSessionId());
+		await tracker.recordProgress(
+			core.goal,
+			{
+				kind: params.kind,
+				summary: params.summary,
+				details: params.details,
+				evidence: params.evidence,
+			},
+			{
+				successCriteria: params.success_criteria,
+				relevantFiles: params.relevant_files,
+				constraints: params.constraints,
+				blockers: params.blockers,
+				notes: params.notes,
+			},
+		);
+	}
+
 	async function recordGoalCompletion(ctx: ExtensionContext): Promise<void> {
 		if (!core.goal) return;
 		const tracker = new GoalContextTracker(ctx.sessionManager.getCwd(), ctx.sessionManager.getSessionId());
@@ -123,10 +193,12 @@ export default function goalV2Extension(pi: ExtensionAPI) {
 			}
 		} catch (err) {
 			core.continuationQueued = false;
-			ctx.ui.notify(
-				`Failed to queue goal continuation: ${err instanceof Error ? err.message : String(err)}`,
-				"error",
-			);
+			if (ctx.hasUI) {
+				ctx.ui.notify(
+					`Failed to queue goal continuation: ${err instanceof Error ? err.message : String(err)}`,
+					"error",
+				);
+			}
 		}
 	}
 
@@ -175,6 +247,38 @@ export default function goalV2Extension(pi: ExtensionAPI) {
 
 		if (core.goal.status === "active") {
 			queueContinuation(ctx);
+		}
+	});
+
+	pi.on("session_before_compact", async (event, ctx) => {
+		const snapshot = currentGoalSnapshot(core);
+		if (!snapshot || snapshot.status === "complete" || !ctx.model) return;
+		const auth = await ctx.modelRegistry.getApiKeyAndHeaders(ctx.model);
+		if (!auth.ok) return;
+
+		const instructionParts = [
+			event.customInstructions,
+			goalCompactionInstructions(snapshot, await readGoalContext(ctx)),
+		]
+			.filter(Boolean)
+			.join("\n\n");
+
+		try {
+			const compaction = await compact(
+				event.preparation,
+				ctx.model,
+				auth.apiKey ?? "",
+				auth.headers,
+				instructionParts,
+				event.signal,
+			);
+			return { compaction };
+		} catch (error) {
+			if (ctx.hasUI) {
+				const message = error instanceof Error ? error.message : String(error);
+				ctx.ui.notify(`Goal compaction failed: ${message}`, "warning");
+			}
+			return;
 		}
 	});
 
@@ -349,21 +453,65 @@ export default function goalV2Extension(pi: ExtensionAPI) {
 		name: "update_goal",
 		label: "Update Goal",
 		description:
-			"Update the existing goal. Use this tool only to mark the goal achieved. Set status to complete only when the objective has actually been achieved and no required work remains. Do not mark a goal complete merely because you are stopping work.",
-		promptSnippet: "Mark the current goal complete after verifying all requirements are satisfied",
+			"Update the existing goal. Use this tool only to mark the goal achieved or genuinely blocked. Set status to complete only when the objective has actually been achieved and no required work remains. Set status to blocked only when progress requires missing user input or an external-state change.",
+		promptSnippet: "Mark the current goal complete or blocked after verifying the actual state",
 		promptGuidelines: [
-			"Use update_goal only to mark the active goal complete after verifying the objective is achieved; never use it for pause or resume changes.",
+			"Use update_goal with status complete only after verifying the objective is achieved; never use it for pause or resume changes.",
+			"Use update_goal with status blocked only after recording the blocker and confirming no useful progress can continue without user input or an external-state change.",
 		],
 		parameters: UpdateGoalParams,
 		async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
-			if (params.status !== "complete") {
-				throw new Error(
-					"update_goal can only mark the existing goal complete; pause and resume status changes are controlled by the user or system",
-				);
+			if (params.status === "blocked") {
+				const blockerReason = params.blocker_reason?.trim();
+				if (!blockerReason) {
+					throw new Error("blocker_reason is required when marking a goal blocked");
+				}
+				setGoalPhase(core, "blocked", blockerReason);
+				await recordGoalProgress(ctx, {
+					kind: "blocker",
+					summary: "Goal blocked",
+					details: blockerReason,
+					blockers: [blockerReason],
+				});
+			} else {
+				setGoalStatus(core, "complete");
+				await recordGoalCompletion(ctx);
 			}
-			setGoalStatus(core, "complete");
-			await recordGoalCompletion(ctx);
 			persist("status");
+			updateStatus(ctx);
+			const response = goalResponse(currentGoalSnapshot(core), ctx.sessionManager.getSessionId());
+			return {
+				content: [{ type: "text", text: JSON.stringify(response, null, 2) }],
+				details: response,
+			};
+		},
+	});
+
+	pi.registerTool({
+		name: "record_goal_progress",
+		label: "Record Goal Progress",
+		description:
+			"Persist structured progress for the current goal: work, plans, decisions, verification evidence, relevant files, constraints, success criteria, notes, or blockers.",
+		promptSnippet: "Record durable progress and evidence for the active long-running goal",
+		promptGuidelines: [
+			"Use record_goal_progress whenever you learn durable information needed to avoid repeating work across continuations or compactions.",
+			"Record concrete evidence for verification work, including files inspected, commands run, or external state checked.",
+			"Record blockers before marking a goal blocked.",
+		],
+		parameters: RecordGoalProgressParams,
+		async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
+			if (!core.goal) {
+				throw new Error("cannot record progress because no goal exists");
+			}
+			await recordGoalProgress(ctx, params);
+			if (params.phase) {
+				setGoalPhase(
+					core,
+					params.phase,
+					params.phase === "blocked" ? params.blockers?.join("; ") || params.summary : undefined,
+				);
+				persist("status");
+			}
 			updateStatus(ctx);
 			const response = goalResponse(currentGoalSnapshot(core), ctx.sessionManager.getSessionId());
 			return {

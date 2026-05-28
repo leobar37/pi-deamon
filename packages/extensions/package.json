@@ -24,6 +24,7 @@
 	"dependencies": {
 		"@local/pi-dashboard": "workspace:*",
 		"@local/pi-subagents": "workspace:*",
+		"@local/pi-logger": "workspace:*",
 		"diff": "^8.0.2"
 	},
   "peerDependencies": {

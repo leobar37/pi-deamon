@@ -8,6 +8,7 @@ import type {
 	ToolDefinition,
 	ToolInfo,
 } from "@earendil-works/pi-coding-agent";
+import type { SessionLogger } from "@local/pi-logger";
 
 // =============================================================================
 // Lifecycle
@@ -28,6 +29,7 @@ export interface SubAgentInstanceState {
 	instanceId: string;
 	taskId: string;
 	definitionName: string;
+	description?: string;
 	state: SubAgentState;
 	startTime: number | null;
 	endTime: number | null;
@@ -350,6 +352,7 @@ export interface SubAgentControllerOptions {
 	authStorage?: AuthStorage;
 	modelRegistry?: ModelRegistry;
 	settingsManager?: SettingsManager;
+	logger?: SessionLogger;
 	onEvent?: (event: SubAgentEvent) => void;
 	onLifecycleChange?: (event: SubAgentEventMap["lifecycle.change"]) => void;
 	transports?: import("./transport/types.js").SubAgentTransport[];
@@ -458,6 +461,7 @@ export interface CreateSubAgentInstanceOptions {
 	authStorage?: AuthStorage;
 	modelRegistry?: ModelRegistry;
 	settingsManager?: SettingsManager;
+	logger?: SessionLogger;
 }
 
 // =============================================================================

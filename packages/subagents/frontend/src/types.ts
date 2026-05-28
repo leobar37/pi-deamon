@@ -16,6 +16,7 @@ export interface SubAgentInstanceState {
 	instanceId: string;
 	taskId: string;
 	definitionName: string;
+	description?: string;
 	state: SubAgentState;
 	startTime: number | null;
 	endTime: number | null;

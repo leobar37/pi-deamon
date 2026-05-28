@@ -22,7 +22,7 @@ class LionDashboardServer implements LionDashboard {
 	async start(): Promise<URL> {
 		const controller = this.runtime.activeController;
 		if (!controller) {
-			throw new Error("No active subagent controller. Start a Lion run first (/lion-build or /lion-validate).");
+			throw new Error("No active subagent controller. Lion must be activated first (/lion-activate).");
 		}
 
 		this.transport = new HttpServerTransport({

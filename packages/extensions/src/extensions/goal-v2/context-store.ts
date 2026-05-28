@@ -40,7 +40,7 @@ function parseGoalContextDocument(raw: string, path: string): GoalContextDocumen
 	if (!parsed || typeof parsed !== "object") {
 		throw new Error(`invalid goal context document at ${path}`);
 	}
-	const doc = parsed as GoalContextDocument;
+	const doc = parsed as GoalContextDocument & { blockers?: string[] };
 	if (
 		doc.version !== GOAL_CONTEXT_VERSION ||
 		typeof doc.sessionId !== "string" ||
@@ -56,11 +56,13 @@ function parseGoalContextDocument(raw: string, path: string): GoalContextDocumen
 	assertStringArray(doc.successCriteria, "successCriteria");
 	assertStringArray(doc.relevantFiles, "relevantFiles");
 	assertStringArray(doc.constraints, "constraints");
+	const blockers = doc.blockers ?? [];
+	assertStringArray(blockers, "blockers");
 	assertStringArray(doc.notes, "notes");
 	if (!Array.isArray(doc.iterations)) {
 		throw new Error(`invalid goal context iterations at ${path}`);
 	}
-	return doc;
+	return { ...doc, blockers };
 }
 
 export class GoalContextStore {
@@ -86,6 +88,7 @@ export class GoalContextStore {
 			successCriteria: unique(input.successCriteria ?? []),
 			relevantFiles: unique(input.relevantFiles ?? []),
 			constraints: unique(input.constraints ?? []),
+			blockers: unique(input.blockers ?? []),
 			notes: unique(input.notes ?? []),
 			iterations: [
 				this.createIteration({
@@ -169,6 +172,13 @@ export class GoalContextStore {
 		}));
 	}
 
+	async addBlockers(sessionId: string, goalId: string, blockers: string[]): Promise<GoalContextDocument> {
+		return this.update(sessionId, goalId, (doc) => ({
+			...doc,
+			blockers: unique([...doc.blockers, ...blockers]),
+		}));
+	}
+
 	async addNote(sessionId: string, goalId: string, note: string): Promise<GoalContextDocument> {
 		return this.update(sessionId, goalId, (doc) => ({ ...doc, notes: unique([...doc.notes, note]) }));
 	}
@@ -227,6 +237,41 @@ export class GoalContextTracker {
 
 	async recordWork(goal: Goal, summary: string, details?: string): Promise<void> {
 		await this.record(goal, { kind: "work", summary, details });
+	}
+
+	async recordProgress(
+		goal: Goal,
+		iteration: AppendGoalIterationInput,
+		updates: {
+			successCriteria?: string[];
+			relevantFiles?: string[];
+			constraints?: string[];
+			blockers?: string[];
+			notes?: string[];
+		} = {},
+	): Promise<void> {
+		await this.record(goal, iteration);
+		if (updates.successCriteria?.length) {
+			await this.store.addSuccessCriteria(this.sessionId, goal.id, updates.successCriteria);
+		}
+		if (updates.relevantFiles?.length) {
+			await this.store.addRelevantFiles(this.sessionId, goal.id, updates.relevantFiles);
+		}
+		if (updates.constraints?.length) {
+			await this.store.addConstraints(this.sessionId, goal.id, updates.constraints);
+		}
+		if (updates.blockers?.length) {
+			await this.store.addBlockers(this.sessionId, goal.id, updates.blockers);
+		}
+		if (updates.notes?.length) {
+			for (const note of updates.notes) {
+				await this.store.addNote(this.sessionId, goal.id, note);
+			}
+		}
+	}
+
+	async read(goal: Goal): Promise<GoalContextDocument | null> {
+		return this.store.read(this.sessionId, goal.id);
 	}
 
 	async recordCompletion(goal: Goal): Promise<void> {

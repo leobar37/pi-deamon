@@ -1,4 +1,5 @@
 import type { ExtensionAPI, ExtensionCommandContext, ExtensionContext } from "@earendil-works/pi-coding-agent";
+import type { SessionLogger } from "@local/pi-logger";
 import type { DelegationResult, SubAgentController, SubAgentEvent } from "@local/pi-subagents";
 import {
 	buildPersistedLionCore,
@@ -93,6 +94,7 @@ export class LionRuntime {
 	readonly persistence: LionPersistence;
 	readonly events: LionEventBus;
 	readonly ui: LionUI;
+	logger: SessionLogger | null;
 
 	#pi: ExtensionAPI;
 	#state: LionState;
@@ -123,6 +125,7 @@ export class LionRuntime {
 		this.#lastUiContext = null;
 		this.#widgetTimer = null;
 		this.dashboard = null;
+		this.logger = null;
 	}
 
 	get pi(): ExtensionAPI {
@@ -197,12 +200,18 @@ export class LionRuntime {
 		this.#widgetTimer = value;
 	}
 
-	createSubAgentController(ctx: ExtensionContext, runId: string): SubAgentController {
+	ensureController(ctx: ExtensionContext): SubAgentController {
+		if (this.#activeController) return this.#activeController;
 		const controller = createLionSubAgentController({
 			ctx: ctx as ExtensionCommandContext,
+			logger: this.logger ?? undefined,
 		});
-		this.#controllers.set(runId, controller);
 		this.#activeController = controller;
+		return controller;
+	}
+
+	createSubAgentController(ctx: ExtensionContext, runId: string): SubAgentController {
+		const controller = this.ensureController(ctx);
 		this.#activeRunId = runId;
 		return controller;
 	}
@@ -211,6 +220,9 @@ export class LionRuntime {
 		this.#state = this.persistence.restoreState(ctx);
 		this.#core = restoreLionCore(ctx);
 		this.#activeRunId = this.#core.activeRun?.runId ?? null;
+		if (this.#state.active) {
+			this.ensureController(ctx);
+		}
 		this.ui.updateStatus(ctx, this.#state);
 	}
 
@@ -238,6 +250,63 @@ export class LionRuntime {
 
 	emit(event: LionEvent): void {
 		this.events.emit(event);
+		if (this.logger) {
+			this.logger.log({
+				type: "event",
+				source: "lion",
+				data: event,
+			});
+		}
+	}
+
+	logState(action: string, details?: Record<string, unknown>): void {
+		if (this.logger) {
+			this.logger.log({
+				type: "state",
+				source: "lion",
+				data: {
+					action,
+					state: { ...this.#state },
+					core: this.#core.activeRun
+						? {
+								runId: this.#core.activeRun.runId,
+								status: this.#core.activeRun.status,
+								attempts: this.#core.activeRun.attempts,
+								taskId: this.#core.activeRun.taskId,
+							}
+						: null,
+					...details,
+				},
+			});
+		}
+	}
+
+	logTool(toolName: string, params: unknown, result?: unknown): void {
+		if (this.logger) {
+			this.logger.log({
+				type: "tool",
+				source: "lion",
+				data: {
+					toolName,
+					params,
+					result,
+				},
+			});
+		}
+	}
+
+	logError(context: string, error: unknown): void {
+		if (this.logger) {
+			this.logger.log({
+				type: "error",
+				source: "lion",
+				data: {
+					context,
+					error: error instanceof Error ? error.message : String(error),
+					stack: error instanceof Error ? error.stack : undefined,
+				},
+			});
+		}
 	}
 
 	retainSubagent(options: RetainedLionSubagent): void {
@@ -248,10 +317,9 @@ export class LionRuntime {
 		this.#retainedInstances.forEach((subagent, taskId) => {
 			if (subagent.runId === runId) this.#retainedInstances.delete(taskId);
 		});
-		this.#controllers.delete(runId);
 		if (this.#activeRunId === runId) {
 			this.#activeRunId = null;
-			this.#activeController = null;
+			// Do NOT clear activeController — the persistent controller stays alive for the Lion session
 		}
 	}
 
@@ -277,6 +345,12 @@ export class LionRuntime {
 			lastEvents: [],
 		};
 		this.#subagentJobs.set(options.taskId, job);
+		this.logState("start_job", {
+			runId: options.runId,
+			taskId: options.taskId,
+			role: options.role,
+			title: options.title,
+		});
 		return job;
 	}
 
@@ -293,6 +367,7 @@ export class LionRuntime {
 			error: error ?? result?.error ?? null,
 		};
 		this.#subagentJobs.set(taskId, next);
+		this.logState("finish_job", { taskId, status: next.status, error: next.error });
 		return next;
 	}
 
@@ -378,6 +453,7 @@ export class LionRuntime {
 
 	activatePlanning(): void {
 		this.#state = { ...this.#state, active: true, mode: "planning" };
+		this.logState("activate_planning");
 	}
 
 	activatePlan(plan: LionPlan): void {
@@ -390,22 +466,28 @@ export class LionRuntime {
 			planKind: plan.kind,
 			activeTaskId: null,
 		};
+		this.logState("activate_plan", { planSlug: plan.slug, planPath: plan.rootPath, taskCount: plan.tasks.length });
 	}
 
 	setMode(mode: LionMode): void {
+		const previous = this.#state.mode;
 		this.#state = { ...this.#state, active: true, mode };
+		this.logState("set_mode", { previous, mode });
 	}
 
 	setActiveTask(taskId: string | null): void {
 		this.#state = { ...this.#state, activeTaskId: taskId };
+		this.logState("set_active_task", { taskId });
 	}
 
 	setLastRun(runId: string): void {
 		this.#state = { ...this.#state, lastRunId: runId };
+		this.logState("set_last_run", { runId });
 	}
 
 	applyBuildResult(result: LionBuildResult): void {
 		this.#state = { ...this.#state, mode: "planning", activeTaskId: null, lastBuild: result };
+		this.logState("apply_build_result", { result });
 	}
 
 	rememberUiContext(ctx: ExtensionContext): void {

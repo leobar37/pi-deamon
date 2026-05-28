@@ -47,6 +47,7 @@ export function setGoal(core: GoalCore, objectiveInput: string): Goal {
 		id: randomUUID(),
 		objective,
 		status: "active",
+		phase: "context_gathering",
 		timeUsedSeconds: 0,
 		createdAt: ts,
 		updatedAt: ts,
@@ -69,7 +70,37 @@ export function setGoalStatus(core: GoalCore, status: GoalStatus): Goal {
 		core.continuationQueued = false;
 	}
 	core.goal.status = status;
+	if (status === "active" && core.goal.phase === "blocked") {
+		core.goal.phase = "executing";
+		core.goal.blockerReason = undefined;
+	}
+	if (status === "blocked") {
+		core.goal.phase = "blocked";
+	}
+	if (status === "complete") {
+		core.goal.phase = "complete";
+	}
 	core.goal.updatedAt = nowSeconds();
+	return core.goal;
+}
+
+export function setGoalPhase(core: GoalCore, phase: Goal["phase"], blockerReason?: string): Goal {
+	if (!core.goal) {
+		throw new Error("cannot update goal phase because no goal exists");
+	}
+	if (phase === "blocked") {
+		setGoalStatus(core, "blocked");
+		core.goal.blockerReason = blockerReason?.trim() || undefined;
+	} else {
+		core.goal.phase = phase;
+		if (core.goal.status === "blocked") {
+			core.goal.status = "active";
+			core.activeSinceMs = Date.now();
+			core.continuationQueued = false;
+		}
+		core.goal.blockerReason = undefined;
+		core.goal.updatedAt = nowSeconds();
+	}
 	return core.goal;
 }
 

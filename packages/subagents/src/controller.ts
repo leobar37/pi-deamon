@@ -33,6 +33,7 @@ export class SubAgentController {
 	private modelRegistry?: import("@earendil-works/pi-coding-agent").ModelRegistry;
 	private settingsManager?: import("@earendil-works/pi-coding-agent").SettingsManager;
 	private transportManager?: TransportManager;
+	private logger?: import("@local/pi-logger").SessionLogger;
 
 	constructor(options: SubAgentControllerOptions) {
 		this.cwd = options.cwd;
@@ -40,6 +41,7 @@ export class SubAgentController {
 		this.authStorage = options.authStorage;
 		this.modelRegistry = options.modelRegistry;
 		this.settingsManager = options.settingsManager;
+		this.logger = options.logger;
 		this.eventBus = new SubAgentEventBus();
 		this.definitions = new Map();
 
@@ -123,6 +125,7 @@ export class SubAgentController {
 			authStorage: this.authStorage,
 			modelRegistry: this.modelRegistry,
 			settingsManager: this.settingsManager,
+			logger: this.logger,
 		});
 
 		this.instances.set(task.id, instance);

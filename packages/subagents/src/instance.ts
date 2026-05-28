@@ -10,6 +10,7 @@ import type {
 	SettingsManager,
 	ToolInfo,
 } from "@earendil-works/pi-coding-agent";
+import type { SessionLogger } from "@local/pi-logger";
 import type { SubAgentEventBus } from "./event-bus.js";
 import { createSubAgentSession } from "./session-factory.js";
 import { SubAgentSummarizer } from "./summarizer.js";
@@ -63,6 +64,7 @@ export class SubAgentInstance {
 	private authStorage?: AuthStorage;
 	private modelRegistry?: ModelRegistry;
 	private settingsManager?: SettingsManager;
+	private logger?: SessionLogger;
 
 	constructor(options: CreateSubAgentInstanceOptions) {
 		this.instanceId = options.instanceId;
@@ -77,6 +79,7 @@ export class SubAgentInstance {
 		this.authStorage = options.authStorage;
 		this.modelRegistry = options.modelRegistry;
 		this.settingsManager = options.settingsManager;
+		this.logger = options.logger;
 
 		const createdEvent: SubAgentEvent = {
 			type: "instance.created",
@@ -99,6 +102,7 @@ export class SubAgentInstance {
 			instanceId: this.instanceId,
 			taskId: this.taskId,
 			definitionName: this.definitionName,
+			description: this.taskDescription,
 			state: this.state,
 			startTime: this.startTime,
 			endTime: this.endTime,
@@ -396,6 +400,30 @@ export class SubAgentInstance {
 
 	private logEvent(event: SubAgentEvent): void {
 		this.eventLog.push(event);
+		if (this.logger) {
+			this.logger.log({
+				type: this.mapEventType(event.type),
+				source: "subagent",
+				data: event,
+			});
+		}
+	}
+
+	private mapEventType(type: SubAgentEvent["type"]): import("@local/pi-logger").LogEntryType {
+		switch (type) {
+			case "lifecycle.change":
+				return "lifecycle";
+			case "tool.start":
+			case "tool.end":
+			case "tool.execute":
+				return "tool";
+			case "error":
+				return "error";
+			case "turn.complete":
+				return "turn";
+			default:
+				return "event";
+		}
 	}
 
 	// =====================================================================

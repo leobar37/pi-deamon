@@ -2,13 +2,17 @@
  * Core types for goal-v2 extension.
  */
 
-export type GoalStatus = "active" | "paused" | "complete";
+export type GoalStatus = "active" | "paused" | "blocked" | "complete";
+
+export type GoalPhase = "context_gathering" | "executing" | "verifying" | "blocked" | "complete";
 
 export interface Goal {
 	id: string;
 	objective: string;
 	status: GoalStatus;
+	phase: GoalPhase;
 	timeUsedSeconds: number;
+	blockerReason?: string;
 	contextPath?: string;
 	createdAt: number;
 	updatedAt: number;
@@ -24,7 +28,9 @@ export interface GoalWireFormat {
 	threadId: string;
 	objective: string;
 	status: GoalStatus;
+	phase: GoalPhase;
 	timeUsedSeconds: number;
+	blockerReason: string | null;
 	contextPath: string | null;
 	createdAt: number;
 	updatedAt: number;
@@ -63,6 +69,7 @@ export interface GoalContextDocument {
 	successCriteria: string[];
 	relevantFiles: string[];
 	constraints: string[];
+	blockers: string[];
 	notes: string[];
 	iterations: GoalContextIteration[];
 	createdAt: number;
@@ -77,6 +84,7 @@ export interface CreateGoalContextInput {
 	successCriteria?: string[];
 	relevantFiles?: string[];
 	constraints?: string[];
+	blockers?: string[];
 	notes?: string[];
 }
 

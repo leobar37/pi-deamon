@@ -1,6 +1,8 @@
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
+import { SessionLogger } from "@local/pi-logger";
 import { registerLionCommands } from "./commands.js";
-import { startLionDashboard } from "./dashboard.js";
+import type { LionDashboard } from "./dashboard.js";
+import { getOrStartLionDashboard } from "./dashboard.js";
 import { buildPlanningSystemPrompt } from "./prompts/index.js";
 import { LionRuntime } from "./runtime.js";
 import { registerLionTools } from "./tools.js";
@@ -8,7 +10,7 @@ import { stopLionSubagentWidget } from "./ui/subagents-widget.js";
 
 export default function lionExtension(pi: ExtensionAPI): void {
 	const runtime = new LionRuntime(pi);
-	let daemon: ReturnType<typeof startLionDashboard> | null = null;
+	let daemon: LionDashboard | null = null;
 
 	function restore(ctx: ExtensionContext): void {
 		runtime.restore(ctx);
@@ -16,9 +18,10 @@ export default function lionExtension(pi: ExtensionAPI): void {
 
 	async function ensureDashboard(): Promise<void> {
 		if (daemon) return;
-		daemon = startLionDashboard(runtime);
+		const dashboard = getOrStartLionDashboard(runtime);
+		daemon = dashboard;
 		try {
-			const url = await daemon.start();
+			const url = await dashboard.start();
 			console.log(`[lion] dashboard at ${url.href}`);
 		} catch (err) {
 			console.error("[lion] dashboard start failed:", err);
@@ -26,6 +29,12 @@ export default function lionExtension(pi: ExtensionAPI): void {
 	}
 
 	pi.on("session_start", async (_event, ctx) => {
+		if (!runtime.logger) {
+			runtime.logger = new SessionLogger({
+				cwd: ctx.sessionManager.getCwd(),
+				sessionId: ctx.sessionManager.getSessionId(),
+			});
+		}
 		restore(ctx);
 		if (runtime.state.active) {
 			await ensureDashboard();

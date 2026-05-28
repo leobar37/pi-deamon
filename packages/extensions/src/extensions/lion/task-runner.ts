@@ -55,7 +55,7 @@ export class TaskRunner {
 			requirements: [],
 		};
 
-		const controller = runtime.createSubAgentController(ctx, runId);
+		const controller = runtime.ensureController(ctx);
 
 		for (let i = 0; i < taskConfigs.length; i++) {
 			const taskId = `${runId}-task-${i}`;

@@ -1,0 +1,41 @@
+{
+  "plan": "dashboard-composer-mocks",
+  "title": "Dashboard: UI Provider + Composer modular + Mocks + Tests",
+  "tasks": [
+    {
+      "id": "T-001",
+      "title": "UI Provider con Jotai",
+      "description": "Crear UIProvider con contexto Jotai, migrar de Zustand, hooks globales",
+      "status": "pending",
+      "dependencies": []
+    },
+    {
+      "id": "T-002",
+      "title": "Mover ModelSelector al Composer",
+      "description": "Mover componente de ChatHeader a ChatInput, toolbar sobre textarea",
+      "status": "pending",
+      "dependencies": ["T-003"]
+    },
+    {
+      "id": "T-003",
+      "title": "Refactor ChatInput → Composer modular",
+      "description": "Dividir ChatInput en módulos composer/",
+      "status": "pending",
+      "dependencies": []
+    },
+    {
+      "id": "T-004",
+      "title": "Mock Setup (MSW + utilities)",
+      "description": "Inicializar MSW, factories, mockORPC, renderWithProviders",
+      "status": "pending",
+      "dependencies": []
+    },
+    {
+      "id": "T-005",
+      "title": "Component Tests",
+      "description": "Tests de message list, send flow, model selector, UI state",
+      "status": "pending",
+      "dependencies": ["T-001", "T-002", "T-004"]
+    }
+  ]
+}
