@@ -1,3 +1,5 @@
+import { MarkdownRenderer } from "./MarkdownRenderer.js";
+
 interface ToolResultBlockProps {
 	toolCallId: string;
 	content: string;
@@ -13,8 +15,24 @@ function tryFormatJson(content: string): string {
 	}
 }
 
+function isJson(content: string): boolean {
+	try {
+		JSON.parse(content);
+		return true;
+	} catch {
+		return false;
+	}
+}
+
+function isPlainOutput(content: string): boolean {
+	const lines = content.split("\n");
+	if (lines.length > 20) return true;
+	return lines.some((line) => line.startsWith("$ ") || line.includes("Error:") || line.includes(" at "));
+}
+
 export function ToolResultBlock({ content, isError }: ToolResultBlockProps) {
 	const formatted = tryFormatJson(content);
+	const renderAsPre = isError || isJson(content) || isPlainOutput(content);
 
 	return (
 		<div className={`my-3 bg-bg-elevated border rounded-lg overflow-hidden ${isError ? "border-error/20" : "border-success/20"}`}>
@@ -30,9 +48,15 @@ export function ToolResultBlock({ content, isError }: ToolResultBlockProps) {
 				)}
 				<span className="font-medium">{isError ? "Error" : "Result"}</span>
 			</div>
-			<pre className="px-4 pb-3 text-xs text-text-secondary font-mono whitespace-pre-wrap overflow-x-auto max-h-60 overflow-y-auto leading-relaxed">
-				{formatted}
-			</pre>
+			{renderAsPre ? (
+				<pre className="max-h-60 overflow-x-auto overflow-y-auto whitespace-pre-wrap px-4 pb-3 font-mono text-xs leading-relaxed text-text-secondary">
+					{formatted}
+				</pre>
+			) : (
+				<div className="px-4 pb-3">
+					<MarkdownRenderer content={content} />
+				</div>
+			)}
 		</div>
 	);
 }

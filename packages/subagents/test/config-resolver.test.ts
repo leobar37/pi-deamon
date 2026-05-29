@@ -9,6 +9,7 @@ const baseDefinition: SubAgentDefinition = {
 	capabilities: { canEdit: false, canExecute: false, canWrite: false, canResearch: true },
 	tools: ["read", "glob"],
 	disabledTools: ["write"],
+	skillPaths: [".codex/skills/core/SKILL.md"],
 	model: "gpt-4",
 	thinkingLevel: "medium",
 	maxTurns: 20,
@@ -129,6 +130,18 @@ describe("resolveEffectiveConfig", () => {
 
 		const config = resolveEffectiveConfig(baseDefinition, task);
 		expect(config.disabledTools).toEqual(["write", "edit"]);
+	});
+
+	it("merges skillPaths from definition and task without duplicates", () => {
+		const task: DelegationTask = {
+			id: "task-1",
+			definition: "test-agent",
+			prompt: "Do something",
+			skillPaths: [".codex/skills/core/SKILL.md", ".codex/skills/frontend/SKILL.md"],
+		};
+
+		const config = resolveEffectiveConfig(baseDefinition, task);
+		expect(config.skillPaths).toEqual([".codex/skills/core/SKILL.md", ".codex/skills/frontend/SKILL.md"]);
 	});
 
 	it("sets tools from task when provided (not union)", () => {

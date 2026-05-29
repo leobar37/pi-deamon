@@ -15,7 +15,7 @@ export class PlanActivator {
 	activate(ctx: ExtensionContext, reference: string): LionToolResponse {
 		const runId = createRunId();
 		const bus = this.runtime.events;
-		bus.publish(LionEvents.activateStart, { runId, input: reference });
+		bus.emit(LionEvents.activateStart({ runId, input: reference }));
 
 		const resolution = resolvePlanReference(ctx.cwd, reference);
 		if (resolution.status !== "resolved") {
@@ -28,14 +28,16 @@ export class PlanActivator {
 		const plan = loadLionPlan(resolution.planPath);
 		this.runtime.activatePlan(plan);
 		this.runtime.persist("activate");
-		bus.publish(LionEvents.planLoaded, {
-			runId,
-			planSlug: plan.slug,
-			planPath: plan.rootPath,
-			taskCount: plan.tasks.length,
-			kind: plan.kind,
-		});
-		bus.publish(LionEvents.activateComplete, { runId, mode: this.runtime.state.mode });
+		bus.emit(
+			LionEvents.planLoaded({
+				runId,
+				planSlug: plan.slug,
+				planPath: plan.rootPath,
+				taskCount: plan.tasks.length,
+				kind: plan.kind,
+			}),
+		);
+		bus.emit(LionEvents.activateComplete({ runId, mode: this.runtime.state.mode }));
 
 		return {
 			run: this.runtime.core.activeRun,

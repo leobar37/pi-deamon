@@ -1,11 +1,24 @@
 import { Type } from "typebox";
 import type { LionRun } from "./core.js";
 import { PlanActivator } from "./plan-activator.js";
-import { listPlans } from "./plans/index.js";
+import {
+	getNextExecutableTask,
+	listPlans,
+	loadLionPlan,
+	recordStructuredTaskResult,
+	updateStructuredTaskStatus,
+} from "./plans/index.js";
 import type { LionRuntime } from "./runtime.js";
 import { TaskReconciler } from "./task-reconciler.js";
 import { TaskRunner } from "./task-runner.js";
-import type { LionBuildResult, LionPlan, LionPlanValidationResult, LionTaskResult } from "./types.js";
+import type {
+	LionBuildResult,
+	LionPlan,
+	LionPlanValidationResult,
+	LionTask,
+	LionTaskResult,
+	LionTaskStatus,
+} from "./types.js";
 
 // =============================================================================
 // Shared types
@@ -17,6 +30,7 @@ export interface LionToolResponse {
 	validation?: LionPlanValidationResult;
 	plan?: LionPlan;
 	tasks?: LionTaskResult[];
+	nextTask?: LionTask | null;
 	candidates?: Array<{
 		slug: string;
 		path: string;
@@ -37,13 +51,22 @@ const LionTasksParams = Type.Object({
 				description: "Subagent definition to use (e.g., 'analyzer', 'executor', 'reviewer')",
 			}),
 			title: Type.String({ description: "Short title identifying this task" }),
-			prompt: Type.String({ description: "Full prompt/instructions for the subagent" }),
+			prompt: Type.String({
+				description:
+					"Compact XML delegation brief for the subagent. Include role, plan path, task id, task file path, scope, objective, constraints, output contract, and validation. Prefer references to files over pasted plan content or long command lists.",
+			}),
 			capabilities: Type.Optional(
 				Type.Object({
 					canEdit: Type.Optional(Type.Boolean()),
 					canWrite: Type.Optional(Type.Boolean()),
 					canExecute: Type.Optional(Type.Boolean()),
 					canResearch: Type.Optional(Type.Boolean()),
+				}),
+			),
+			skillPaths: Type.Optional(
+				Type.Array(Type.String(), {
+					description:
+						"Optional skill file or directory paths to force-load for this subagent. Use when a task needs a specific domain workflow skill.",
 				}),
 			),
 		}),
@@ -89,6 +112,20 @@ const RetryTaskParams = Type.Object({
 	),
 });
 
+const TaskStatusSchema = Type.Union([
+	Type.Literal("pending"),
+	Type.Literal("in_progress"),
+	Type.Literal("complete"),
+	Type.Literal("blocked"),
+	Type.Literal("retryable"),
+]);
+
+const TaskStatusParams = Type.Object({
+	task_id: Type.String({ description: "Task ID to update in the active plan." }),
+	status: TaskStatusSchema,
+	summary: Type.Optional(Type.String({ description: "Short result summary, evidence, or blocker reason." })),
+});
+
 // =============================================================================
 // Tool registration
 // =============================================================================
@@ -130,6 +167,56 @@ export function registerLionTools(runtime: LionRuntime): void {
 	});
 
 	runtime.pi.registerTool({
+		name: "lion_next_task",
+		label: "Lion Next Task",
+		description: "Return the next pending or retryable task whose dependencies are complete.",
+		promptSnippet: "Find the next executable task in the active Lion plan",
+		parameters: Type.Object({}),
+		async execute() {
+			const activePlanPath = runtime.state.activePlanPath;
+			if (!activePlanPath) throw new Error("No active plan. Run lion_activate_plan first.");
+			const plan = loadLionPlan(activePlanPath);
+			const nextTask = getNextExecutableTask(plan);
+			runtime.logTool("lion_next_task", {}, { taskId: nextTask?.id ?? null });
+			return toToolResult({ run: runtime.core.activeRun, plan, nextTask });
+		},
+	});
+
+	runtime.pi.registerTool({
+		name: "lion_update_task_status",
+		label: "Lion Update Task Status",
+		description: "Persistently update a task status in the active Lion plan checklist.",
+		promptSnippet: "Mark a Lion plan task pending, in progress, complete, blocked, or retryable",
+		parameters: TaskStatusParams,
+		async execute(_toolCallId, params) {
+			const activePlanPath = runtime.state.activePlanPath;
+			if (!activePlanPath) throw new Error("No active plan. Run lion_activate_plan first.");
+			const plan = loadLionPlan(activePlanPath);
+			updateStructuredTaskStatus(plan, params.task_id, params.status as LionTaskStatus);
+			const updatedPlan = loadLionPlan(activePlanPath);
+			runtime.logTool("lion_update_task_status", params, { taskId: params.task_id, status: params.status });
+			return toToolResult({ run: runtime.core.activeRun, plan: updatedPlan });
+		},
+	});
+
+	runtime.pi.registerTool({
+		name: "lion_record_task_result",
+		label: "Lion Record Task Result",
+		description: "Persist task status and a short result summary after subagent execution.",
+		promptSnippet: "Record Lion task execution result and evidence summary",
+		parameters: TaskStatusParams,
+		async execute(_toolCallId, params) {
+			const activePlanPath = runtime.state.activePlanPath;
+			if (!activePlanPath) throw new Error("No active plan. Run lion_activate_plan first.");
+			const plan = loadLionPlan(activePlanPath);
+			recordStructuredTaskResult(plan, params.task_id, params.status as LionTaskStatus, params.summary);
+			const updatedPlan = loadLionPlan(activePlanPath);
+			runtime.logTool("lion_record_task_result", params, { taskId: params.task_id, status: params.status });
+			return toToolResult({ run: runtime.core.activeRun, plan: updatedPlan });
+		},
+	});
+
+	runtime.pi.registerTool({
 		name: "lion_list_plans",
 		label: "Lion List Plans",
 		description: "List all available Lion plans in the project. Returns plans sorted by most recently modified.",
@@ -162,8 +249,8 @@ export function registerLionTools(runtime: LionRuntime): void {
 		name: "lion_tasks",
 		label: "Lion Tasks",
 		description:
-			"Delegate one or more tasks to subagents with configurable execution strategy (parallel, sequential, or chain).",
-		promptSnippet: "Delegate tasks to subagents with explicit task definitions",
+			"Delegate one or more tasks to subagents with configurable execution strategy. Prompts must be compact XML briefs with plan/task/file references, not pasted plan content.",
+		promptSnippet: "Delegate tasks to subagents with compact XML plan-aware briefs",
 		parameters: LionTasksParams,
 		async execute(toolCallId, params, _signal, _onUpdate, ctx) {
 			const result = await runner.run(ctx, params, {

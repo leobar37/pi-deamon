@@ -3,6 +3,7 @@ import type { TaskExecutionResult } from "../task-executor.js";
 import { TaskExecutor } from "../task-executor.js";
 import type { ExecutionPlan, SubAgentCapabilities } from "../types.js";
 import { LionEvents } from "./events/defs.js";
+import { classifyLionTaskResult } from "./evidence.js";
 import { loadLionPlan } from "./plans/index.js";
 import type { LionRuntime } from "./runtime.js";
 import type { LionToolResponse } from "./tools.js";
@@ -16,6 +17,7 @@ export interface RunTasksParams {
 		title: string;
 		prompt: string;
 		capabilities?: Partial<SubAgentCapabilities>;
+		skillPaths?: string[];
 	}>;
 	strategy?: LionTaskStrategy;
 	concurrency?: number;
@@ -49,7 +51,7 @@ export class TaskRunner {
 
 		const runId = createRunId();
 		const bus = runtime.events;
-		const taskConfigs = params.tasks;
+		const taskConfigs = params.tasks.map((task) => this.withPlanContext(task, plan));
 		const strategy = params.strategy ?? "sequential";
 
 		const batchTask: LionTask = {
@@ -75,13 +77,15 @@ export class TaskRunner {
 			onEvent: (event) => {
 				runtime.recordSubagentUiEvent(event);
 				if (!plan) return;
-				bus.publish(LionEvents.subagentEvent, {
-					runId,
-					planSlug: plan.slug,
-					planPath: plan.rootPath,
-					taskId: batchTask.id,
-					subagentEvent: event,
-				});
+				bus.emit(
+					LionEvents.subagentEvent({
+						runId,
+						planSlug: plan.slug,
+						planPath: plan.rootPath,
+						taskId: batchTask.id,
+						subagentEvent: event,
+					}),
+				);
 			},
 		});
 
@@ -97,6 +101,7 @@ export class TaskRunner {
 				description: t.title,
 				prompt: t.prompt,
 				capabilities: t.capabilities,
+				skillPaths: t.skillPaths,
 			})),
 			concurrency: params.concurrency,
 			chainOptions: params.chainOptions,
@@ -123,6 +128,35 @@ export class TaskRunner {
 		};
 	}
 
+	private withPlanContext(
+		taskConfig: RunTasksParams["tasks"][number],
+		plan: NonNullable<ReturnType<typeof loadLionPlan>> | null,
+	): RunTasksParams["tasks"][number] {
+		if (!plan || taskConfig.prompt.includes("<lion_context>")) return taskConfig;
+
+		const taskId = inferPlanTaskId(taskConfig.title, taskConfig.prompt);
+		const planTask = taskId ? plan.tasks.find((task) => task.id === taskId) : undefined;
+		const taskFile = planTask?.file ? joinPlanPath(plan.rootPath, planTask.file) : undefined;
+		const context = [
+			"<lion_context>",
+			`  <plan slug="${escapeXml(plan.slug)}" path="${escapeXml(plan.rootPath)}" />`,
+			taskId
+				? `  <task id="${escapeXml(taskId)}"${taskFile ? ` file="${escapeXml(taskFile)}"` : ""}${planTask?.title ? ` title="${escapeXml(planTask.title)}"` : ""} />`
+				: '  <task unknown="true" />',
+			"  <instructions>",
+			"    <must>Use the referenced plan and task file as source of truth before changing code.</must>",
+			"    <must>Use any relevant loaded skill for this domain or package before implementing.</must>",
+			"    <must_not>Treat this brief as complete if it conflicts with the plan task file.</must_not>",
+			"  </instructions>",
+			"</lion_context>",
+		].join("\n");
+
+		return {
+			...taskConfig,
+			prompt: `${context}\n\n${taskConfig.prompt}`,
+		};
+	}
+
 	private publishStartEvents(
 		bus: LionRuntime["events"],
 		plan: NonNullable<ReturnType<typeof loadLionPlan>> | null,
@@ -132,23 +166,27 @@ export class TaskRunner {
 		concurrency?: number,
 	): void {
 		if (!plan) return;
-		bus.publish(LionEvents.tasksStart, {
-			runId,
-			planSlug: plan.slug,
-			planPath: plan.rootPath,
-			strategy,
-			taskCount: taskConfigs.length,
-			concurrency,
-		});
-		for (let i = 0; i < taskConfigs.length; i++) {
-			bus.publish(LionEvents.tasksTaskStart, {
+		bus.emit(
+			LionEvents.tasksStart({
 				runId,
 				planSlug: plan.slug,
 				planPath: plan.rootPath,
-				index: i,
-				title: taskConfigs[i].title,
-				definition: taskConfigs[i].definition,
-			});
+				strategy,
+				taskCount: taskConfigs.length,
+				concurrency,
+			}),
+		);
+		for (let i = 0; i < taskConfigs.length; i++) {
+			bus.emit(
+				LionEvents.tasksTaskStart({
+					runId,
+					planSlug: plan.slug,
+					planPath: plan.rootPath,
+					index: i,
+					title: taskConfigs[i].title,
+					definition: taskConfigs[i].definition,
+				}),
+			);
 		}
 	}
 
@@ -162,16 +200,18 @@ export class TaskRunner {
 			const taskId = `${runId}-task-${i}`;
 			this.runtime.finishJob(taskId, null, error);
 			if (!plan) continue;
-			this.runtime.events.publish(LionEvents.tasksTaskEnd, {
-				runId,
-				planSlug: plan.slug,
-				planPath: plan.rootPath,
-				index: i,
-				title: taskConfigs[i].title,
-				definition: taskConfigs[i].definition,
-				status: "failed",
-				summary: error,
-			});
+			this.runtime.events.emit(
+				LionEvents.tasksTaskEnd({
+					runId,
+					planSlug: plan.slug,
+					planPath: plan.rootPath,
+					index: i,
+					title: taskConfigs[i].title,
+					definition: taskConfigs[i].definition,
+					status: "failed",
+					summary: error,
+				}),
+			);
 		}
 	}
 
@@ -186,38 +226,47 @@ export class TaskRunner {
 			const taskResult = result.results[i];
 			runtime.finishJob(taskResult.taskId, taskResult, taskResult.error);
 			if (!plan) continue;
-			runtime.events.publish(LionEvents.tasksTaskEnd, {
-				runId,
-				planSlug: plan.slug,
-				planPath: plan.rootPath,
-				index: i,
-				title: taskConfigs[i].title,
-				definition: taskConfigs[i].definition,
-				status: taskResult.status,
-				summary: taskResult.summary,
-			});
+			runtime.events.emit(
+				LionEvents.tasksTaskEnd({
+					runId,
+					planSlug: plan.slug,
+					planPath: plan.rootPath,
+					index: i,
+					title: taskConfigs[i].title,
+					definition: taskConfigs[i].definition,
+					status: taskResult.status,
+					summary: taskResult.summary,
+				}),
+			);
 		}
 		if (!plan) return;
 		const lionResult = this.buildLionResult(runId, paramsStrategy(result), result, taskConfigs);
-		runtime.events.publish(LionEvents.tasksComplete, {
-			runId,
-			planSlug: plan.slug,
-			planPath: plan.rootPath,
-			result: lionResult,
-		});
+		runtime.events.emit(
+			LionEvents.tasksComplete({
+				runId,
+				planSlug: plan.slug,
+				planPath: plan.rootPath,
+				result: lionResult,
+			}),
+		);
 	}
 
 	private buildTaskResults(result: TaskExecutionResult, taskConfigs: RunTasksParams["tasks"]): LionTaskResult[] {
-		return result.results.map((r, i) => ({
-			taskId: r.taskId,
-			title: taskConfigs[i].title,
-			definition: taskConfigs[i].definition,
-			status: r.status,
-			summary: r.summary,
-			duration: r.duration,
-			turnCount: r.turnCount,
-			error: r.error,
-		}));
+		return result.results.map((r, i) => {
+			const classification = classifyLionTaskResult(r);
+			return {
+				taskId: r.taskId,
+				title: taskConfigs[i].title,
+				definition: taskConfigs[i].definition,
+				status: r.status,
+				verificationStatus: classification.verificationStatus,
+				evidence: classification.evidence,
+				summary: r.summary,
+				duration: r.duration,
+				turnCount: r.turnCount,
+				error: r.error,
+			};
+		});
 	}
 
 	private buildLionResult(
@@ -239,4 +288,21 @@ export class TaskRunner {
 
 function paramsStrategy(result: TaskExecutionResult): LionTaskStrategy {
 	return result.plan.strategy as LionTaskStrategy;
+}
+
+function inferPlanTaskId(...values: string[]): string | null {
+	for (const value of values) {
+		const match = /\bT-\d{3,}\b/.exec(value);
+		if (match) return match[0];
+	}
+	return null;
+}
+
+function joinPlanPath(rootPath: string, taskFile: string): string {
+	if (taskFile.startsWith("/") || taskFile.startsWith(".")) return taskFile;
+	return `${rootPath.replace(/\/$/, "")}/${taskFile}`;
+}
+
+function escapeXml(value: string): string {
+	return value.replace(/&/g, "&amp;").replace(/"/g, "&quot;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
 }

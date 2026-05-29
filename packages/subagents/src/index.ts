@@ -12,34 +12,18 @@ export {
 } from "./definitions/index.js";
 // Event bus
 export { EventBusBase, SubAgentEventBus } from "./event-bus.js";
-export type { AnyEventCreator, EventCreator, TypedEvent } from "./event-core.js";
-// Event primitives
-export { createEvent, TypedEventBus } from "./event-core.js";
-// SubAgent event definitions
-export { SubAgentEvents } from "./event-defs.js";
-// Execution strategies
-export {
-	execute,
-	executeParallel,
-	executeSequential,
-} from "./execution/index.js";
+
 // File-system artifact store (optional addon)
 export { FsArtifactStore } from "./fs-artifact-store.js";
-// Extension factory
-// export { default as subagentsExtension } from "./extensions/subagents/index.js";
 // Instance
 export { SubAgentInstance } from "./instance.js";
 // Instruction builders
 export {
 	ANALYZER_BUILDER,
-	bulletList,
 	DEFAULT_BUILDER,
 	EXECUTOR_BUILDER,
-	minimalChanges,
-	onlyFlagSecurity,
 	PLANNER_BUILDER,
 	REVIEWER_BUILDER,
-	withSummary,
 } from "./instructions/index.js";
 export type { InstructionBuilder, InstructionContext } from "./instructions/types.js";
 export { registerLionCommands } from "./lion/commands.js";
@@ -61,6 +45,7 @@ export { LionEvents, LionRuntimeEventBus } from "./lion/events/index.js";
 // Lion orchestration
 export { lionExtension } from "./lion/index.js";
 export { MainSessionBridge } from "./lion/main-session.js";
+export { LionPersistence } from "./lion/persistence.js";
 export {
 	buildCorrectionPrompt,
 	buildExecutorPrompt,
@@ -68,7 +53,7 @@ export {
 	buildPlanReviewPrompt,
 	buildReviewerPrompt,
 } from "./lion/prompts/index.js";
-export { LionPersistence, LionRuntime } from "./lion/runtime.js";
+export { LionRuntime } from "./lion/runtime.js";
 export type { LionToolResponse } from "./lion/tools.js";
 export { registerLionTools } from "./lion/tools.js";
 export type {

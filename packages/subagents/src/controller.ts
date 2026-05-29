@@ -1,10 +1,19 @@
 import type { AgentMessage, ThinkingLevel } from "@earendil-works/pi-agent-core";
 import type { ImageContent, Model } from "@earendil-works/pi-ai";
-import type { CompactionResult, ModelCycleResult } from "@earendil-works/pi-coding-agent";
+import type {
+	AuthStorage,
+	CompactionResult,
+	ModelCycleResult,
+	ModelRegistry,
+	SessionStats,
+	SettingsManager,
+	ToolInfo,
+} from "@earendil-works/pi-coding-agent";
+import type { SessionLogger } from "@local/pi-logger";
 import { resolveEffectiveConfig } from "./config-resolver.js";
 import { SubAgentEventBus } from "./event-bus.js";
-import { execute } from "./execution/index.js";
 import { SubAgentInstance } from "./instance.js";
+import { TaskExecutor } from "./task-executor.js";
 import { TransportManager } from "./transport/manager.js";
 
 import type {
@@ -29,11 +38,11 @@ export class SubAgentController {
 	private cwd: string;
 	private artifactStore: SubAgentArtifactStore | undefined;
 	private eventBus: SubAgentEventBus;
-	private authStorage?: import("@earendil-works/pi-coding-agent").AuthStorage;
-	private modelRegistry?: import("@earendil-works/pi-coding-agent").ModelRegistry;
-	private settingsManager?: import("@earendil-works/pi-coding-agent").SettingsManager;
+	private authStorage?: AuthStorage;
+	private modelRegistry?: ModelRegistry;
+	private settingsManager?: SettingsManager;
 	private transportManager?: TransportManager;
-	private logger?: import("@local/pi-logger").SessionLogger;
+	private logger?: SessionLogger;
 
 	constructor(options: SubAgentControllerOptions) {
 		this.cwd = options.cwd;
@@ -125,6 +134,7 @@ export class SubAgentController {
 			definition,
 			task,
 			cwd: this.cwd,
+			resourceCwd: this.cwd,
 			eventBus: this.eventBus,
 			authStorage: this.authStorage,
 			modelRegistry: this.modelRegistry,
@@ -148,10 +158,10 @@ export class SubAgentController {
 			}
 		}
 
-		const instances = plan.tasks.map((task) => this.createInstance(task));
-		return execute(plan, instances, (event) => {
-			this.eventBus.emit(event);
-		});
+		const executor = new TaskExecutor({ controller: this });
+
+		const result = await executor.execute(plan);
+		return result.results;
 	}
 
 	// =====================================================================
@@ -305,7 +315,7 @@ export class SubAgentController {
 		this.requireInstance(taskId).abortBash();
 	}
 
-	instanceGetSessionStats(taskId: string): import("@earendil-works/pi-coding-agent").SessionStats {
+	instanceGetSessionStats(taskId: string): SessionStats {
 		return this.requireInstance(taskId).getSessionStats();
 	}
 
@@ -337,7 +347,7 @@ export class SubAgentController {
 		return this.requireInstance(taskId).getActiveToolNames();
 	}
 
-	instanceGetAllTools(taskId: string): import("@earendil-works/pi-coding-agent").ToolInfo[] {
+	instanceGetAllTools(taskId: string): ToolInfo[] {
 		return this.requireInstance(taskId).getAllTools();
 	}
 

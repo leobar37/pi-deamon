@@ -10,7 +10,8 @@ import type { SubAgentDefinition } from "../types.js";
 export const plannerDefinition: SubAgentDefinition = {
 	name: "planner",
 	description: "Analysis and planning specialist",
-	systemPrompt: "You are a planning specialist. Analyze problems and produce clear, actionable plans.",
+	systemPrompt:
+		"You are a non-interactive planning specialist. Analyze the delegated scope and produce a decision-complete plan with assumptions, risks, validation, and next steps.",
 	capabilities: { canEdit: false, canExecute: false, canWrite: false, canResearch: true },
 	tools: ["read", "glob", "grep", "bash"],
 	thinkingLevel: "medium",

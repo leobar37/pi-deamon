@@ -6,7 +6,7 @@ import {
 	PLANNER_BUILDER,
 	REVIEWER_BUILDER,
 } from "../src/instructions/defaults.js";
-import { bulletList, minimalChanges, onlyFlagSecurity, withSummary } from "../src/instructions/presets.js";
+
 import type { InstructionContext } from "../src/instructions/types.js";
 
 function makeCtx(overrides: Partial<InstructionContext["task"]> = {}): InstructionContext {
@@ -41,13 +41,15 @@ describe("Default instruction builders", () => {
 		expect(output).toContain("Make minimal, safe changes");
 		expect(output).toContain("Run tests after each edit");
 		expect(output).toContain("summarize what you changed");
+		expect(output).toContain("Use any relevant loaded skill");
 	});
 
 	it("ANALYZER_BUILDER includes investigation and detail instructions", () => {
 		const output = ANALYZER_BUILDER(makeCtx());
 		expect(output).toContain("Investigate thoroughly");
-		expect(output).toContain("detailed analysis");
+		expect(output).toContain("concrete report");
 		expect(output).toContain("file paths and line numbers");
+		expect(output).toContain("recommended next delegation");
 	});
 
 	it("PLANNER_BUILDER includes actionable plan instructions", () => {
@@ -70,44 +72,30 @@ describe("Default instruction builders", () => {
 		}
 	});
 
+	it("all builders frame the task prompt as a delegation brief", () => {
+		const builders = [DEFAULT_BUILDER, EXECUTOR_BUILDER, ANALYZER_BUILDER, PLANNER_BUILDER, REVIEWER_BUILDER];
+		for (const builder of builders) {
+			const output = builder(makeCtx());
+			expect(output).toContain("XML delegation brief:");
+			expect(output).toContain("source of truth");
+			expect(output).toContain("Do not ask the user for clarification");
+		}
+	});
+
+	it("ANALYZER_BUILDER is explicitly non-interactive and read-only", () => {
+		const output = ANALYZER_BUILDER(makeCtx());
+		expect(output).toContain("non-interactive analyzer worker");
+		expect(output).toContain("do not wait for external input");
+		expect(output).toContain("do not edit files");
+		expect(output).toContain("unknowns");
+	});
+
 	it("all builders include config name and description", () => {
 		const builders = [DEFAULT_BUILDER, EXECUTOR_BUILDER, ANALYZER_BUILDER, PLANNER_BUILDER, REVIEWER_BUILDER];
 		for (const builder of builders) {
 			const output = builder(makeCtx());
 			expect(output).toContain("test-agent");
 			expect(output).toContain("A test agent");
-		}
-	});
-});
-
-describe("Instruction presets", () => {
-	it("withSummary adds summary instruction", () => {
-		const output = withSummary(makeCtx());
-		expect(output).toContain("Do the thing");
-		expect(output).toContain("When done, provide a concise summary");
-	});
-
-	it("bulletList adds bullet report instruction", () => {
-		const output = bulletList(makeCtx());
-		expect(output).toContain("bullet list");
-	});
-
-	it("onlyFlagSecurity limits to security issues", () => {
-		const output = onlyFlagSecurity(makeCtx());
-		expect(output).toContain("Only flag security issues");
-		expect(output).toContain("Ignore style, performance, or documentation");
-	});
-
-	it("minimalChanges adds minimal + test instructions", () => {
-		const output = minimalChanges(makeCtx());
-		expect(output).toContain("minimal, focused changes");
-		expect(output).toContain("Run tests after each edit");
-	});
-
-	it("all presets include the task prompt", () => {
-		const presets = [withSummary, bulletList, onlyFlagSecurity, minimalChanges];
-		for (const preset of presets) {
-			expect(preset(makeCtx())).toContain("Do the thing");
 		}
 	});
 });

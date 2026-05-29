@@ -27,6 +27,15 @@ interface SseClient {
 	instanceId?: string;
 }
 
+interface BunHttpServer {
+	port: number;
+	stop(force?: boolean): void;
+}
+
+declare const Bun: {
+	serve(options: { port: number; hostname: string; fetch(req: Request): Response | Promise<Response> }): BunHttpServer;
+};
+
 const encoder = new TextEncoder();
 
 function resolveStaticDir(options: HttpServerTransportOptions): string {
@@ -43,11 +52,16 @@ const CORS_HEADERS = {
 
 export class HttpServerTransport implements SubAgentTransport {
 	readonly id = "http-server";
-	private server: ReturnType<typeof Bun.serve> | null = null;
+	private server: BunHttpServer | null = null;
 	private clients = new Set<SseClient>();
 	private staticDir: string;
 	private sseCleanupTimer: ReturnType<typeof setInterval> | null = null;
-	private stateManager: DashboardStateManager;
+	/**
+	 * Dashboard state manager: manages live and virtual instances, persists events.
+	 * Already rehydrates from disk in start(). Exposed for explicit post-start replay
+	 * from the dashboard layer.
+	 */
+	readonly stateManager: DashboardStateManager;
 	private unsubscribeMainSession?: () => void;
 
 	constructor(private options: HttpServerTransportOptions) {
@@ -68,6 +82,21 @@ export class HttpServerTransport implements SubAgentTransport {
 			hostname: this.options.host ?? "0.0.0.0",
 			fetch: (req) => this.handleRequest(req),
 		});
+	}
+
+	/**
+	 * Replay all persisted historical events to currently connected SSE clients.
+	 * Events are emitted to clients without re-persisting (they are already on disk).
+	 */
+	async replayEventsToSse(): Promise<void> {
+		const instanceIds = await this.stateManager.getAllInstanceIds();
+		for (const instanceId of instanceIds) {
+			const events = await this.stateManager.getEvents(instanceId);
+			for (const event of events) {
+				const enriched = { ...event, instanceId } as SubAgentTransportEvent;
+				this.emitToClients(enriched);
+			}
+		}
 	}
 
 	async stop(): Promise<void> {

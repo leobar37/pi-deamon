@@ -150,6 +150,13 @@ export class DashboardStateManager {
 		return this.eventStore.read(instanceId);
 	}
 
+	/**
+	 * Return all known instance IDs (from persisted event files).
+	 */
+	async getAllInstanceIds(): Promise<string[]> {
+		return this.eventStore.readAllInstanceIds();
+	}
+
 	// =====================================================================
 	// Internal: rebuild virtual instance from event history
 	// =====================================================================

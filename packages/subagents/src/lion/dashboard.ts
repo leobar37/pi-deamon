@@ -22,7 +22,7 @@ class LionDashboardServer implements LionDashboard {
 	async start(): Promise<URL> {
 		const controller = this.runtime.activeController;
 		if (!controller) {
-			throw new Error("No active subagent controller. Lion must be activated first (/lion-activate).");
+			throw new Error("Lion is not active. Use /lion-activate or lion_activate_plan to start Lion first.");
 		}
 
 		this.transport = new HttpServerTransport({
@@ -38,6 +38,12 @@ class LionDashboardServer implements LionDashboard {
 		});
 
 		await this.transport.start();
+
+		// Replay persisted historical events so SSE clients receive the full event history.
+		// transport.start() already calls rehydrate() internally; this explicit call ensures
+		// events are fully loaded before replaying them to any connected dashboard client.
+		await this.transport.stateManager.rehydrate();
+		await this.transport.replayEventsToSse();
 
 		const port = this.transport.port;
 		return new URL(`http://127.0.0.1:${port}`);

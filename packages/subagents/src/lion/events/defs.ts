@@ -1,8 +1,9 @@
-import { createEvent } from "../../event-core.js";
-import type { SubAgentEvent } from "../../types.js";
+import { randomUUID } from "node:crypto";
+import type { DelegationStatus, SubAgentEvent } from "../../types.js";
 import type {
 	LionBuildResult,
 	LionDelegationAgent,
+	LionEventMap,
 	LionMode,
 	LionPlanKind,
 	LionReviewVerdict,
@@ -11,172 +12,234 @@ import type {
 } from "../types.js";
 
 // =============================================================================
-// Lion Event Creators
+// Lion Event Factory Functions
 //
-// Every payload includes contextual metadata (runId, planSlug, etc.) in
-// addition to semantic fields. Consumers access them via event.payload.*.
+// Each factory returns a flat LionEvent object matching the corresponding
+// LionEventMap entry. No wrapper payload object.
 // =============================================================================
 
 export const LionEvents = {
-	activateStart: createEvent<"lion.activate.start", { runId: string; input?: string }>("lion.activate.start"),
+	activateStart(payload: { runId: string; input?: string }): LionEventMap["lion.activate.start"] {
+		return { type: "lion.activate.start", timestamp: Date.now(), id: randomUUID(), ...payload };
+	},
 
-	activateComplete: createEvent<"lion.activate.complete", { runId: string; mode: LionMode }>("lion.activate.complete"),
+	activateComplete(payload: { runId: string; mode: LionMode }): LionEventMap["lion.activate.complete"] {
+		return { type: "lion.activate.complete", timestamp: Date.now(), id: randomUUID(), ...payload };
+	},
 
-	planLoaded: createEvent<
-		"lion.plan.loaded",
-		{ runId: string; planSlug: string; planPath: string; taskCount: number; kind: LionPlanKind }
-	>("lion.plan.loaded"),
+	planLoaded(payload: {
+		runId: string;
+		planSlug: string;
+		planPath: string;
+		taskCount: number;
+		kind: LionPlanKind;
+	}): LionEventMap["lion.plan.loaded"] {
+		return { type: "lion.plan.loaded", timestamp: Date.now(), id: randomUUID(), ...payload };
+	},
 
-	modeChanged: createEvent<"lion.mode.changed", { runId: string; mode: LionMode }>("lion.mode.changed"),
+	modeChanged(payload: { runId: string; mode: LionMode }): LionEventMap["lion.mode.changed"] {
+		return { type: "lion.mode.changed", timestamp: Date.now(), id: randomUUID(), ...payload };
+	},
 
-	buildStart: createEvent<"lion.build.start", { runId: string; planSlug: string; planPath: string; taskId?: string }>(
-		"lion.build.start",
-	),
+	buildStart(payload: {
+		runId: string;
+		planSlug: string;
+		planPath: string;
+		taskId?: string;
+	}): LionEventMap["lion.build.start"] {
+		return { type: "lion.build.start", timestamp: Date.now(), id: randomUUID(), ...payload };
+	},
 
-	taskSelected: createEvent<
-		"lion.task.selected",
-		{ runId: string; planSlug: string; planPath: string; taskId: string; title: string }
-	>("lion.task.selected"),
+	taskSelected(payload: {
+		runId: string;
+		planSlug: string;
+		planPath: string;
+		taskId: string;
+		title: string;
+	}): LionEventMap["lion.task.selected"] {
+		return { type: "lion.task.selected", timestamp: Date.now(), id: randomUUID(), ...payload };
+	},
 
-	delegationPromptCreated: createEvent<
-		"lion.delegation.prompt.created",
-		{
-			runId: string;
-			planSlug: string;
-			planPath: string;
-			taskId: string;
-			attempt: number;
-			agent: LionDelegationAgent;
-			promptLength: number;
-		}
-	>("lion.delegation.prompt.created"),
+	delegationPromptCreated(payload: {
+		runId: string;
+		planSlug: string;
+		planPath: string;
+		taskId: string;
+		attempt: number;
+		agent: LionDelegationAgent;
+		promptLength: number;
+	}): LionEventMap["lion.delegation.prompt.created"] {
+		return { type: "lion.delegation.prompt.created", timestamp: Date.now(), id: randomUUID(), ...payload };
+	},
 
-	delegationStart: createEvent<
-		"lion.delegation.start",
-		{
-			runId: string;
-			planSlug: string;
-			planPath: string;
-			taskId: string;
-			attempt: number;
-			agent: LionDelegationAgent;
-		}
-	>("lion.delegation.start"),
+	delegationStart(payload: {
+		runId: string;
+		planSlug: string;
+		planPath: string;
+		taskId: string;
+		attempt: number;
+		agent: LionDelegationAgent;
+	}): LionEventMap["lion.delegation.start"] {
+		return { type: "lion.delegation.start", timestamp: Date.now(), id: randomUUID(), ...payload };
+	},
 
-	delegationEnd: createEvent<
-		"lion.delegation.end",
-		{
-			runId: string;
-			planSlug: string;
-			planPath: string;
-			taskId: string;
-			attempt: number;
-			agent: LionDelegationAgent;
-			status: string;
-			summary: string;
-		}
-	>("lion.delegation.end"),
+	delegationEnd(payload: {
+		runId: string;
+		planSlug: string;
+		planPath: string;
+		taskId: string;
+		attempt: number;
+		agent: LionDelegationAgent;
+		status: string;
+		summary: string;
+	}): LionEventMap["lion.delegation.end"] {
+		return { type: "lion.delegation.end", timestamp: Date.now(), id: randomUUID(), ...payload };
+	},
 
-	validationStart: createEvent<
-		"lion.validation.start",
-		{ runId: string; planSlug: string; planPath: string; taskId?: string; focus?: string }
-	>("lion.validation.start"),
+	validationStart(payload: {
+		runId: string;
+		planSlug: string;
+		planPath: string;
+		taskId?: string;
+		focus?: string;
+	}): LionEventMap["lion.validation.start"] {
+		return { type: "lion.validation.start", timestamp: Date.now(), id: randomUUID(), ...payload };
+	},
 
-	validationEnd: createEvent<
-		"lion.validation.end",
-		{ runId: string; planSlug: string; planPath: string; taskId?: string; status: string; summary: string }
-	>("lion.validation.end"),
+	validationEnd(payload: {
+		runId: string;
+		planSlug: string;
+		planPath: string;
+		taskId?: string;
+		status: string;
+		summary: string;
+	}): LionEventMap["lion.validation.end"] {
+		return { type: "lion.validation.end", timestamp: Date.now(), id: randomUUID(), ...payload };
+	},
 
-	reviewVerdict: createEvent<
-		"lion.review.verdict",
-		{
-			runId: string;
-			planSlug: string;
-			planPath: string;
-			taskId: string;
-			attempt: number;
-			verdict: LionReviewVerdict;
-			summary: string;
-		}
-	>("lion.review.verdict"),
+	reviewVerdict(payload: {
+		runId: string;
+		planSlug: string;
+		planPath: string;
+		taskId: string;
+		attempt: number;
+		verdict: LionReviewVerdict;
+		summary: string;
+	}): LionEventMap["lion.review.verdict"] {
+		return { type: "lion.review.verdict", timestamp: Date.now(), id: randomUUID(), ...payload };
+	},
 
-	correctionRequested: createEvent<
-		"lion.correction.requested",
-		{ runId: string; planSlug: string; planPath: string; taskId: string; feedback: string }
-	>("lion.correction.requested"),
+	correctionRequested(payload: {
+		runId: string;
+		planSlug: string;
+		planPath: string;
+		taskId: string;
+		feedback: string;
+	}): LionEventMap["lion.correction.requested"] {
+		return { type: "lion.correction.requested", timestamp: Date.now(), id: randomUUID(), ...payload };
+	},
 
-	taskApproved: createEvent<
-		"lion.task.approved",
-		{ runId: string; planSlug: string; planPath: string; taskId: string }
-	>("lion.task.approved"),
+	taskApproved(payload: {
+		runId: string;
+		planSlug: string;
+		planPath: string;
+		taskId: string;
+	}): LionEventMap["lion.task.approved"] {
+		return { type: "lion.task.approved", timestamp: Date.now(), id: randomUUID(), ...payload };
+	},
 
-	taskRejected: createEvent<
-		"lion.task.rejected",
-		{ runId: string; planSlug: string; planPath: string; taskId: string; reason: string }
-	>("lion.task.rejected"),
+	taskRejected(payload: {
+		runId: string;
+		planSlug: string;
+		planPath: string;
+		taskId: string;
+		reason: string;
+	}): LionEventMap["lion.task.rejected"] {
+		return { type: "lion.task.rejected", timestamp: Date.now(), id: randomUUID(), ...payload };
+	},
 
-	taskMarkedComplete: createEvent<
-		"lion.task.marked_complete",
-		{ runId: string; planSlug: string; planPath: string; taskId: string }
-	>("lion.task.marked_complete"),
+	taskMarkedComplete(payload: {
+		runId: string;
+		planSlug: string;
+		planPath: string;
+		taskId: string;
+	}): LionEventMap["lion.task.marked_complete"] {
+		return { type: "lion.task.marked_complete", timestamp: Date.now(), id: randomUUID(), ...payload };
+	},
 
-	buildComplete: createEvent<
-		"lion.build.complete",
-		{ runId: string; planSlug: string; planPath: string; taskId: string; attempt: number; result: LionBuildResult }
-	>("lion.build.complete"),
+	buildComplete(payload: {
+		runId: string;
+		planSlug: string;
+		planPath: string;
+		taskId: string;
+		attempt: number;
+		result: LionBuildResult;
+	}): LionEventMap["lion.build.complete"] {
+		return { type: "lion.build.complete", timestamp: Date.now(), id: randomUUID(), ...payload };
+	},
 
-	buildFailed: createEvent<
-		"lion.build.failed",
-		{ runId: string; planSlug: string; planPath: string; taskId: string; attempt?: number; error: string }
-	>("lion.build.failed"),
+	buildFailed(payload: {
+		runId: string;
+		planSlug: string;
+		planPath: string;
+		taskId: string;
+		attempt?: number;
+		error: string;
+	}): LionEventMap["lion.build.failed"] {
+		return { type: "lion.build.failed", timestamp: Date.now(), id: randomUUID(), ...payload };
+	},
 
-	subagentEvent: createEvent<
-		"lion.subagent.event",
-		{ runId: string; planSlug: string; planPath: string; taskId: string; subagentEvent: SubAgentEvent }
-	>("lion.subagent.event"),
+	subagentEvent(payload: {
+		runId: string;
+		planSlug: string;
+		planPath: string;
+		taskId: string;
+		subagentEvent: SubAgentEvent;
+	}): LionEventMap["lion.subagent.event"] {
+		return { type: "lion.subagent.event", timestamp: Date.now(), id: randomUUID(), ...payload };
+	},
 
-	tasksStart: createEvent<
-		"lion.tasks.start",
-		{
-			runId: string;
-			planSlug: string;
-			planPath: string;
-			strategy: LionTaskStrategy;
-			taskCount: number;
-			concurrency?: number;
-		}
-	>("lion.tasks.start"),
+	tasksStart(payload: {
+		runId: string;
+		planSlug: string;
+		planPath: string;
+		strategy: LionTaskStrategy;
+		taskCount: number;
+		concurrency?: number;
+	}): LionEventMap["lion.tasks.start"] {
+		return { type: "lion.tasks.start", timestamp: Date.now(), id: randomUUID(), ...payload };
+	},
 
-	tasksComplete: createEvent<
-		"lion.tasks.complete",
-		{ runId: string; planSlug: string; planPath: string; result: LionTasksResult }
-	>("lion.tasks.complete"),
+	tasksComplete(payload: {
+		runId: string;
+		planSlug: string;
+		planPath: string;
+		result: LionTasksResult;
+	}): LionEventMap["lion.tasks.complete"] {
+		return { type: "lion.tasks.complete", timestamp: Date.now(), id: randomUUID(), ...payload };
+	},
 
-	tasksTaskStart: createEvent<
-		"lion.tasks.task.start",
-		{
-			runId: string;
-			planSlug: string;
-			planPath: string;
-			index: number;
-			title: string;
-			definition: string;
-		}
-	>("lion.tasks.task.start"),
+	tasksTaskStart(payload: {
+		runId: string;
+		planSlug: string;
+		planPath: string;
+		index: number;
+		title: string;
+		definition: string;
+	}): LionEventMap["lion.tasks.task.start"] {
+		return { type: "lion.tasks.task.start", timestamp: Date.now(), id: randomUUID(), ...payload };
+	},
 
-	tasksTaskEnd: createEvent<
-		"lion.tasks.task.end",
-		{
-			runId: string;
-			planSlug: string;
-			planPath: string;
-			index: number;
-			title: string;
-			definition: string;
-			status: string;
-			summary: string;
-		}
-	>("lion.tasks.task.end"),
+	tasksTaskEnd(payload: {
+		runId: string;
+		planSlug: string;
+		planPath: string;
+		index: number;
+		title: string;
+		definition: string;
+		status: DelegationStatus;
+		summary: string;
+	}): LionEventMap["lion.tasks.task.end"] {
+		return { type: "lion.tasks.task.end", timestamp: Date.now(), id: randomUUID(), ...payload };
+	},
 } as const;
-
-export type LionEventCreators = typeof LionEvents;

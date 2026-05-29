@@ -57,29 +57,21 @@ export class TaskExecutor {
 
 	private async executeParallel(plan: ExecutionPlan): Promise<TaskExecutionResult> {
 		const concurrency = plan.concurrency ?? 3;
-		const executing = new Set<Promise<void>>();
 		const results: DelegationResult[] = new Array(plan.tasks.length);
 
 		const queue = plan.tasks.map((task, index) => ({ task, index }));
 		let cursor = 0;
 
-		const pump = async (): Promise<void> => {
+		const worker = async (): Promise<void> => {
 			while (cursor < queue.length) {
 				if (this.abortController.signal.aborted) break;
 				const { task, index } = queue[cursor++];
-				const promise = this.executeTask(task).then((result) => {
-					results[index] = result;
-				});
-				executing.add(promise);
-
-				if (executing.size >= concurrency) {
-					await Promise.race(executing);
-				}
+				results[index] = await this.executeTask(task);
 			}
 		};
 
-		await pump();
-		await Promise.all(executing);
+		const workerCount = Math.min(concurrency, queue.length);
+		await Promise.all(Array.from({ length: workerCount }, () => worker()));
 
 		return { plan, results, completedAt: Date.now() };
 	}

@@ -20,6 +20,7 @@ export function resolveEffectiveConfig(definition: SubAgentDefinition, task: Del
 
 	// Merge disabled tools
 	const disabledTools = [...(definition.disabledTools ?? []), ...(task.disabledTools ?? [])];
+	const skillPaths = [...(definition.skillPaths ?? []), ...(task.skillPaths ?? [])];
 
 	return {
 		name: definition.name,
@@ -28,6 +29,7 @@ export function resolveEffectiveConfig(definition: SubAgentDefinition, task: Del
 		capabilities,
 		tools: task.tools ?? definition.tools,
 		disabledTools: disabledTools.length > 0 ? disabledTools : undefined,
+		skillPaths: skillPaths.length > 0 ? Array.from(new Set(skillPaths)) : undefined,
 		model: task.model ?? definition.model,
 		thinkingLevel: task.thinkingLevel ?? definition.thinkingLevel,
 		cwd: definition.cwd,

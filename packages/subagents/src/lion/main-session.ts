@@ -3,6 +3,7 @@ import type { ExtensionContext, ExtensionEvent } from "@earendil-works/pi-coding
 import { buildSessionContext } from "@earendil-works/pi-coding-agent";
 import type { DashboardSessionSource, DashboardThreadState } from "../transport/types.js";
 import type { SubAgentEvent, SubAgentInstanceState } from "../types.js";
+import type { LionBuildResult } from "./types.js";
 
 type MainSessionRuntimeEvent =
 	| Extract<ExtensionEvent, { type: "agent_start" }>
@@ -157,6 +158,27 @@ export class MainSessionBridge implements DashboardSessionSource {
 				timestamp: now,
 			});
 		}
+	}
+
+	notifyRunComplete(_result: LionBuildResult): void {
+		if (!this.thread) return;
+		const now = Date.now();
+		this.endTime = now;
+		const previousState = this.thread.state;
+		this.patchState({
+			state: "completed",
+			endTime: now,
+			currentTool: null,
+			lastActivityAt: now,
+		});
+		this.emitLifecycle(this.thread.instanceId, previousState, "completed", now);
+		this.emit({
+			type: "instance.state",
+			instanceId: this.thread.instanceId,
+			taskId: "main",
+			state: this.thread,
+			timestamp: now,
+		});
 	}
 
 	getThread(): DashboardThreadState | null {

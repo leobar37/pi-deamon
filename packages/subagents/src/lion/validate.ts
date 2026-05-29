@@ -29,13 +29,15 @@ export class Validator {
 		const prompt = buildPlanReviewPrompt(plan, focus);
 		const validatorTaskId = `${plan.slug}-validator-${runId}`;
 
-		bus.publish(LionEvents.validationStart, {
-			runId,
-			planSlug: plan.slug,
-			planPath: plan.rootPath,
-			taskId: task.id,
-			focus,
-		});
+		bus.emit(
+			LionEvents.validationStart({
+				runId,
+				planSlug: plan.slug,
+				planPath: plan.rootPath,
+				taskId: task.id,
+				focus,
+			}),
+		);
 
 		this.runtime.startJob({ runId, taskId: validatorTaskId, role: "validator", title: task.title });
 		this.runtime.startSubagentUi({ runId, taskId: validatorTaskId, role: "validator", title: task.title });
@@ -46,13 +48,15 @@ export class Validator {
 		const unsubscribeEvents = controller.getEventBus().subscribe((event: SubAgentEvent) => {
 			if (!("taskId" in event)) return;
 			this.runtime.recordSubagentUiEvent(event);
-			bus.publish(LionEvents.subagentEvent, {
-				runId,
-				planSlug: plan.slug,
-				planPath: plan.rootPath,
-				taskId: validatorTaskId,
-				subagentEvent: event,
-			});
+			bus.emit(
+				LionEvents.subagentEvent({
+					runId,
+					planSlug: plan.slug,
+					planPath: plan.rootPath,
+					taskId: validatorTaskId,
+					subagentEvent: event,
+				}),
+			);
 		});
 
 		const delegationTask: DelegationTask = {
@@ -69,14 +73,16 @@ export class Validator {
 			this.runtime.finishJob(result.taskId, result);
 			renderLionSubagentWidget(this.runtime, ctx);
 
-			bus.publish(LionEvents.validationEnd, {
-				runId,
-				planSlug: plan.slug,
-				planPath: plan.rootPath,
-				taskId: result.taskId,
-				status: result.status,
-				summary: result.summary,
-			});
+			bus.emit(
+				LionEvents.validationEnd({
+					runId,
+					planSlug: plan.slug,
+					planPath: plan.rootPath,
+					taskId: result.taskId,
+					status: result.status,
+					summary: result.summary,
+				}),
+			);
 
 			return {
 				run: this.runtime.core.activeRun,
@@ -85,14 +91,16 @@ export class Validator {
 		} catch (err: unknown) {
 			const error = err instanceof Error ? err.message : String(err);
 			this.runtime.finishJob(validatorTaskId, null, error);
-			bus.publish(LionEvents.validationEnd, {
-				runId,
-				planSlug: plan.slug,
-				planPath: plan.rootPath,
-				taskId: validatorTaskId,
-				status: "failed",
-				summary: error,
-			});
+			bus.emit(
+				LionEvents.validationEnd({
+					runId,
+					planSlug: plan.slug,
+					planPath: plan.rootPath,
+					taskId: validatorTaskId,
+					status: "failed",
+					summary: error,
+				}),
+			);
 			throw new Error(`Lion validation failed: ${error}`);
 		} finally {
 			unsubscribeEvents();

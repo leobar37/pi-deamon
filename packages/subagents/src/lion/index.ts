@@ -34,20 +34,27 @@ export function lionExtension(pi: ExtensionAPI): void {
 			await ensureDashboard();
 		}
 	});
-	pi.on("session_tree", async (_event, ctx) => restore(ctx));
+	pi.on("session_tree", async (_event, ctx) => {
+		restore(ctx);
+		if (runtime.state.active) {
+			await ensureDashboard();
+		}
+	});
 	pi.on("agent_start", async (event, ctx) => runtime.recordMainSessionEvent(event, ctx));
 	pi.on("agent_end", async (event, ctx) => runtime.recordMainSessionEvent(event, ctx));
 	pi.on("turn_start", async (event, ctx) => runtime.recordMainSessionEvent(event, ctx));
 	pi.on("turn_end", async (event, ctx) => {
 		runtime.recordMainSessionEvent(event, ctx);
-		runtime.delegationGuard.endTurn();
 	});
 	pi.on("message_start", async (event, ctx) => runtime.recordMainSessionEvent(event, ctx));
 	pi.on("message_update", async (event, ctx) => runtime.recordMainSessionEvent(event, ctx));
 	pi.on("message_end", async (event, ctx) => runtime.recordMainSessionEvent(event, ctx));
 	pi.on("tool_execution_start", async (event, ctx) => runtime.recordMainSessionEvent(event, ctx));
 	pi.on("tool_execution_end", async (event, ctx) => runtime.recordMainSessionEvent(event, ctx));
-	pi.on("tool_call", async (event) => runtime.delegationGuard.handleToolCall(event, runtime.state));
+	pi.on("tool_call", async (event) => {
+		if (!runtime.state.active) return undefined;
+		return runtime.delegationGuard.handleToolCall(event);
+	});
 	pi.on("session_shutdown", async () => {
 		stopLionSubagentWidget(runtime);
 		await runtime.stopDashboard();
@@ -60,7 +67,6 @@ export function lionExtension(pi: ExtensionAPI): void {
 
 	pi.on("before_agent_start", async (event) => {
 		if (!runtime.state.active) return;
-		runtime.delegationGuard.startTurn(event.prompt, runtime.state);
 		return { systemPrompt: `${event.systemPrompt}\n\n${buildPlanningSystemPrompt(runtime.state)}` };
 	});
 

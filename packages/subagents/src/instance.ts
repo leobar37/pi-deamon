@@ -1,6 +1,7 @@
 import type { AgentMessage, ThinkingLevel } from "@earendil-works/pi-agent-core";
 import type { ImageContent, Model } from "@earendil-works/pi-ai";
 import type {
+	AgentSession,
 	AgentSessionEventListener,
 	AuthStorage,
 	CompactionResult,
@@ -10,17 +11,20 @@ import type {
 	SettingsManager,
 	ToolInfo,
 } from "@earendil-works/pi-coding-agent";
-import type { SessionLogger } from "@local/pi-logger";
+import type { LogEntryType, SessionLogger } from "@local/pi-logger";
 import type { SubAgentEventBus } from "./event-bus.js";
-import { createSubAgentSession } from "./session-factory.js";
+import { buildSubAgentInstructions, createSubAgentSession } from "./session-factory.js";
 import { SubAgentSummarizer } from "./summarizer.js";
 import type {
 	BashResult,
 	ConversationSummary,
 	CreateSubAgentInstanceOptions,
 	DelegationResult,
+	DelegationTask,
+	EffectiveSubAgentConfig,
 	QueryRequest,
 	QueryResponse,
+	SubAgentDefinition,
 	SubAgentEvent,
 	SubAgentInstanceState,
 	SubAgentRpcState,
@@ -36,17 +40,18 @@ export class SubAgentInstance {
 	readonly taskDescription: string;
 
 	private state: SubAgentState = "created";
-	private session: import("@earendil-works/pi-coding-agent").AgentSession | null = null;
+	private session: AgentSession | null = null;
 	private turnCount = 0;
 	private startTime: number | null = null;
 	private endTime: number | null = null;
 	private currentTool: string | null = null;
 	private error: string | null = null;
 	private eventBus: SubAgentEventBus;
-	private config: import("./types.js").EffectiveSubAgentConfig;
-	private definition: import("./types.js").SubAgentDefinition;
-	private task: import("./types.js").DelegationTask;
+	private config: EffectiveSubAgentConfig;
+	private definition: SubAgentDefinition;
+	private task: DelegationTask;
 	private cwd: string;
+	private resourceCwd: string;
 	private cleanupFn: (() => Promise<void>) | null = null;
 	private completionResolve: ((result: DelegationResult) => void) | null = null;
 	private queryResolvers = new Map<
@@ -75,6 +80,7 @@ export class SubAgentInstance {
 		this.definition = options.definition;
 		this.task = options.task;
 		this.cwd = options.cwd;
+		this.resourceCwd = options.resourceCwd;
 		this.eventBus = options.eventBus;
 		this.authStorage = options.authStorage;
 		this.modelRegistry = options.modelRegistry;
@@ -152,7 +158,19 @@ export class SubAgentInstance {
 		this.eventBus.emit(event);
 	}
 
-	private assertSessionReady(): import("@earendil-works/pi-coding-agent").AgentSession {
+	private emitProgress(message: string): void {
+		const event: SubAgentEvent = {
+			type: "progress.update",
+			instanceId: this.instanceId,
+			taskId: this.taskId,
+			message,
+			timestamp: Date.now(),
+		};
+		this.logEvent(event);
+		this.eventBus.emit(event);
+	}
+
+	private assertSessionReady(): AgentSession {
 		if (!this.session) {
 			throw new Error(`SubAgentInstance "${this.instanceId}" is not running. Current state: ${this.state}`);
 		}
@@ -201,6 +219,7 @@ export class SubAgentInstance {
 
 	private async runAgentLoop(): Promise<void> {
 		const workspace = new SubAgentWorkspace(this.cwd);
+		this.emitProgress("Preparing workspace and session");
 		const handle = await workspace.prepare({
 			taskId: this.task.id,
 			relativeCwd: this.config.cwd,
@@ -209,11 +228,13 @@ export class SubAgentInstance {
 
 		this.cwd = handle.cwd;
 		this.cleanupFn = handle.cleanup;
+		this.emitState();
 
 		const { session } = await createSubAgentSession({
 			config: this.config,
 			task: this.task,
 			cwd: handle.cwd,
+			resourceCwd: this.resourceCwd,
 			eventBus: this.eventBus,
 			instanceId: this.instanceId,
 			authStorage: this.authStorage,
@@ -222,6 +243,7 @@ export class SubAgentInstance {
 		});
 
 		this.session = session;
+		this.unsubscribeSession = session.subscribe(this.handleSessionEvent.bind(this));
 
 		// Emit session info so the dashboard can read messages after Pi restart
 		const rpcState = this.getRpcState();
@@ -236,8 +258,8 @@ export class SubAgentInstance {
 		this.logEvent(sessionInfoEvent);
 		this.eventBus.emit(sessionInfoEvent);
 
-		this.unsubscribeSession = session.subscribe(this.handleSessionEvent.bind(this));
-		await session.sendUserMessage(this.task.prompt);
+		const instructions = buildSubAgentInstructions({ config: this.config, task: this.task });
+		await session.sendUserMessage(instructions);
 	}
 
 	private handleSessionEvent: AgentSessionEventListener = (event) => {
@@ -434,7 +456,7 @@ export class SubAgentInstance {
 		}
 	}
 
-	private mapEventType(type: SubAgentEvent["type"]): import("@local/pi-logger").LogEntryType {
+	private mapEventType(type: SubAgentEvent["type"]): LogEntryType {
 		switch (type) {
 			case "lifecycle.change":
 				return "lifecycle";

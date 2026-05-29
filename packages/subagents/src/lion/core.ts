@@ -192,11 +192,12 @@ export function buildPersistedLionCore(
 }
 
 export function restoreLionCore(ctx: ExtensionContext): LionCore {
-	let lastState: PersistedLionCoreState | undefined;
-	for (const entry of ctx.sessionManager.getBranch()) {
-		if (entry.type !== "custom" || entry.customType !== LION_CORE_ENTRY_TYPE) continue;
-		lastState = entry.data as PersistedLionCoreState | undefined;
-	}
+	const states = ctx.sessionManager
+		.getBranch()
+		.filter((entry) => entry.type === "custom" && entry.customType === LION_CORE_ENTRY_TYPE)
+		.map((entry) => (entry as { data: PersistedLionCoreState }).data)
+		.sort((a, b) => a.updatedAt - b.updatedAt);
+	const lastState = states[states.length - 1];
 	if (!lastState || lastState.version !== 1) return createLionCore();
 	return {
 		activeRun: lastState.activeRun ? cloneRun(lastState.activeRun) : null,

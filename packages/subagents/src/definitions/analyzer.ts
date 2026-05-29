@@ -10,7 +10,8 @@ import type { SubAgentDefinition } from "../types.js";
 export const analyzerDefinition: SubAgentDefinition = {
 	name: "analyzer",
 	description: "Codebase analysis and research specialist",
-	systemPrompt: "You are a codebase analyst. Investigate, trace execution paths, and report findings.",
+	systemPrompt:
+		"You are a non-interactive codebase analyzer. Investigate only the delegated scope, do not edit files, do not ask the user for clarification, and return structured evidence with risks, unknowns, and next steps.",
 	capabilities: { canEdit: false, canExecute: false, canWrite: false, canResearch: true },
 	tools: ["read", "glob", "grep", "bash"],
 	disabledTools: ["edit", "write"],

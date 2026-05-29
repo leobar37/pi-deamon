@@ -77,6 +77,7 @@ vi.mock("../src/session-factory.js", () => {
 	};
 
 	return {
+		buildSubAgentInstructions: vi.fn().mockReturnValue("Built instructions"),
 		createSubAgentSession: vi.fn().mockResolvedValue({ session }),
 	};
 });
@@ -230,6 +231,7 @@ describe("SubAgentController", () => {
 
 		it("executes sequential strategy", async () => {
 			const controller = createController();
+			const consoleError = vi.spyOn(console, "error").mockImplementation(() => {});
 			const results = await controller.executePlan({
 				strategy: "sequential",
 				tasks: [
@@ -240,6 +242,8 @@ describe("SubAgentController", () => {
 			expect(results).toHaveLength(2);
 			expect(results[0].taskId).toBe("t1");
 			expect(results[1].taskId).toBe("t2");
+			expect(consoleError).not.toHaveBeenCalledWith(expect.stringContaining("[event-bus]"), expect.anything());
+			consoleError.mockRestore();
 		});
 
 		it("executes parallel strategy", async () => {

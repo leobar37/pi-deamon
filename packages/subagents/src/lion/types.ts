@@ -19,6 +19,8 @@ export interface LionTaskResult {
 	title: string;
 	definition: string;
 	status: DelegationStatus;
+	verificationStatus: LionVerificationStatus;
+	evidence: LionTaskEvidence;
 	summary: string;
 	duration: number;
 	turnCount: number;
@@ -43,6 +45,32 @@ export type LionPlanKind = "structured" | "overview";
 export type LionTaskStatus = "pending" | "in_progress" | "complete" | "blocked" | "retryable";
 export type LionReviewVerdict = "approved" | "rejected" | "unknown";
 export type LionBuildStatus = "approved" | "rejected" | "failed";
+export type LionVerificationStatus = "verified" | "failed" | "blocked" | "unverified";
+
+export interface LionTaskEvidence {
+	commands: LionCommandEvidence[];
+	checks: LionCheckEvidence[];
+	changedFiles: string[];
+	warnings: string[];
+	externalFailures: string[];
+	residualRisks: string[];
+}
+
+export interface LionCommandEvidence {
+	command: string;
+	cwd?: string;
+	exitCode?: number;
+	status: "passed" | "failed" | "blocked" | "unknown";
+	stdoutSnippet?: string;
+	stderrSnippet?: string;
+	durationMs?: number;
+}
+
+export interface LionCheckEvidence {
+	name: string;
+	status: "passed" | "failed" | "blocked" | "not_run" | "unknown";
+	detail?: string;
+}
 
 export interface LionBuildResult {
 	taskId: string;

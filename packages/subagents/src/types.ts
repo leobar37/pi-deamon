@@ -1,14 +1,15 @@
-import type { AgentMessage, ThinkingLevel } from "@earendil-works/pi-agent-core";
-import type { ImageContent, Model } from "@earendil-works/pi-ai";
+import type { ThinkingLevel } from "@earendil-works/pi-agent-core";
+import type { Model } from "@earendil-works/pi-ai";
 import type {
-	CompactionResult,
-	ExtensionAPI,
+	AgentSession,
+	AuthStorage,
 	ExtensionFactory,
-	SessionStats,
-	ToolDefinition,
-	ToolInfo,
+	ModelRegistry,
+	SettingsManager,
 } from "@earendil-works/pi-coding-agent";
 import type { SessionLogger } from "@local/pi-logger";
+import type { SubAgentEventBus } from "./event-bus.js";
+import type { SubAgentTransport } from "./transport/types.js";
 
 // =============================================================================
 // Lifecycle
@@ -81,6 +82,8 @@ export interface SubAgentDefinition {
 	capabilities: SubAgentCapabilities;
 	tools?: string[];
 	disabledTools?: string[];
+	/** Extra skill files or directories to force-load for this definition. */
+	skillPaths?: string[];
 	model?: string;
 	thinkingLevel?: "off" | "minimal" | "low" | "medium" | "high";
 	cwd?: string;
@@ -95,27 +98,10 @@ export interface SubAgentDefinition {
 }
 
 // =============================================================================
-// Effective Config (definition merged with task overrides)
+// Effective Config (definition merged with task overrides; identical shape)
 // =============================================================================
 
-export interface EffectiveSubAgentConfig {
-	name: string;
-	description: string;
-	systemPrompt: string;
-	capabilities: SubAgentCapabilities;
-	tools?: string[];
-	disabledTools?: string[];
-	model?: string;
-	thinkingLevel?: "off" | "minimal" | "low" | "medium" | "high";
-	cwd?: string;
-	isolated?: boolean;
-	extensionFactory?: ExtensionFactory;
-	maxTurns?: number;
-	timeout?: number;
-	allowQuery?: boolean;
-	verboseTools?: boolean;
-	instructionBuilder?: InstructionBuilder;
-}
+export type EffectiveSubAgentConfig = SubAgentDefinition;
 
 // =============================================================================
 // DelegationTask (with dynamic overrides)
@@ -151,6 +137,8 @@ export interface DelegationTask {
 	tools?: string[];
 	/** Additional tools to disable (merged with definition.disabledTools) */
 	disabledTools?: string[];
+	/** Extra skill files or directories to force-load for this task. */
+	skillPaths?: string[];
 	/** Override model */
 	model?: string;
 	/** Override thinking level */
@@ -399,7 +387,7 @@ export interface SubAgentControllerOptions {
 	logger?: SessionLogger;
 	onEvent?: (event: SubAgentEvent) => void;
 	onLifecycleChange?: (event: SubAgentEventMap["lifecycle.change"]) => void;
-	transports?: import("./transport/types.js").SubAgentTransport[];
+	transports?: SubAgentTransport[];
 }
 
 // =============================================================================
@@ -475,15 +463,15 @@ export interface SubAgentRpcState {
 // Session Factory
 // =============================================================================
 
-import type { AgentSession, AuthStorage, ModelRegistry, SettingsManager } from "@earendil-works/pi-coding-agent";
-
 export interface CreateSubAgentSessionOptions {
 	/** Effective config after merging definition + task overrides */
 	config: EffectiveSubAgentConfig;
 	task: DelegationTask;
 	/** Already-resolved cwd (after workspace resolution, may be a worktree) */
 	cwd: string;
-	eventBus: import("./event-bus.js").SubAgentEventBus;
+	/** Root cwd used to load project resources such as .codex/skills and prompts. */
+	resourceCwd: string;
+	eventBus: SubAgentEventBus;
 	instanceId: string;
 	authStorage?: AuthStorage;
 	modelRegistry?: ModelRegistry;
@@ -501,18 +489,10 @@ export interface CreateSubAgentInstanceOptions {
 	definition: SubAgentDefinition;
 	task: DelegationTask;
 	cwd: string;
-	eventBus: import("./event-bus.js").SubAgentEventBus;
+	resourceCwd: string;
+	eventBus: SubAgentEventBus;
 	authStorage?: AuthStorage;
 	modelRegistry?: ModelRegistry;
 	settingsManager?: SettingsManager;
 	logger?: SessionLogger;
 }
-
-// =============================================================================
-// Re-exports
-// =============================================================================
-
-export type { ExtensionAPI, ExtensionFactory, ToolDefinition, ToolInfo };
-export type { AgentMessage, ThinkingLevel };
-export type { ImageContent, Model };
-export type { CompactionResult, SessionStats };

@@ -29,7 +29,7 @@ export function MarkdownRenderer({ content }: MarkdownRendererProps) {
 			remarkPlugins={[remarkGfm]}
 			components={{
 				p: ({ children }) => (
-					<p className="text-sm text-text-primary leading-relaxed mb-3 last:mb-0">
+					<p className="mb-3 break-words text-sm leading-relaxed text-text-primary last:mb-0">
 						{children}
 					</p>
 				),
@@ -59,17 +59,17 @@ export function MarkdownRenderer({ content }: MarkdownRendererProps) {
 					return <>{children}</>;
 				},
 				ul: ({ children }) => (
-					<ul className="list-disc list-inside text-sm text-text-primary space-y-1 mb-3">
+					<ul className="mb-3 list-inside list-disc space-y-1 text-sm text-text-primary">
 						{children}
 					</ul>
 				),
 				ol: ({ children }) => (
-					<ol className="list-decimal list-inside text-sm text-text-primary space-y-1 mb-3">
+					<ol className="mb-3 list-inside list-decimal space-y-1 text-sm text-text-primary">
 						{children}
 					</ol>
 				),
 				li: ({ children }) => (
-					<li className="text-sm text-text-primary">{children}</li>
+					<li className="break-words text-sm text-text-primary">{children}</li>
 				),
 				a: ({ children, href }) => (
 					<a

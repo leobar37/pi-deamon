@@ -1,16 +1,16 @@
 {
-  "completed": 0,
+  "completed": 9,
   "total_tasks": 10,
   "tasks": [
-    { "id": "T-001", "title": "Remove dead code", "status": "pending", "dependencies": [] },
-    { "id": "T-002", "title": "Unify event shape", "status": "pending", "dependencies": ["T-001"] },
-    { "id": "T-003", "title": "Unify execution systems", "status": "pending", "dependencies": ["T-002"] },
-    { "id": "T-004", "title": "Simplify delegation guard", "status": "pending", "dependencies": [] },
-    { "id": "T-005", "title": "Split LionRuntime", "status": "pending", "dependencies": ["T-002", "T-003"] },
-    { "id": "T-006", "title": "Fix type system issues", "status": "pending", "dependencies": [] },
-    { "id": "T-007", "title": "Test transport layer", "status": "pending", "dependencies": [] },
+    { "id": "T-001", "title": "Remove dead code", "status": "complete", "dependencies": [] },
+    { "id": "T-002", "title": "Unify event shape", "status": "complete", "dependencies": ["T-001"] },
+    { "id": "T-003", "title": "Unify execution systems", "status": "complete", "dependencies": ["T-002"] },
+    { "id": "T-004", "title": "Simplify delegation guard", "status": "complete", "dependencies": [] },
+    { "id": "T-005", "title": "Split LionRuntime", "status": "complete", "dependencies": ["T-002", "T-003"] },
+    { "id": "T-006", "title": "Fix type system issues", "status": "complete", "dependencies": [] },
+    { "id": "T-007", "title": "Test transport layer", "status": "complete", "dependencies": [] },
     { "id": "T-008", "title": "Test frontend", "status": "pending", "dependencies": [] },
-    { "id": "T-009", "title": "Dashboard reconstruction", "status": "pending", "dependencies": ["T-002"] },
-    { "id": "T-010", "title": "Fix execution and state machine bugs", "status": "pending", "dependencies": ["T-003"] }
+    { "id": "T-009", "title": "Dashboard reconstruction", "status": "complete", "dependencies": ["T-002"] },
+    { "id": "T-010", "title": "Fix execution and state machine bugs", "status": "complete", "dependencies": ["T-003"] }
   ]
 }

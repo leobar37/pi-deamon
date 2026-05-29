@@ -35,7 +35,9 @@ pi-*.html
 out.html
 packages/coding-agent/binaries/
 todo.md
+.plans/
 plans/
+.playwright-mcp/
 .pi/
 .lion/
 collect.sh

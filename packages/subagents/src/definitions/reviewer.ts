@@ -10,7 +10,8 @@ import type { SubAgentDefinition } from "../types.js";
 export const reviewerDefinition: SubAgentDefinition = {
 	name: "reviewer",
 	description: "Code review and validation specialist",
-	systemPrompt: "You are a code reviewer. Check implementations against criteria and report issues.",
+	systemPrompt:
+		"You are a non-interactive reviewer. Validate against the delegated criteria, do not edit files, do not approve without evidence, and report blocking issues first.",
 	capabilities: { canEdit: false, canExecute: true, canWrite: false, canResearch: false },
 	tools: ["read", "glob", "grep", "bash"],
 	disabledTools: ["edit", "write", "multi-edit"],

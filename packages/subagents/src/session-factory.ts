@@ -17,16 +17,27 @@ function resolveBuilder(config: EffectiveSubAgentConfig): InstructionBuilder {
 	return config.instructionBuilder ?? DEFAULT_BUILDER;
 }
 
+export function buildSubAgentInstructions(options: {
+	config: EffectiveSubAgentConfig;
+	task: CreateSubAgentSessionOptions["task"];
+}): string {
+	const builder = resolveBuilder(options.config);
+	const ctx: InstructionContext = { task: options.task, config: options.config };
+	return builder(ctx);
+}
+
 export async function createSubAgentSession(
 	options: CreateSubAgentSessionOptions,
 ): Promise<CreateSubAgentSessionResult> {
 	const cwd = options.cwd;
+	const resourceCwd = options.resourceCwd;
 	const agentDir = getAgentDir();
 
 	const loader = new DefaultResourceLoader({
-		cwd,
+		cwd: resourceCwd,
 		agentDir,
 		settingsManager: options.settingsManager,
+		additionalSkillPaths: options.config.skillPaths,
 		extensionFactories: [
 			(pi) => {
 				// Tool restrictions
@@ -66,12 +77,6 @@ export async function createSubAgentSession(
 		authStorage: options.authStorage,
 		modelRegistry: options.modelRegistry,
 	});
-
-	// Build delegation instructions using the resolved builder
-	const builder = resolveBuilder(options.config);
-	const ctx: InstructionContext = { task: options.task, config: options.config };
-	const instructions = builder(ctx);
-	await session.sendUserMessage(instructions);
 
 	return { session };
 }

@@ -87,6 +87,7 @@ vi.mock("../src/session-factory.js", () => {
 	};
 
 	return {
+		buildSubAgentInstructions: vi.fn().mockReturnValue("Built instructions"),
 		createSubAgentSession: vi.fn().mockResolvedValue({ session }),
 	};
 });
@@ -96,6 +97,7 @@ vi.mock("../src/session-factory.js", () => {
 // =====================================================================
 
 import { SubAgentInstance } from "../src/instance.js";
+import { createSubAgentSession } from "../src/session-factory.js";
 
 const sampleDefinition: SubAgentDefinition = {
 	name: "test-agent",
@@ -126,6 +128,7 @@ function createInstance(eventBus?: any): SubAgentInstance {
 		definition: sampleDefinition,
 		task: sampleTask,
 		cwd: "/fake/root",
+		resourceCwd: "/fake/root",
 		eventBus: eventBus ?? { on: vi.fn(), emit: vi.fn(), subscribe: vi.fn(), clear: vi.fn() },
 	});
 }
@@ -152,6 +155,7 @@ describe("SubAgentInstance", () => {
 				definition: sampleDefinition,
 				task: sampleTask,
 				cwd: "/fake",
+				resourceCwd: "/fake",
 				eventBus: eventBus as any,
 			});
 			expect(eventBus.emit).toHaveBeenCalledWith(expect.objectContaining({ type: "instance.created" }));
@@ -183,6 +187,32 @@ describe("SubAgentInstance", () => {
 			const instance = createInstance();
 			await instance.start();
 			await expect(instance.start()).rejects.toThrow('Cannot start instance "inst-1" from state "completed"');
+		});
+
+		it("passes the parent resource cwd when creating the session", async () => {
+			const instance = new SubAgentInstance({
+				instanceId: "inst-resource",
+				config: {
+					name: "test-agent",
+					description: "A test agent",
+					systemPrompt: "You are a test agent.",
+					capabilities: { canEdit: false, canExecute: false, canWrite: false, canResearch: true },
+				},
+				definition: sampleDefinition,
+				task: sampleTask,
+				cwd: "/repo/root",
+				resourceCwd: "/repo/root",
+				eventBus: { on: vi.fn(), emit: vi.fn(), subscribe: vi.fn(), clear: vi.fn() } as any,
+			});
+
+			await instance.start();
+
+			expect(createSubAgentSession).toHaveBeenCalledWith(
+				expect.objectContaining({
+					cwd: "/fake/cwd",
+					resourceCwd: "/repo/root",
+				}),
+			);
 		});
 	});
 

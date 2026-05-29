@@ -1,6 +1,7 @@
 import type { ExtensionContext, Theme } from "@earendil-works/pi-coding-agent";
 import { type Component, Container, Text, truncateToWidth, visibleWidth } from "@earendil-works/pi-tui";
-import type { LionRuntime, LionSubagentUiState } from "../runtime.js";
+import type { LionSubagentUiState } from "../job-tracker.js";
+import type { LionRuntime } from "../runtime.js";
 
 const LION_SUBAGENT_WIDGET_KEY = "lion-subagents";
 const WIDGET_ANIMATION_MS = 120;
@@ -21,6 +22,7 @@ function elapsed(ms: number): string {
 
 function glyph(state: LionSubagentUiState, theme: Theme): string {
 	if (state.status === "queued") return theme.fg("muted", "◦");
+	if (state.status === "starting") return theme.fg("accent", "◌");
 	if (state.status === "running") return theme.fg("accent", "●");
 	if (state.status === "completed") return theme.fg("success", "✓");
 	return theme.fg("error", "✗");
@@ -59,12 +61,14 @@ export function buildLionSubagentWidgetLines(
 ): string[] {
 	const ordered = [...states].sort((left, right) => {
 		const statusScore = (state: LionSubagentUiState) =>
-			state.status === "running" ? 0 : state.status === "queued" ? 1 : 2;
+			state.status === "running" ? 0 : state.status === "starting" ? 1 : state.status === "queued" ? 2 : 3;
 		return statusScore(left) - statusScore(right) || right.updatedAt - left.updatedAt;
 	});
 	if (ordered.length === 0) return [];
 
-	const active = ordered.some((state) => state.status === "running" || state.status === "queued");
+	const active = ordered.some(
+		(state) => state.status === "running" || state.status === "starting" || state.status === "queued",
+	);
 	const lines = [
 		clip(
 			`${theme.fg(active ? "accent" : "dim", active ? "●" : "○")} ${theme.fg("toolTitle", theme.bold("Lion subagents"))} ${theme.fg("dim", "· live")}`,
@@ -106,7 +110,9 @@ function buildWidgetComponent(runtime: LionRuntime): (_tui: unknown, theme: Them
 }
 
 function hasRunningSubagent(runtime: LionRuntime): boolean {
-	return [...runtime.subagentUi.values()].some((state) => state.status === "running" || state.status === "queued");
+	return [...runtime.subagentUi.values()].some(
+		(state) => state.status === "running" || state.status === "starting" || state.status === "queued",
+	);
 }
 
 export function stopLionSubagentWidget(runtime: LionRuntime): void {

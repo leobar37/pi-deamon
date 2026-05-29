@@ -17,7 +17,8 @@ import type { SubAgentDefinition } from "../types.js";
 export const executorDefinition: SubAgentDefinition = {
 	name: "executor",
 	description: "Task execution worker",
-	systemPrompt: "You are a task executor. Follow the instructions provided to you precisely.",
+	systemPrompt:
+		"You are a non-interactive task executor. Implement only the delegated task, keep changes scoped, validate what you change, and return files changed, commands run, outcomes, risks, and unknowns.",
 	capabilities: { canEdit: true, canExecute: true, canWrite: true, canResearch: false },
 	thinkingLevel: "high",
 	allowQuery: true,

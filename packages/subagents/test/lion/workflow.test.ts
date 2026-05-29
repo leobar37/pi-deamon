@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { ToolCallEvent } from "@earendil-works/pi-coding-agent";
@@ -12,12 +12,21 @@ import {
 	recordSubagentResult,
 	startRun,
 } from "../../src/lion/core.js";
+import { classifyLionTaskResult } from "../../src/lion/evidence.js";
+import { lionExtension } from "../../src/lion/index.js";
 import { MainSessionBridge } from "../../src/lion/main-session.js";
 import { LionChecklistFile } from "../../src/lion/plans/checklist.js";
+import {
+	getNextExecutableTask,
+	loadLionPlan,
+	recordStructuredTaskResult,
+	updateStructuredTaskStatus,
+} from "../../src/lion/plans/index.js";
 import { StructuredLionPlanFile } from "../../src/lion/plans/structured.js";
 import { buildPlanReviewPrompt } from "../../src/lion/prompts/plan-reviewer.js";
 import { buildPlanningSystemPrompt } from "../../src/lion/prompts/planning.js";
 import { LionRuntime } from "../../src/lion/runtime.js";
+import { TaskRunner } from "../../src/lion/task-runner.js";
 import type { LionPlan, LionTask } from "../../src/lion/types.js";
 import { buildLionSubagentWidgetLines } from "../../src/lion/ui/subagents-widget.js";
 import { parseReviewVerdict } from "../../src/lion/utils.js";
@@ -181,57 +190,216 @@ function testBuildPlanningSystemPrompt(): void {
 	};
 	const prompt = buildPlanningSystemPrompt(state);
 	assert.ok(prompt.includes("test-plan"));
+	assert.ok(prompt.includes("compact XML delegation brief"));
+	assert.ok(prompt.includes("Do not paste full plan files"));
+	assert.ok(prompt.includes("<delegation>"));
+	assert.ok(prompt.includes("<must_not>Ask the user for clarification.</must_not>"));
+	assert.ok(prompt.includes('task_id="T-001"'));
+	assert.ok(prompt.includes("verificationStatus"));
+	assert.ok(prompt.includes("Never treat a subagent self-report as proof"));
+	assert.ok(prompt.includes("lion_next_task"));
+	assert.ok(prompt.includes("lion_record_task_result"));
+	assert.ok(prompt.includes("Do not manually edit checklist.json"));
+	assert.ok(prompt.includes("Interpret User Intent First"));
+	assert.ok(prompt.includes("This interpretation belongs to the main Lion orchestration thread"));
+	assert.ok(prompt.includes("Do not delegate the raw user prompt just to understand it"));
+	assert.ok(prompt.includes("use any relevant loaded skill"));
+	assert.ok(prompt.includes("Executor delegations must reference the active plan and task file"));
+}
+
+async function testTaskRunnerAddsPlanContextToDelegations(): Promise<void> {
+	const dir = createStructuredPlanDirWithChecklist();
+	const capturedPrompts: string[] = [];
+	const capturedSkillPaths: Array<string[] | undefined> = [];
+	try {
+		const runtime = new LionRuntime(fakePi() as any);
+		const loaded = loadLionPlan(dir);
+		runtime.activatePlan(loaded);
+		runtime.activeController = {
+			createInstance(task: DelegationTask) {
+				capturedPrompts.push(task.prompt);
+				capturedSkillPaths.push(task.skillPaths);
+				return {
+					instanceId: `inst-${task.id}`,
+					getState: () => ({
+						instanceId: `inst-${task.id}`,
+						taskId: task.id,
+						definitionName: task.definition,
+						state: "completed",
+						startTime: 1,
+						endTime: 2,
+						turnCount: 1,
+						lastActivityAt: 2,
+						currentTool: null,
+						error: null,
+						toolCount: 0,
+						currentToolStartedAt: null,
+						durationMs: 1,
+					}),
+					start: async () => delegationResult(task, "completed", "bun x test passed"),
+				};
+			},
+			getEventBus: () => ({ subscribe: () => () => {} }),
+		} as any;
+
+		const runner = new TaskRunner(runtime);
+		await runner.run(
+			fakeCtx({}) as any,
+			{
+				strategy: "sequential",
+				tasks: [
+					{
+						definition: "executor",
+						title: "T-001: Task 1",
+						prompt: "Implement the task.",
+						skillPaths: [".codex/skills/core/SKILL.md"],
+					},
+				],
+			},
+			{ threadId: "main:test-session", toolCallId: "tool-1" },
+		);
+
+		assert.equal(capturedPrompts.length, 1);
+		assert.ok(capturedPrompts[0].includes("<lion_context>"));
+		assert.ok(capturedPrompts[0].includes(`path="${dir}`));
+		assert.ok(capturedPrompts[0].includes('id="T-001"'));
+		assert.ok(capturedPrompts[0].includes("Use any relevant loaded skill"));
+		assert.deepEqual(capturedSkillPaths[0], [".codex/skills/core/SKILL.md"]);
+	} finally {
+		rmSync(dir, { recursive: true, force: true });
+	}
+}
+
+function testStructuredPlanNextTaskRespectsDependencies(): void {
+	const dir = createStructuredPlanDirWithDependentChecklist();
+	try {
+		const loaded = loadLionPlan(dir);
+		const next = getNextExecutableTask(loaded);
+		assert.equal(next?.id, "T-001");
+		updateStructuredTaskStatus(loaded, "T-001", "complete");
+		const updated = loadLionPlan(dir);
+		assert.equal(getNextExecutableTask(updated)?.id, "T-002");
+	} finally {
+		rmSync(dir, { recursive: true, force: true });
+	}
+}
+
+function testStructuredPlanRecordTaskResultPersistsSummary(): void {
+	const dir = createStructuredPlanDirWithChecklist();
+	try {
+		const loaded = loadLionPlan(dir);
+		recordStructuredTaskResult(loaded, "T-001", "blocked", "Missing validation evidence");
+		const updated = loadLionPlan(dir);
+		assert.equal(updated.tasks[0].status, "blocked");
+		const raw = readFileSync(join(dir, "checklist.json"), "utf-8");
+		assert.ok(raw.includes("Missing validation evidence"));
+	} finally {
+		rmSync(dir, { recursive: true, force: true });
+	}
+}
+
+function testLionTaskEvidenceRequiresValidation(): void {
+	const result = delegationResult(
+		{ id: "task-1", definition: "analyzer", prompt: "inspect" },
+		"completed",
+		"Implemented the requested change.",
+	);
+
+	const classified = classifyLionTaskResult(result);
+
+	assert.equal(classified.verificationStatus, "unverified");
+	assert.ok(classified.evidence.residualRisks.some((risk) => risk.includes("without explicit passing validation")));
+}
+
+function testLionTaskEvidenceDetectsHiddenErrors(): void {
+	const result = delegationResult(
+		{ id: "task-1", definition: "executor", prompt: "run tests" },
+		"completed",
+		"bun x vitest --run test/controller.test.ts passed\n[event-bus] wildcard listener error: RangeError: Maximum call stack size exceeded",
+	);
+
+	const classified = classifyLionTaskResult(result);
+
+	assert.equal(classified.verificationStatus, "failed");
+	assert.ok(classified.evidence.checks.length > 0);
+}
+
+async function testLionExtensionDoesNotGuardWhenInactive(): Promise<void> {
+	const handlers = new Map<string, Array<(event: ToolCallEvent, ctx?: unknown) => unknown>>();
+	const pi = {
+		on(type: string, handler: (event: ToolCallEvent, ctx?: unknown) => unknown) {
+			const existing = handlers.get(type) ?? [];
+			existing.push(handler);
+			handlers.set(type, existing);
+		},
+		registerTool() {},
+		registerCommand() {},
+		appendEntry() {},
+		sendMessage() {},
+	};
+
+	lionExtension(pi as any);
+	const [handler] = handlers.get("tool_call") ?? [];
+	assert.ok(handler);
+
+	const result = await handler({
+		type: "tool_call",
+		toolName: "edit",
+		toolCallId: "tool-1",
+		input: { path: "packages/subagents/src/index.ts" },
+	});
+
+	assert.equal(result, undefined);
+}
+
+function testDelegationGuardTurnCompatibilityMethods(): void {
+	const runtime = new LionRuntime(fakePi() as any);
+	assert.equal(runtime.delegationGuard.startTurn(), undefined);
+	assert.equal(runtime.delegationGuard.endTurn(), undefined);
 }
 
 function testDelegationGuardAllowsStructureProbes(): void {
 	const runtime = new LionRuntime(fakePi() as any);
 	runtime.activatePlanning();
-	runtime.delegationGuard.startTurn("Analyze packages/subagents runtime and event flow", runtime.state);
 
 	for (let i = 0; i < 3; i++) {
-		const result = runtime.delegationGuard.handleToolCall(
-			lsToolCall(`packages/subagents/src/area-${i}`),
-			runtime.state,
-		);
+		const result = runtime.delegationGuard.handleToolCall(lsToolCall(`packages/subagents/src/area-${i}`));
 		assert.equal(result, undefined);
 	}
 }
 
-function testDelegationGuardBlocksSourceReadsBeforeDelegation(): void {
+function testDelegationGuardAllowsReads(): void {
 	const runtime = new LionRuntime(fakePi() as any);
 	runtime.activatePlanning();
-	runtime.delegationGuard.startTurn("Analyze packages/subagents runtime and event flow", runtime.state);
 
-	const result = runtime.delegationGuard.handleToolCall(readToolCall("packages/subagents/src/file.ts"), runtime.state);
+	const result = runtime.delegationGuard.handleToolCall(readToolCall("packages/subagents/src/file.ts"));
 
-	assert.equal(result?.block, true);
-	assert.ok(result?.reason?.includes("lion_tasks"));
+	assert.equal(result, undefined);
 }
 
-function testDelegationGuardBlocksExcessStructureProbes(): void {
+function testDelegationGuardAllowsUnlimitedStructureProbes(): void {
 	const runtime = new LionRuntime(fakePi() as any);
 	runtime.activatePlanning();
-	runtime.delegationGuard.startTurn("Analyze packages/subagents runtime and event flow", runtime.state);
 
 	for (let i = 0; i < 3; i++) {
-		runtime.delegationGuard.handleToolCall(lsToolCall(`packages/subagents/src/area-${i}`), runtime.state);
+		runtime.delegationGuard.handleToolCall(lsToolCall(`packages/subagents/src/area-${i}`));
 	}
-	const result = runtime.delegationGuard.handleToolCall(lsToolCall("packages/subagents/src/area-4"), runtime.state);
+	const result = runtime.delegationGuard.handleToolCall(lsToolCall("packages/subagents/src/area-4"));
 
-	assert.equal(result?.block, true);
-	assert.ok(result?.reason?.includes("lion_tasks"));
+	assert.equal(result, undefined);
 }
 
 function testDelegationGuardAllowsAfterLionTasks(): void {
 	const runtime = new LionRuntime(fakePi() as any);
 	runtime.activatePlanning();
-	runtime.delegationGuard.startTurn("Analyze packages/subagents runtime and event flow", runtime.state);
 
-	runtime.delegationGuard.handleToolCall(
-		{ type: "tool_call", toolName: "lion_tasks", toolCallId: "tool-1", input: {} },
-		runtime.state,
-	);
-	const result = runtime.delegationGuard.handleToolCall(readToolCall("packages/subagents/src/file.ts"), runtime.state);
+	runtime.delegationGuard.handleToolCall({
+		type: "tool_call",
+		toolName: "lion_tasks",
+		toolCallId: "tool-1",
+		input: {},
+	});
+	const result = runtime.delegationGuard.handleToolCall(readToolCall("packages/subagents/src/file.ts"));
 
 	assert.equal(result, undefined);
 }
@@ -239,26 +407,25 @@ function testDelegationGuardAllowsAfterLionTasks(): void {
 function testDelegationGuardBlocksDirectEdits(): void {
 	const runtime = new LionRuntime(fakePi() as any);
 	runtime.activatePlanning();
-	runtime.delegationGuard.startTurn("Implement improvements in packages/subagents", runtime.state);
 
-	const result = runtime.delegationGuard.handleToolCall(
-		{ type: "tool_call", toolName: "edit", toolCallId: "tool-1", input: { path: "packages/subagents/src/index.ts" } },
-		runtime.state,
-	);
+	const result = runtime.delegationGuard.handleToolCall({
+		type: "tool_call",
+		toolName: "edit",
+		toolCallId: "tool-1",
+		input: { path: "packages/subagents/src/index.ts" },
+	});
 
 	assert.equal(result?.block, true);
+	assert.ok(result?.reason?.includes("blocks direct app-code tools"));
+	assert.ok(result?.reason?.includes(".plans/*"));
 }
 
 function testDelegationGuardAllowsPlanReads(): void {
 	const runtime = new LionRuntime(fakePi() as any);
 	runtime.activatePlanning();
-	runtime.delegationGuard.startTurn("Implement packages/subagents plan", runtime.state);
 
 	for (let i = 0; i < 8; i++) {
-		const result = runtime.delegationGuard.handleToolCall(
-			readToolCall(`.plans/lion/tasks/T-00${i}.md`),
-			runtime.state,
-		);
+		const result = runtime.delegationGuard.handleToolCall(readToolCall(`.plans/lion/tasks/T-00${i}.md`));
 		assert.equal(result, undefined);
 	}
 }
@@ -266,12 +433,32 @@ function testDelegationGuardAllowsPlanReads(): void {
 function testDelegationGuardAllowsPlanEdits(): void {
 	const runtime = new LionRuntime(fakePi() as any);
 	runtime.activatePlanning();
-	runtime.delegationGuard.startTurn("Refine packages/subagents plan", runtime.state);
 
-	const result = runtime.delegationGuard.handleToolCall(
-		{ type: "tool_call", toolName: "edit", toolCallId: "tool-1", input: { path: ".plans/lion/context.md" } },
-		runtime.state,
-	);
+	const result = runtime.delegationGuard.handleToolCall({
+		type: "tool_call",
+		toolName: "edit",
+		toolCallId: "tool-1",
+		input: { path: ".plans/lion/context.md" },
+	});
+
+	assert.equal(result, undefined);
+}
+
+function testDelegationGuardAllowsPlanMultiEdits(): void {
+	const runtime = new LionRuntime(fakePi() as any);
+	runtime.activatePlanning();
+
+	const result = runtime.delegationGuard.handleToolCall({
+		type: "tool_call",
+		toolName: "edit",
+		toolCallId: "tool-1",
+		input: {
+			multi: [
+				{ path: ".plans/lion/tasks/T-001.md", oldText: "old", newText: "new" },
+				{ path: ".plans/lion/tasks/T-002.md", oldText: "old", newText: "new" },
+			],
+		},
+	});
 
 	assert.equal(result, undefined);
 }
@@ -976,8 +1163,38 @@ function testRuntimeRecordSubagentUiEventInstanceState(): void {
 		timestamp: Date.now(),
 	});
 	const ui = runtime.subagentUi.get("task-1");
+	assert.equal(ui?.status, "running");
 	assert.equal(ui?.turnCount, 5);
 	assert.equal(ui?.currentTool, "bash");
+}
+
+function testRuntimeRecordSubagentUiEventInstanceStateStarting(): void {
+	const runtime = new LionRuntime(fakePi() as any);
+	runtime.startJob({ runId: "run-1", taskId: "task-1", role: "executor", title: "Build auth" });
+	runtime.startSubagentUi({ runId: "run-1", taskId: "task-1", role: "executor", title: "Build auth" });
+	runtime.recordSubagentUiEvent({
+		type: "instance.state",
+		instanceId: "inst-1",
+		taskId: "task-1",
+		state: {
+			instanceId: "inst-1",
+			taskId: "task-1",
+			definitionName: "coder",
+			state: "starting",
+			startTime: 1,
+			endTime: null,
+			turnCount: 0,
+			lastActivityAt: Date.now(),
+			currentTool: null,
+			error: null,
+			toolCount: 0,
+			currentToolStartedAt: null,
+			durationMs: 100,
+		},
+		timestamp: Date.now(),
+	});
+	assert.equal(runtime.subagentUi.get("task-1")?.status, "starting");
+	assert.equal(runtime.getSubagentHealth("task-1")[0]?.status, "starting");
 }
 
 function testRuntimeRecordSubagentUiEventIgnoresNoTaskId(): void {
@@ -1027,6 +1244,19 @@ function testRuntimeStartJob(): void {
 	assert.equal(job.status, "queued");
 	assert.equal(job.title, "Build auth");
 	assert.equal(job.role, "executor");
+}
+
+function testRuntimeMarksStalledJobs(): void {
+	const runtime = new LionRuntime(fakePi() as any);
+	runtime.startJob({
+		runId: "run-1",
+		taskId: "task-1",
+		role: "executor",
+		title: "Build auth",
+		timestamp: 1,
+	});
+	const [job] = runtime.getSubagentHealth("task-1");
+	assert.equal(job?.status, "stalled");
 }
 
 function testRuntimeRememberUiContext(): void {
@@ -1222,6 +1452,37 @@ Status: pending
 	return dir;
 }
 
+function createStructuredPlanDirWithDependentChecklist(): string {
+	const dir = mkdtempSync(join(tmpdir(), "lion-structured-"));
+	writeFileSync(
+		join(dir, "task-index.md"),
+		`# Test Plan
+
+## T-001: Task 1
+
+Status: pending
+
+## T-002: Task 2
+
+Status: pending
+`,
+	);
+	writeFileSync(join(dir, "context.md"), "# Context\n\nTest project context.");
+	writeFileSync(join(dir, "requirements.md"), "# Requirements\n\n- req-1");
+	writeFileSync(
+		join(dir, "checklist.json"),
+		JSON.stringify({
+			completed: 0,
+			total_tasks: 2,
+			tasks: [
+				{ id: "T-001", title: "Task 1", status: "pending", dependencies: [], requirements: [] },
+				{ id: "T-002", title: "Task 2", status: "pending", dependencies: ["T-001"], requirements: [] },
+			],
+		}),
+	);
+	return dir;
+}
+
 // Run all tests
 
 const tests = [
@@ -1233,16 +1494,24 @@ const tests = [
 	{ name: "testParseReviewVerdict", fn: testParseReviewVerdict },
 	{ name: "testBuildPlanReviewPrompt", fn: testBuildPlanReviewPrompt },
 	{ name: "testBuildPlanningSystemPrompt", fn: testBuildPlanningSystemPrompt },
+	{ name: "testTaskRunnerAddsPlanContextToDelegations", fn: testTaskRunnerAddsPlanContextToDelegations },
+	{ name: "testStructuredPlanNextTaskRespectsDependencies", fn: testStructuredPlanNextTaskRespectsDependencies },
+	{ name: "testStructuredPlanRecordTaskResultPersistsSummary", fn: testStructuredPlanRecordTaskResultPersistsSummary },
+	{ name: "testLionTaskEvidenceRequiresValidation", fn: testLionTaskEvidenceRequiresValidation },
+	{ name: "testLionTaskEvidenceDetectsHiddenErrors", fn: testLionTaskEvidenceDetectsHiddenErrors },
+	{ name: "testLionExtensionDoesNotGuardWhenInactive", fn: testLionExtensionDoesNotGuardWhenInactive },
+	{ name: "testDelegationGuardTurnCompatibilityMethods", fn: testDelegationGuardTurnCompatibilityMethods },
 	{ name: "testDelegationGuardAllowsStructureProbes", fn: testDelegationGuardAllowsStructureProbes },
 	{
-		name: "testDelegationGuardBlocksSourceReadsBeforeDelegation",
-		fn: testDelegationGuardBlocksSourceReadsBeforeDelegation,
+		name: "testDelegationGuardAllowsReads",
+		fn: testDelegationGuardAllowsReads,
 	},
-	{ name: "testDelegationGuardBlocksExcessStructureProbes", fn: testDelegationGuardBlocksExcessStructureProbes },
+	{ name: "testDelegationGuardAllowsUnlimitedStructureProbes", fn: testDelegationGuardAllowsUnlimitedStructureProbes },
 	{ name: "testDelegationGuardAllowsAfterLionTasks", fn: testDelegationGuardAllowsAfterLionTasks },
 	{ name: "testDelegationGuardBlocksDirectEdits", fn: testDelegationGuardBlocksDirectEdits },
 	{ name: "testDelegationGuardAllowsPlanReads", fn: testDelegationGuardAllowsPlanReads },
 	{ name: "testDelegationGuardAllowsPlanEdits", fn: testDelegationGuardAllowsPlanEdits },
+	{ name: "testDelegationGuardAllowsPlanMultiEdits", fn: testDelegationGuardAllowsPlanMultiEdits },
 	{ name: "testWidgetLinesWithNoJobs", fn: testWidgetLinesWithNoJobs },
 	{ name: "testWidgetLinesWithJobs", fn: testWidgetLinesWithJobs },
 	{ name: "testWidgetLinesWithCompletedJob", fn: testWidgetLinesWithCompletedJob },
@@ -1291,11 +1560,16 @@ const tests = [
 	{ name: "testRuntimeRecordSubagentUiEventTaskEnd", fn: testRuntimeRecordSubagentUiEventTaskEnd },
 	{ name: "testRuntimeRecordSubagentUiEventError", fn: testRuntimeRecordSubagentUiEventError },
 	{ name: "testRuntimeRecordSubagentUiEventInstanceState", fn: testRuntimeRecordSubagentUiEventInstanceState },
+	{
+		name: "testRuntimeRecordSubagentUiEventInstanceStateStarting",
+		fn: testRuntimeRecordSubagentUiEventInstanceStateStarting,
+	},
 	{ name: "testRuntimeRecordSubagentUiEventIgnoresNoTaskId", fn: testRuntimeRecordSubagentUiEventIgnoresNoTaskId },
 	{ name: "testRuntimeFinishJob", fn: testRuntimeFinishJob },
 	{ name: "testRuntimeFinishJobWithError", fn: testRuntimeFinishJobWithError },
 	{ name: "testRuntimeFinishJobUnknownTask", fn: testRuntimeFinishJobUnknownTask },
 	{ name: "testRuntimeStartJob", fn: testRuntimeStartJob },
+	{ name: "testRuntimeMarksStalledJobs", fn: testRuntimeMarksStalledJobs },
 	{ name: "testRuntimeRememberUiContext", fn: testRuntimeRememberUiContext },
 	{ name: "testRuntimeRememberUiContextNoUI", fn: testRuntimeRememberUiContextNoUI },
 	{ name: "testMainSessionBridgeAttachCreatesMainThread", fn: testMainSessionBridgeAttachCreatesMainThread },

@@ -126,7 +126,7 @@ export function registerLionCommands(pi: ExtensionAPI, runtime: LionRuntime): vo
 					"Lion build mode activated.",
 					`Plan: ${runtime.state.activePlanSlug || activePlanPath}`,
 					"The orchestrator is now in control of task execution.",
-					"Immediately inspect the active plan, identify the next pending task, and use lion_tasks to execute analyzer, executor, or reviewer subagents as appropriate.",
+					"Immediately use lion_next_task, delegate with lion_tasks, then persist task outcome with lion_record_task_result.",
 					"Do not implement application code directly in the main thread.",
 				].join("\n"),
 				display: false,
@@ -135,7 +135,7 @@ export function registerLionCommands(pi: ExtensionAPI, runtime: LionRuntime): vo
 					planSlug: runtime.state.activePlanSlug,
 					planPath: activePlanPath,
 					mode: "building",
-					nextTools: ["lion_tasks", "lion_reconcile_plan"],
+					nextTools: ["lion_next_task", "lion_tasks", "lion_record_task_result", "lion_reconcile_plan"],
 				},
 			};
 
