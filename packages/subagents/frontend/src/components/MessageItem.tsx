@@ -21,7 +21,7 @@ export function MessageItem({ message }: MessageItemProps) {
         }`}
       >
         {message.blocks.map((block, i) => (
-          <BlockRenderer key={i} block={block} />
+          <BlockRenderer key={i} block={block} currentThreadId={message.instanceId} />
         ))}
       </div>
     </div>

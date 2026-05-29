@@ -1,4 +1,4 @@
-import ReactMarkdown from "react-markdown";
+import { Streamdown } from "streamdown";
 import remarkGfm from "remark-gfm";
 import { CodeBlock } from "./CodeBlock.js";
 import { HttpBlock } from "./HttpBlock.js";
@@ -23,7 +23,9 @@ function isHttpBlock(code: string): boolean {
 
 export function MarkdownRenderer({ content }: MarkdownRendererProps) {
 	return (
-		<ReactMarkdown
+		<Streamdown
+			mode="streaming"
+			parseIncompleteMarkdown
 			remarkPlugins={[remarkGfm]}
 			components={{
 				p: ({ children }) => (
@@ -97,6 +99,6 @@ export function MarkdownRenderer({ content }: MarkdownRendererProps) {
 			}}
 		>
 			{content}
-		</ReactMarkdown>
+		</Streamdown>
 	);
 }

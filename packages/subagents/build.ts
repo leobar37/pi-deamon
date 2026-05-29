@@ -2,6 +2,20 @@ import { join } from "node:path";
 
 const ENTRY = join(import.meta.dir, "src", "index.ts");
 const OUT_DIR = join(import.meta.dir, "dist");
+const EXTERNAL = [
+	"@earendil-works/pi-agent-core",
+	"@earendil-works/pi-ai",
+	"@earendil-works/pi-ai/oauth",
+	"@earendil-works/pi-coding-agent",
+	"@earendil-works/pi-tui",
+	"@local/pi-logger",
+	"typebox",
+	"typebox/compile",
+	"typebox/value",
+	"zod",
+	"zod/v4",
+	"zod/v4/core",
+];
 
 async function build() {
 	const result = await Bun.build({
@@ -9,6 +23,7 @@ async function build() {
 		outdir: OUT_DIR,
 		target: "bun",
 		format: "esm",
+		external: EXTERNAL,
 		naming: "index.js",
 	});
 

@@ -1,14 +1,27 @@
-import { useState, useCallback } from "react";
+import { useState, useCallback, useMemo } from "react";
+import { SubagentRunBlock } from "../SubagentRunBlock.tsx";
+import { useSubAgentStore } from "../../store/use-subagent-store.ts";
 
 interface ToolCallBlockProps {
 	id: string;
 	name: string;
 	arguments: Record<string, unknown>;
+	currentThreadId: string;
 }
 
-export function ToolCallBlock({ name, arguments: args }: ToolCallBlockProps) {
+export function ToolCallBlock({ id, name, arguments: args, currentThreadId }: ToolCallBlockProps) {
 	const [isExpanded, setIsExpanded] = useState(false);
 	const toggle = useCallback(() => setIsExpanded((v) => !v), []);
+	const agents = useSubAgentStore((s) => s.agents);
+	const strategy = typeof args.strategy === "string" ? args.strategy : "sequential";
+	const childThreads = useMemo(
+		() => agents.filter((agent) => agent.parentThreadId === currentThreadId && agent.parentToolCallId === id),
+		[agents, currentThreadId, id],
+	);
+
+	if (name === "lion_tasks" && childThreads.length > 0) {
+		return <SubagentRunBlock threads={childThreads} strategy={strategy} />;
+	}
 
 	return (
 		<div className="my-3 bg-bg-elevated border border-border-subtle rounded-lg overflow-hidden">

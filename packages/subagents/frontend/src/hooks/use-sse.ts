@@ -1,5 +1,10 @@
 import { useEffect, useRef } from "react";
 import { useSubAgentStore } from "../store/use-subagent-store.ts";
+import { useSessionMessagesStore } from "../store/session-messages.ts";
+import type { SubAgentEvent } from "../types.ts";
+import { convertAgentMessages } from "../utils/message-converter.ts";
+import { generateNextEvent } from "../mocks/sse-emitter.ts";
+import { dashboardDebugLedger } from "../dev/debug-ledger.ts";
 
 function isDev(): boolean {
 	return (import.meta as unknown as { env?: { DEV?: boolean } }).env?.DEV ?? false;
@@ -7,6 +12,7 @@ function isDev(): boolean {
 
 export function useSseEvents(instanceId?: string) {
 	const storeRef = useRef(useSubAgentStore.getState());
+	const messagesRef = useRef(useSessionMessagesStore.getState());
 	const abortRef = useRef<AbortController | null>(null);
 
 	useEffect(() => {
@@ -47,11 +53,14 @@ export function useSseEvents(instanceId?: string) {
 			// Only emit for the running mock agent
 			if (instanceId && instanceId !== "subagent-task-1-abc123") return false;
 
-			const { generateNextEvent } = await import("../mocks/sse-emitter.ts");
 			const agent = {
 				instanceId: "subagent-task-1-abc123",
 				taskId: "task-1",
 				definitionName: "executor",
+				parentThreadId: "main:mock-session",
+				parentToolCallId: "main-tool-lion-tasks",
+				runId: "mock-run-1",
+				runIndex: 0,
 				state: "running" as const,
 				turnCount: 3,
 				toolCount: 5,
@@ -65,7 +74,9 @@ export function useSseEvents(instanceId?: string) {
 			const emit = () => {
 				if (cancelled) return;
 				const event = generateNextEvent(agent);
+				dashboardDebugLedger.recordEvent(event);
 				storeRef.current.addEvent(event);
+				handleSessionEvent(event);
 				lastEventTime = Date.now();
 				scheduleInactivityCheck();
 				mockTimeout = setTimeout(emit, 2000 + Math.random() * 3000);
@@ -101,6 +112,7 @@ export function useSseEvents(instanceId?: string) {
 						if (!res.ok || !res.body) {
 							throw new Error(`HTTP ${res.status}`);
 						}
+						dashboardDebugLedger.log("info", "sse", "connected", { url: url.href }, instanceId);
 						retryCount = 0;
 						lastEventTime = Date.now();
 						storeRef.current.setConnected(true);
@@ -131,8 +143,10 @@ export function useSseEvents(instanceId?: string) {
 									const json = dataLine.slice(5).trim();
 									if (!json) continue;
 									try {
-										const event = JSON.parse(json);
+										const event = JSON.parse(json) as SubAgentEvent;
+										dashboardDebugLedger.recordEvent(event);
 										storeRef.current.addEvent(event);
+										handleSessionEvent(event);
 									} catch {
 										/* ignore malformed */
 									}
@@ -145,6 +159,7 @@ export function useSseEvents(instanceId?: string) {
 						}
 
 						if (!cancelled) {
+							dashboardDebugLedger.log("warn", "sse", "reconnect", { retryCount }, instanceId);
 							storeRef.current.setConnected(false);
 							retryCount++;
 							reconnectTimer = setTimeout(connect, getBackoffMs());
@@ -152,6 +167,7 @@ export function useSseEvents(instanceId?: string) {
 					})
 					.catch((err) => {
 						if (!cancelled) {
+							dashboardDebugLedger.log("error", "sse", "connection-error", err, instanceId);
 							console.error("[SSE] Connection error:", err);
 							storeRef.current.setConnected(false);
 							retryCount++;
@@ -172,4 +188,28 @@ export function useSseEvents(instanceId?: string) {
 			abortRef.current?.abort();
 		};
 	}, [instanceId]);
+
+	function handleSessionEvent(event: SubAgentEvent): void {
+		if (event.type !== "session.event") return;
+		const sessionEvent = event.sessionEvent as { type?: string; message?: Record<string, unknown> } | undefined;
+		if (!sessionEvent?.type) return;
+		if (sessionEvent.type === "message_start" && sessionEvent.message) {
+			const [message] = convertAgentMessages(event.instanceId, [sessionEvent.message]);
+			if (message) messagesRef.current.startMessage(event.instanceId, message);
+			messagesRef.current.setStreaming(event.instanceId, message?.role === "assistant");
+			return;
+		}
+		if (sessionEvent.type === "message_update" && sessionEvent.message) {
+			const [message] = convertAgentMessages(event.instanceId, [sessionEvent.message]);
+			if (message) messagesRef.current.updatePartialMessage(event.instanceId, message);
+			messagesRef.current.setStreaming(event.instanceId, message?.role === "assistant");
+			return;
+		}
+		if (sessionEvent.type !== "message_end" || !sessionEvent.message) return;
+		const [message] = convertAgentMessages(event.instanceId, [sessionEvent.message]);
+		if (message) {
+			messagesRef.current.finishMessage(event.instanceId, message);
+			messagesRef.current.setStreaming(event.instanceId, false);
+		}
+	}
 }

@@ -7,16 +7,17 @@ import { ImageBlock } from "./ImageBlock.js";
 
 interface BlockRendererProps {
 	block: MessageBlock;
+	currentThreadId: string;
 }
 
-export function BlockRenderer({ block }: BlockRendererProps) {
+export function BlockRenderer({ block, currentThreadId }: BlockRendererProps) {
 	switch (block.type) {
 		case "text":
 			return <TextBlock text={block.text} />;
 		case "thinking":
 			return <ThinkingBlock thinking={block.thinking} signature={block.signature} redacted={block.redacted} />;
 		case "toolCall":
-			return <ToolCallBlock id={block.id} name={block.name} arguments={block.arguments} />;
+			return <ToolCallBlock id={block.id} name={block.name} arguments={block.arguments} currentThreadId={currentThreadId} />;
 		case "toolResult":
 			return <ToolResultBlock toolCallId={block.toolCallId} content={block.content} isError={block.isError} />;
 		case "image":

@@ -101,6 +101,10 @@ export class SubAgentController {
 		return Array.from(this.definitions.values());
 	}
 
+	getCwd(): string {
+		return this.cwd;
+	}
+
 	// =====================================================================
 	// Instance Lifecycle
 	// =====================================================================

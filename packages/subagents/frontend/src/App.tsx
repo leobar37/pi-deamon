@@ -1,17 +1,15 @@
 import { useState, useEffect } from "react";
-import { AgentList } from "./components/AgentList.tsx";
 import { AgentDetail } from "./components/AgentDetail.tsx";
+import { useAgents } from "./hooks/use-agents.ts";
+import { useSseEvents } from "./hooks/use-sse.ts";
+import { navigateToThread, getHashThreadId } from "./navigation.ts";
+import { useSubAgentStore } from "./store/use-subagent-store.ts";
 
-function getHashAgentId(): string | null {
-	const hash = window.location.hash;
-	return hash.startsWith("#/agent/") ? hash.slice("#/agent/".length) : null;
-}
-
-function useHashAgentId(): string | null {
-	const [id, setId] = useState(() => getHashAgentId());
+function useHashThreadId(): string | null {
+	const [id, setId] = useState(() => getHashThreadId());
 
 	useEffect(() => {
-		const handler = () => setId(getHashAgentId());
+		const handler = () => setId(getHashThreadId());
 		window.addEventListener("hashchange", handler);
 		return () => window.removeEventListener("hashchange", handler);
 	}, []);
@@ -19,32 +17,46 @@ function useHashAgentId(): string | null {
 	return id;
 }
 
-export function navigateToAgent(id: string | null) {
-	window.location.hash = id ? `#/agent/${id}` : "#/";
-}
-
 export default function App() {
-	const agentId = useHashAgentId();
+	const threadId = useHashThreadId();
+	const { data: fetchedAgents, isLoading, error } = useAgents();
+	const agents = useSubAgentStore((s) => s.agents);
+	const setAgents = useSubAgentStore((s) => s.setAgents);
+
+	useSseEvents();
+
+	useEffect(() => {
+		if (fetchedAgents) {
+			setAgents(fetchedAgents);
+		}
+	}, [fetchedAgents, setAgents]);
+
+	const mainThread = agents.find((agent) => agent.kind === "main") ?? null;
+
+	useEffect(() => {
+		if (!threadId && mainThread) {
+			navigateToThread(mainThread.instanceId);
+		}
+	}, [mainThread, threadId]);
+
+	const activeThreadId = threadId ?? mainThread?.instanceId ?? null;
 
 	return (
-		<div className="h-screen flex bg-bg-base text-text-primary overflow-hidden">
-			<aside className="w-80 shrink-0 border-r border-border-subtle">
-				<AgentList />
-			</aside>
-			<main className="flex-1 flex flex-col min-w-0">
-				{agentId ? (
+		<div className="h-screen bg-bg-base text-text-primary overflow-hidden">
+			<main className="h-full flex flex-col min-w-0">
+				{activeThreadId ? (
 					<AgentDetail
-						instanceId={agentId}
-						onBack={() => navigateToAgent(null)}
+						instanceId={activeThreadId}
+						onBack={() => navigateToThread(mainThread?.instanceId ?? null)}
 					/>
 				) : (
 					<div className="flex items-center justify-center h-full">
 						<div className="text-center">
 							<p className="text-lg font-medium text-text-primary">
-								SubAgent Dashboard
+								Lion Dashboard
 							</p>
 							<p className="text-sm text-text-muted mt-2">
-								Select an agent from the sidebar to view live events
+								{isLoading ? "Loading live session..." : error ? "Error loading threads" : "Waiting for a main session..."}
 							</p>
 						</div>
 					</div>

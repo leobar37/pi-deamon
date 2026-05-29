@@ -29,6 +29,10 @@ export interface SubAgentInstanceState {
 	instanceId: string;
 	taskId: string;
 	definitionName: string;
+	parentThreadId?: string;
+	parentToolCallId?: string;
+	runId?: string;
+	runIndex?: number;
 	description?: string;
 	state: SubAgentState;
 	startTime: number | null;
@@ -124,6 +128,14 @@ export interface DelegationTask {
 	definition: string;
 	/** Task instructions (the "what to do") */
 	prompt: string;
+	/** Parent dashboard thread that created this task, when delegated from another session. */
+	parentThreadId?: string;
+	/** Parent tool call that created this task, when delegated from another session. */
+	parentToolCallId?: string;
+	/** Logical grouped run id for multi-task delegation. */
+	runId?: string;
+	/** Position of this task inside the delegated run. */
+	runIndex?: number;
 
 	/** --- Dynamic overrides (all optional) --- */
 
@@ -215,6 +227,10 @@ export interface SubAgentEventMap {
 		instanceId: string;
 		taskId: string;
 		definitionName: string;
+		parentThreadId?: string;
+		parentToolCallId?: string;
+		runId?: string;
+		runIndex?: number;
 		description?: string;
 		timestamp: number;
 	};
@@ -261,6 +277,10 @@ export interface SubAgentEventMap {
 		instanceId: string;
 		taskId: string;
 		definitionName: string;
+		parentThreadId?: string;
+		parentToolCallId?: string;
+		runId?: string;
+		runIndex?: number;
 		timestamp: number;
 	};
 
@@ -269,6 +289,15 @@ export interface SubAgentEventMap {
 		instanceId: string;
 		taskId: string;
 		state: SubAgentInstanceState;
+		timestamp: number;
+	};
+
+	"instance.session": {
+		type: "instance.session";
+		instanceId: string;
+		taskId: string;
+		sessionId: string;
+		sessionFile?: string;
 		timestamp: number;
 	};
 
@@ -328,7 +357,22 @@ export interface SubAgentEventMap {
 	};
 }
 
-export type SubAgentEventType = keyof SubAgentEventMap;
+export type SubAgentEventType =
+	| "lifecycle.change"
+	| "task.start"
+	| "task.end"
+	| "turn.complete"
+	| "tool.start"
+	| "tool.end"
+	| "tool.execute"
+	| "progress.update"
+	| "query.response"
+	| "summary.available"
+	| "error"
+	| "instance.created"
+	| "instance.state"
+	| "instance.session"
+	| "session.event";
 export type SubAgentEvent = SubAgentEventMap[SubAgentEventType];
 
 // =============================================================================

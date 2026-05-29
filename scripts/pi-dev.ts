@@ -14,11 +14,21 @@ const __dirname = dirname(__filename);
 // Resolve repo root from this script's location (scripts/ -> repo root)
 const REPO_ROOT = realpathSync(join(__dirname, ".."));
 const CLI_ENTRY = join(REPO_ROOT, "packages", "coding-agent", "src", "cli.ts");
+const SUBAGENTS_DIR = join(REPO_ROOT, "packages", "subagents");
 const EXT_DIR = join(REPO_ROOT, "packages", "extensions");
 
 const args = process.argv.slice(2);
 
-// Build extensions first so external dependencies are bundled and imports resolve.
+// Build subagents first because extensions keep @local/pi-subagents external.
+const subagentsBuildProc = Bun.spawnSync(["bun", "run", "build"], {
+  cwd: SUBAGENTS_DIR,
+  stdio: ["inherit", "inherit", "inherit"],
+});
+if (subagentsBuildProc.exitCode !== 0) {
+  process.exit(subagentsBuildProc.exitCode ?? 1);
+}
+
+// Build extensions so external dependencies are bundled and imports resolve.
 const buildProc = Bun.spawnSync(["bun", "run", "build"], {
   cwd: EXT_DIR,
   stdio: ["inherit", "inherit", "inherit"],

@@ -3,6 +3,32 @@ import { getAgentById, getEventsForInstance, getMessagesForInstance, MOCK_AGENTS
 import { createMockSseStream } from "./sse-emitter.ts";
 
 export const handlers = [
+	// GET /api/threads
+	http.get("/api/threads", () => {
+		return HttpResponse.json(MOCK_AGENTS);
+	}),
+
+	// GET /api/threads/:id
+	http.get("/api/threads/:id", ({ params }) => {
+		const agent = getAgentById(params.id as string);
+		if (!agent) {
+			return new HttpResponse("Not Found", { status: 404 });
+		}
+		return HttpResponse.json(agent);
+	}),
+
+	// GET /api/threads/:id/events
+	http.get("/api/threads/:id/events", ({ params }) => {
+		const events = getEventsForInstance(params.id as string);
+		return HttpResponse.json(events);
+	}),
+
+	// GET /api/threads/:id/messages
+	http.get("/api/threads/:id/messages", ({ params }) => {
+		const messages = getMessagesForInstance(params.id as string);
+		return HttpResponse.json(messages);
+	}),
+
 	// GET /api/instances
 	http.get("/api/instances", () => {
 		return HttpResponse.json(MOCK_AGENTS);

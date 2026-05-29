@@ -42,6 +42,60 @@ export {
 	withSummary,
 } from "./instructions/index.js";
 export type { InstructionBuilder, InstructionContext } from "./instructions/types.js";
+export { registerLionCommands } from "./lion/commands.js";
+export type { LionCore, LionRun, LionRunStatus, LionSubagentRole, PersistedLionCoreState } from "./lion/core.js";
+export {
+	buildPersistedLionCore,
+	createLionCore,
+	finishRun,
+	LION_CORE_ENTRY_TYPE,
+	markAwaitingOrchestrator,
+	recordReviewVerdict,
+	recordSubagentResult,
+	restoreLionCore,
+	setRunStatus,
+	snapshot,
+	startRun,
+} from "./lion/core.js";
+export { LionEvents, LionRuntimeEventBus } from "./lion/events/index.js";
+// Lion orchestration
+export { lionExtension } from "./lion/index.js";
+export { MainSessionBridge } from "./lion/main-session.js";
+export {
+	buildCorrectionPrompt,
+	buildExecutorPrompt,
+	buildPlanningSystemPrompt,
+	buildPlanReviewPrompt,
+	buildReviewerPrompt,
+} from "./lion/prompts/index.js";
+export { LionPersistence, LionRuntime } from "./lion/runtime.js";
+export type { LionToolResponse } from "./lion/tools.js";
+export { registerLionTools } from "./lion/tools.js";
+export type {
+	LionBuildResult,
+	LionEvent,
+	LionEventBase,
+	LionEventMap,
+	LionEventType,
+	LionMode,
+	LionPlan,
+	LionPlanKind,
+	LionPlanValidationResult,
+	LionReviewVerdict,
+	LionState,
+	LionTask,
+	LionTaskResult,
+	LionTaskStatus,
+	LionTaskStrategy,
+	LionTasksResult,
+	PersistedLionState,
+} from "./lion/types.js";
+export {
+	buildLionSubagentWidgetLines,
+	renderLionSubagentWidget,
+	stopLionSubagentWidget,
+} from "./lion/ui/subagents-widget.js";
+export { parseReviewVerdict } from "./lion/utils.js";
 // Session factory
 export { createSubAgentSession } from "./session-factory.js";
 // Summarizer
@@ -51,7 +105,13 @@ export { TaskExecutor } from "./task-executor.js";
 export type { HttpServerTransportOptions } from "./transport/http-server.js";
 // Transport
 export { HttpServerTransport } from "./transport/http-server.js";
-export type { SubAgentTransport, SubAgentTransportEvent } from "./transport/types.js";
+export type {
+	DashboardSessionSource,
+	DashboardThreadKind,
+	DashboardThreadState,
+	SubAgentTransport,
+	SubAgentTransportEvent,
+} from "./transport/types.js";
 export type {
 	ConversationSummary,
 	CreateSubAgentInstanceOptions,

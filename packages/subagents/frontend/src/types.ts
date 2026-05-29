@@ -16,6 +16,11 @@ export interface SubAgentInstanceState {
 	instanceId: string;
 	taskId: string;
 	definitionName: string;
+	kind?: "main" | "subagent";
+	parentThreadId?: string;
+	parentToolCallId?: string;
+	runId?: string;
+	runIndex?: number;
 	description?: string;
 	state: SubAgentState;
 	startTime: number | null;
@@ -27,6 +32,9 @@ export interface SubAgentInstanceState {
 	toolCount: number;
 	currentToolStartedAt: number | null;
 	durationMs: number;
+	isLive?: boolean;
+	sessionFile?: string;
+	sessionId?: string;
 }
 
 export interface SubAgentEvent {
@@ -51,6 +59,7 @@ export type SubAgentEventType =
 	| "error"
 	| "instance.created"
 	| "instance.state"
+	| "instance.session"
 	| "session.event";
 
 // =============================================================================
@@ -71,4 +80,5 @@ export interface ChatMessage {
 	blocks: MessageBlock[];
 	timestamp: number;
 	streaming?: boolean;
+	partial?: boolean;
 }

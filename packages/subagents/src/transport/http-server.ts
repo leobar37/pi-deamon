@@ -1,8 +1,14 @@
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
+import { SessionManager } from "@earendil-works/pi-coding-agent";
 import type { SubAgentController } from "../controller.js";
-import type { SubAgentEvent, SubAgentInstanceState } from "../types.js";
-import type { SubAgentTransport, SubAgentTransportEvent } from "./types.js";
+import { DashboardStateManager } from "./state-manager.js";
+import type {
+	DashboardSessionSource,
+	DashboardThreadState,
+	SubAgentTransport,
+	SubAgentTransportEvent,
+} from "./types.js";
 
 export interface HttpServerTransportOptions {
 	port?: number;
@@ -13,6 +19,7 @@ export interface HttpServerTransportOptions {
 	 * Defaults to the bundled frontend/dist relative to this file.
 	 */
 	staticDir?: string;
+	mainSession?: DashboardSessionSource;
 }
 
 interface SseClient {
@@ -38,13 +45,14 @@ export class HttpServerTransport implements SubAgentTransport {
 	readonly id = "http-server";
 	private server: ReturnType<typeof Bun.serve> | null = null;
 	private clients = new Set<SseClient>();
-	private instanceStates = new Map<string, SubAgentInstanceState>();
-	private eventLogs = new Map<string, SubAgentEvent[]>();
 	private staticDir: string;
 	private sseCleanupTimer: ReturnType<typeof setInterval> | null = null;
+	private stateManager: DashboardStateManager;
+	private unsubscribeMainSession?: () => void;
 
 	constructor(private options: HttpServerTransportOptions) {
 		this.staticDir = resolveStaticDir(options);
+		this.stateManager = new DashboardStateManager(options.controller.getCwd());
 		this.sseCleanupTimer = setInterval(() => this.cleanupStaleSseClients(), 30000);
 	}
 
@@ -53,6 +61,8 @@ export class HttpServerTransport implements SubAgentTransport {
 	}
 
 	async start(): Promise<void> {
+		await this.stateManager.rehydrate();
+		this.unsubscribeMainSession = this.options.mainSession?.subscribe((event) => this.emitToClients(event));
 		this.server = Bun.serve({
 			port: this.options.port ?? 0,
 			hostname: this.options.host ?? "0.0.0.0",
@@ -73,22 +83,26 @@ export class HttpServerTransport implements SubAgentTransport {
 			}
 		}
 		this.clients.clear();
+		this.unsubscribeMainSession?.();
+		this.unsubscribeMainSession = undefined;
 		this.server?.stop(true);
 		this.server = null;
 	}
 
 	emit(event: SubAgentTransportEvent): void {
-		if (event.type === "instance.state") {
-			this.instanceStates.set(event.instanceId, event.state);
-		}
-
-		// Log events per instance for historical retrieval
+		// Persist and update state manager
 		if ("instanceId" in event && typeof event.instanceId === "string") {
-			const log = this.eventLogs.get(event.instanceId) ?? [];
-			log.push(event);
-			this.eventLogs.set(event.instanceId, log);
+			this.stateManager.appendEvent(event.instanceId, event).catch(() => {});
 		}
 
+		if (event.type === "instance.state") {
+			this.stateManager.registerLiveInstance(event.state);
+		}
+
+		this.emitToClients(event);
+	}
+
+	private emitToClients(event: SubAgentTransportEvent): void {
 		const payload = encoder.encode(`data: ${JSON.stringify(event)}\n\n`);
 		for (const client of this.clients) {
 			// If client subscribed to a specific instance, filter
@@ -104,7 +118,7 @@ export class HttpServerTransport implements SubAgentTransport {
 		}
 	}
 
-	private handleRequest(req: Request): Response {
+	private async handleRequest(req: Request): Promise<Response> {
 		const url = new URL(req.url);
 		const pathname = url.pathname;
 
@@ -124,6 +138,29 @@ export class HttpServerTransport implements SubAgentTransport {
 			return this.withCors(this.serveInstances());
 		}
 
+		if (req.method === "GET" && pathname === "/api/threads") {
+			return this.withCors(this.serveThreads());
+		}
+
+		if (req.method === "GET" && pathname.startsWith("/api/threads/")) {
+			const rest = pathname.slice("/api/threads/".length);
+			const segments = rest.split("/");
+			const threadId = decodeURIComponent(segments[0]);
+
+			if (segments.length === 1) {
+				return this.withCors(this.serveThread(threadId));
+			}
+			if (segments.length === 2 && segments[1] === "session") {
+				return this.withCors(await this.serveSession(threadId));
+			}
+			if (segments.length === 2 && segments[1] === "events") {
+				return this.withCors(await this.serveThreadEvents(threadId));
+			}
+			if (segments.length === 2 && segments[1] === "messages") {
+				return this.withCors(await this.serveMessages(threadId));
+			}
+		}
+
 		if (req.method === "GET" && pathname.startsWith("/api/instances/")) {
 			const rest = pathname.slice("/api/instances/".length);
 			const segments = rest.split("/");
@@ -133,13 +170,13 @@ export class HttpServerTransport implements SubAgentTransport {
 				return this.withCors(this.serveInstance(instanceId));
 			}
 			if (segments.length === 2 && segments[1] === "session") {
-				return this.withCors(this.serveSession(instanceId));
+				return this.withCors(await this.serveSession(instanceId));
 			}
 			if (segments.length === 2 && segments[1] === "events") {
-				return this.withCors(this.serveInstanceEvents(instanceId));
+				return this.withCors(await this.serveInstanceEvents(instanceId));
 			}
 			if (segments.length === 2 && segments[1] === "messages") {
-				return this.withCors(this.serveMessages(instanceId));
+				return this.withCors(await this.serveMessages(instanceId));
 			}
 		}
 
@@ -197,47 +234,123 @@ export class HttpServerTransport implements SubAgentTransport {
 	}
 
 	private serveInstances(): Response {
+		return Response.json(this.getSubagentThreads());
+	}
+
+	private serveThreads(): Response {
+		const main = this.options.mainSession?.getThread();
+		const threads = main ? [main, ...this.getSubagentThreads()] : this.getSubagentThreads();
+		return Response.json(threads);
+	}
+
+	private getSubagentThreads(): DashboardThreadState[] {
 		const controllerStates = this.options.controller.getInstanceStates();
 		for (const state of controllerStates) {
-			this.instanceStates.set(state.instanceId, state);
+			this.stateManager.registerLiveInstance(state);
 		}
-		const states = Array.from(this.instanceStates.values());
-		return Response.json(states);
+		return this.stateManager.getAllInstances();
 	}
 
 	private serveInstance(instanceId: string): Response {
-		const state = this.instanceStates.get(instanceId);
+		return this.serveThread(instanceId);
+	}
+
+	private serveThread(threadId: string): Response {
+		const main = this.options.mainSession?.getThread();
+		if (main?.instanceId === threadId) {
+			return Response.json(main);
+		}
+		const state = this.stateManager.getInstance(threadId);
 		if (!state) {
 			return new Response("Not Found", { status: 404 });
 		}
 		return Response.json(state);
 	}
 
-	private serveInstanceEvents(instanceId: string): Response {
-		const log = this.eventLogs.get(instanceId) ?? [];
-		return Response.json(log);
+	private async serveInstanceEvents(instanceId: string): Promise<Response> {
+		return this.serveThreadEvents(instanceId);
 	}
 
-	private serveSession(instanceId: string): Response {
-		const instance = this.options.controller.getInstanceById(instanceId);
-		if (!instance) {
-			return new Response("Not Found", { status: 404 });
+	private async serveThreadEvents(threadId: string): Promise<Response> {
+		const main = this.options.mainSession?.getThread();
+		if (main?.instanceId === threadId) {
+			return Response.json(this.options.mainSession?.getEvents(threadId) ?? []);
 		}
-		const rpcState = instance.getRpcState();
-		const messages = instance.getMessages();
-		return Response.json({
-			sessionId: rpcState.sessionId,
-			messages,
-		});
+		const events = await this.stateManager.getEvents(threadId);
+		return Response.json(events);
 	}
 
-	private serveMessages(instanceId: string): Response {
-		const instance = this.options.controller.getInstanceById(instanceId);
-		if (!instance) {
-			return new Response("Not Found", { status: 404 });
+	private async serveSession(threadId: string): Promise<Response> {
+		const mainMessages = this.options.mainSession?.getMessages(threadId);
+		const main = this.options.mainSession?.getThread();
+		if (mainMessages && main?.instanceId === threadId) {
+			return Response.json({
+				sessionId: main.sessionId,
+				messages: mainMessages,
+			});
 		}
-		const messages = instance.getMessages();
-		return Response.json(messages);
+
+		const instance = this.options.controller.getInstanceById(threadId);
+		if (instance) {
+			const state = instance.getState();
+			if (state.state === "created" || state.state === "starting") {
+				return new Response("Session not ready", { status: 503, headers: { "Retry-After": "1" } });
+			}
+			const rpcState = instance.getRpcState();
+			const messages = instance.getMessages();
+			return Response.json({
+				sessionId: rpcState.sessionId,
+				messages,
+			});
+		}
+
+		// Virtual instance: read from SessionManager directly
+		const virtual = this.stateManager.getInstance(threadId);
+		if (virtual?.sessionFile) {
+			try {
+				const sm = SessionManager.open(virtual.sessionFile);
+				const context = sm.buildSessionContext();
+				return Response.json({
+					sessionId: sm.getSessionId(),
+					messages: context.messages,
+				});
+			} catch {
+				return new Response("Session not accessible", { status: 500 });
+			}
+		}
+
+		return new Response("Not Found", { status: 404 });
+	}
+
+	private async serveMessages(threadId: string): Promise<Response> {
+		const mainMessages = this.options.mainSession?.getMessages(threadId);
+		if (mainMessages) {
+			return Response.json(mainMessages);
+		}
+
+		const instance = this.options.controller.getInstanceById(threadId);
+		if (instance) {
+			const state = instance.getState();
+			if (state.state === "created" || state.state === "starting") {
+				return new Response("Session not ready", { status: 503, headers: { "Retry-After": "1" } });
+			}
+			const messages = instance.getMessages();
+			return Response.json(messages);
+		}
+
+		// Virtual instance: read from SessionManager directly
+		const virtual = this.stateManager.getInstance(threadId);
+		if (virtual?.sessionFile) {
+			try {
+				const sm = SessionManager.open(virtual.sessionFile);
+				const context = sm.buildSessionContext();
+				return Response.json(context.messages);
+			} catch {
+				return new Response("Session not accessible", { status: 500 });
+			}
+		}
+
+		return new Response("Not Found", { status: 404 });
 	}
 
 	private serveEvents(req: Request, url: URL): Response {

@@ -1,12 +1,39 @@
-import type { ChatMessage, SubAgentEvent, SubAgentInstanceState } from "../types.ts";
+import type { SubAgentEvent, SubAgentInstanceState } from "../types.ts";
 
 const now = Date.now();
+const mainThreadId = "main:mock-session";
+const lionTasksToolCallId = "main-tool-lion-tasks";
+const lionRunId = "mock-run-1";
 
 export const MOCK_AGENTS: SubAgentInstanceState[] = [
+	{
+		instanceId: mainThreadId,
+		taskId: "main",
+		definitionName: "main-agent",
+		kind: "main",
+		description: "Primary Pi session",
+		state: "running",
+		startTime: now - 90000,
+		endTime: null,
+		turnCount: 4,
+		lastActivityAt: now,
+		currentTool: null,
+		error: null,
+		toolCount: 2,
+		currentToolStartedAt: null,
+		durationMs: 90000,
+		isLive: true,
+		sessionId: "mock-session",
+	},
 	{
 		instanceId: "subagent-task-1-abc123",
 		taskId: "task-1",
 		definitionName: "executor",
+		kind: "subagent",
+		parentThreadId: mainThreadId,
+		parentToolCallId: lionTasksToolCallId,
+		runId: lionRunId,
+		runIndex: 0,
 		state: "running",
 		startTime: now - 45000,
 		endTime: null,
@@ -22,6 +49,11 @@ export const MOCK_AGENTS: SubAgentInstanceState[] = [
 		instanceId: "subagent-task-2-def456",
 		taskId: "task-2",
 		definitionName: "analyzer",
+		kind: "subagent",
+		parentThreadId: mainThreadId,
+		parentToolCallId: lionTasksToolCallId,
+		runId: lionRunId,
+		runIndex: 1,
 		state: "completed",
 		startTime: now - 120000,
 		endTime: now - 15000,
@@ -37,6 +69,11 @@ export const MOCK_AGENTS: SubAgentInstanceState[] = [
 		instanceId: "subagent-task-3-ghi789",
 		taskId: "task-3",
 		definitionName: "reviewer",
+		kind: "subagent",
+		parentThreadId: mainThreadId,
+		parentToolCallId: lionTasksToolCallId,
+		runId: lionRunId,
+		runIndex: 2,
 		state: "failed",
 		startTime: now - 60000,
 		endTime: now - 10000,
@@ -52,6 +89,11 @@ export const MOCK_AGENTS: SubAgentInstanceState[] = [
 		instanceId: "subagent-task-4-jkl012",
 		taskId: "task-4",
 		definitionName: "planner",
+		kind: "subagent",
+		parentThreadId: mainThreadId,
+		parentToolCallId: lionTasksToolCallId,
+		runId: lionRunId,
+		runIndex: 3,
 		state: "queued",
 		startTime: null,
 		endTime: null,
@@ -66,6 +108,59 @@ export const MOCK_AGENTS: SubAgentInstanceState[] = [
 ];
 
 export const MOCK_EVENTS: SubAgentEvent[] = [
+	{
+		type: "instance.created",
+		instanceId: mainThreadId,
+		taskId: "main",
+		definitionName: "main-agent",
+		kind: "main",
+		timestamp: now - 90000,
+	},
+	{
+		type: "task.start",
+		instanceId: mainThreadId,
+		taskId: "main",
+		definitionName: "main-agent",
+		description: "Refactor Lion dashboard runtime",
+		timestamp: now - 88000,
+	},
+	{
+		type: "session.event",
+		instanceId: mainThreadId,
+		taskId: "main",
+		sessionEvent: {
+			type: "message_start",
+			messageId: "main-msg-2",
+			role: "assistant",
+		},
+		timestamp: now - 70000,
+	},
+	{
+		type: "tool.start",
+		instanceId: mainThreadId,
+		taskId: "main",
+		toolName: "lion_tasks",
+		toolCallId: lionTasksToolCallId,
+		timestamp: now - 65000,
+	},
+	{
+		type: "tool.end",
+		instanceId: mainThreadId,
+		taskId: "main",
+		toolName: "lion_tasks",
+		toolCallId: lionTasksToolCallId,
+		isError: false,
+		timestamp: now - 64000,
+	},
+	{
+		type: "turn.complete",
+		instanceId: mainThreadId,
+		taskId: "main",
+		turnIndex: 1,
+		toolCount: 1,
+		hadError: false,
+		timestamp: now - 60000,
+	},
 	{
 		type: "instance.created",
 		instanceId: "subagent-task-1-abc123",
@@ -326,7 +421,57 @@ export const MOCK_EVENTS: SubAgentEvent[] = [
 	},
 ];
 
-export const MOCK_SESSION_MESSAGES: ChatMessage[] = [
+export const MOCK_SESSION_MESSAGES: Array<Record<string, unknown>> = [
+	{
+		role: "user",
+		content: "Move Lion runtime into packages/subagents and make the dashboard show the main session plus subagents.",
+		timestamp: now - 90000,
+		instanceId: mainThreadId,
+	},
+	{
+		role: "assistant",
+		content: [
+			{
+				type: "text",
+				text: "I'll wire the Lion runtime through subagents, then update the dashboard to treat the main session and subagents as threads.",
+			},
+			{
+				type: "toolCall",
+				id: lionTasksToolCallId,
+				name: "lion_tasks",
+				arguments: {
+					strategy: "parallel",
+					tasks: [
+						{ definition: "executor", title: "Move Lion runtime", prompt: "Move Lion runtime into packages/subagents." },
+						{ definition: "analyzer", title: "Audit dashboard flow", prompt: "Analyze dashboard thread flow." },
+						{ definition: "reviewer", title: "Review runtime changes", prompt: "Review the refactor." },
+					],
+				},
+			},
+		],
+		timestamp: now - 70000,
+		instanceId: mainThreadId,
+	},
+	{
+		role: "toolResult",
+		toolCallId: lionTasksToolCallId,
+		toolName: "lion_tasks",
+		content: [{ type: "text", text: "Started 3 Lion subagents for the dashboard refactor." }],
+		isError: false,
+		timestamp: now - 64000,
+		instanceId: mainThreadId,
+	},
+	{
+		role: "assistant",
+		content: [
+			{
+				type: "text",
+				text: "The dashboard now has a main thread and can drill into a subagent thread without mixing their histories.",
+			},
+		],
+		timestamp: now - 56000,
+		instanceId: mainThreadId,
+	},
 	{
 		id: "msg-1",
 		instanceId: "subagent-task-1-abc123",
@@ -414,7 +559,7 @@ export function getEventsForInstance(instanceId: string): SubAgentEvent[] {
 	return MOCK_EVENTS.filter((e) => e.instanceId === instanceId);
 }
 
-export function getMessagesForInstance(instanceId: string): ChatMessage[] {
+export function getMessagesForInstance(instanceId: string): Array<Record<string, unknown>> {
 	return MOCK_SESSION_MESSAGES.filter((m) => m.instanceId === instanceId);
 }
 

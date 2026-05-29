@@ -16,6 +16,14 @@ const PROGRESS_MESSAGES = [
 const TOOL_NAMES = ["read", "edit", "write", "bash", "glob", "search"];
 
 let eventIdCounter = 0;
+let streamStep = 0;
+
+const STREAMING_MARKDOWN = [
+	"I am checking the dashboard flow.",
+	"I am checking the dashboard flow.\n\n- Reading message state",
+	"I am checking the dashboard flow.\n\n- Reading message state\n- Verifying `lion_tasks` rendering",
+	"I am checking the dashboard flow.\n\n- Reading message state\n- Verifying `lion_tasks` rendering\n\n```ts\nconst streaming = true;\n```",
+];
 
 function nextEventId(): string {
 	return `mock-event-${++eventIdCounter}`;
@@ -29,6 +37,10 @@ export interface LiveAgent {
 	instanceId: string;
 	taskId: string;
 	definitionName: string;
+	parentThreadId?: string;
+	parentToolCallId?: string;
+	runId?: string;
+	runIndex?: number;
 	state: "running" | "completed" | "failed";
 	turnCount: number;
 	toolCount: number;
@@ -40,6 +52,10 @@ export const LIVE_AGENTS: LiveAgent[] = [
 		instanceId: "subagent-task-1-abc123",
 		taskId: "task-1",
 		definitionName: "executor",
+		parentThreadId: "main:mock-session",
+		parentToolCallId: "main-tool-lion-tasks",
+		runId: "mock-run-1",
+		runIndex: 0,
 		state: "running",
 		turnCount: 3,
 		toolCount: 4,
@@ -99,7 +115,56 @@ export function generateNextEvent(agent: LiveAgent): SubAgentEvent {
 	const now = Date.now();
 	const r = Math.random();
 
-	if (r < 0.3) {
+	if (r < 0.35) {
+		const text = STREAMING_MARKDOWN[streamStep % STREAMING_MARKDOWN.length];
+		const type = streamStep % STREAMING_MARKDOWN.length === 0 ? "message_start" : "message_update";
+		streamStep++;
+		return {
+			type: "session.event",
+			instanceId: agent.instanceId,
+			taskId: agent.taskId,
+			sessionEvent: {
+				type,
+				message: {
+					id: "mock-streaming-message",
+					role: "assistant",
+					content: [{ type: "text", text }],
+					timestamp: now - streamStep,
+				},
+				assistantMessageEvent:
+					type === "message_update"
+						? {
+								type: "text_delta",
+								contentIndex: 0,
+								delta: text,
+							}
+						: undefined,
+			},
+			timestamp: now,
+		};
+	}
+
+	if (r < 0.45 && streamStep > 0) {
+		const text = STREAMING_MARKDOWN[STREAMING_MARKDOWN.length - 1];
+		streamStep = 0;
+		return {
+			type: "session.event",
+			instanceId: agent.instanceId,
+			taskId: agent.taskId,
+			sessionEvent: {
+				type: "message_end",
+				message: {
+					id: "mock-streaming-message",
+					role: "assistant",
+					content: [{ type: "text", text }],
+					timestamp: now,
+				},
+			},
+			timestamp: now,
+		};
+	}
+
+	if (r < 0.55) {
 		// Tool start
 		const toolName = pickRandom(TOOL_NAMES);
 		agent.currentTool = toolName;
@@ -114,7 +179,7 @@ export function generateNextEvent(agent: LiveAgent): SubAgentEvent {
 		};
 	}
 
-	if (r < 0.55 && agent.currentTool) {
+	if (r < 0.7 && agent.currentTool) {
 		// Tool end
 		const toolName = agent.currentTool;
 		agent.currentTool = null;
@@ -129,7 +194,7 @@ export function generateNextEvent(agent: LiveAgent): SubAgentEvent {
 		};
 	}
 
-	if (r < 0.75) {
+	if (r < 0.82) {
 		// Progress update
 		return {
 			type: "progress.update",
@@ -140,7 +205,7 @@ export function generateNextEvent(agent: LiveAgent): SubAgentEvent {
 		};
 	}
 
-	if (r < 0.9) {
+	if (r < 0.92) {
 		// Turn complete
 		agent.turnCount++;
 		return {
@@ -163,6 +228,10 @@ export function generateNextEvent(agent: LiveAgent): SubAgentEvent {
 			instanceId: agent.instanceId,
 			taskId: agent.taskId,
 			definitionName: agent.definitionName,
+			parentThreadId: agent.parentThreadId,
+			parentToolCallId: agent.parentToolCallId,
+			runId: agent.runId,
+			runIndex: agent.runIndex,
 			state: "running",
 			startTime: now - 45000,
 			endTime: null,

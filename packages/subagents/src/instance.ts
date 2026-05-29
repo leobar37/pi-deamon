@@ -86,6 +86,10 @@ export class SubAgentInstance {
 			instanceId: this.instanceId,
 			taskId: this.taskId,
 			definitionName: this.definitionName,
+			parentThreadId: this.task.parentThreadId,
+			parentToolCallId: this.task.parentToolCallId,
+			runId: this.task.runId,
+			runIndex: this.task.runIndex,
 			timestamp: Date.now(),
 		};
 		this.logEvent(createdEvent);
@@ -102,6 +106,10 @@ export class SubAgentInstance {
 			instanceId: this.instanceId,
 			taskId: this.taskId,
 			definitionName: this.definitionName,
+			parentThreadId: this.task.parentThreadId,
+			parentToolCallId: this.task.parentToolCallId,
+			runId: this.task.runId,
+			runIndex: this.task.runIndex,
 			description: this.taskDescription,
 			state: this.state,
 			startTime: this.startTime,
@@ -215,6 +223,19 @@ export class SubAgentInstance {
 
 		this.session = session;
 
+		// Emit session info so the dashboard can read messages after Pi restart
+		const rpcState = this.getRpcState();
+		const sessionInfoEvent: SubAgentEvent = {
+			type: "instance.session",
+			instanceId: this.instanceId,
+			taskId: this.taskId,
+			sessionId: rpcState.sessionId,
+			sessionFile: rpcState.sessionFile,
+			timestamp: Date.now(),
+		};
+		this.logEvent(sessionInfoEvent);
+		this.eventBus.emit(sessionInfoEvent);
+
 		this.unsubscribeSession = session.subscribe(this.handleSessionEvent.bind(this));
 		await session.sendUserMessage(this.task.prompt);
 	}
@@ -242,6 +263,10 @@ export class SubAgentInstance {
 					instanceId: this.instanceId,
 					taskId: this.taskId,
 					definitionName: this.definitionName,
+					parentThreadId: this.task.parentThreadId,
+					parentToolCallId: this.task.parentToolCallId,
+					runId: this.task.runId,
+					runIndex: this.task.runIndex,
 					description: this.taskDescription,
 					timestamp: now,
 				};

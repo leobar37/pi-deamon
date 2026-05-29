@@ -7,8 +7,7 @@
   "keywords": ["pi-package"],
   "scripts": {
     "build": "bun run build.ts",
-    "watch": "bun run build.ts --watch",
-    "test:lion": "bun test/lion/workflow.test.ts"
+    "watch": "bun run build.ts --watch"
   },
   "pi": {
     "extensions": ["./dist"],

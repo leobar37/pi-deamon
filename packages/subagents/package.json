@@ -5,6 +5,10 @@
   "type": "module",
   "private": true,
   "keywords": ["pi-package"],
+  "main": "./dist/index.js",
+  "exports": {
+    ".": "./dist/index.js"
+  },
   "scripts": {
     "build": "bun run build.ts",
     "watch": "bun run build.ts --watch",
@@ -14,7 +18,8 @@
     "vitest": "^3.2.4"
   },
   "dependencies": {
-    "@local/pi-logger": "workspace:*"
+    "@local/pi-logger": "workspace:*",
+    "typebox": "^1.1.24"
   },
   "peerDependencies": {
     "@earendil-works/pi-coding-agent": "*",

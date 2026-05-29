@@ -130,22 +130,23 @@ function contentToText(content: unknown): string {
 		.join("");
 }
 
-function makeId(role: string, timestamp: number, index: number): string {
-	try {
-		return crypto.randomUUID();
-	} catch {
-		return `${role}-${timestamp}-${index}-${Math.random().toString(36).slice(2, 8)}`;
-	}
+function makeId(instanceId: string, msg: BackendMessage, role: string, timestamp: number, index: number): string {
+	const candidate = "id" in msg ? msg.id : undefined;
+	if (typeof candidate === "string" && candidate.trim()) return candidate;
+	const messageId = "messageId" in msg ? msg.messageId : undefined;
+	if (typeof messageId === "string" && messageId.trim()) return messageId;
+	return `${instanceId}-${role}-${timestamp}-${index}`;
 }
 
-export function convertAgentMessages(instanceId: string, messages: BackendMessage[]): ChatMessage[] {
+export function convertAgentMessages(instanceId: string, messages: Array<Record<string, unknown>>): ChatMessage[] {
 	const result: ChatMessage[] = [];
 	for (let i = 0; i < messages.length; i++) {
-		const msg = messages[i];
+		const msg = messages[i] as BackendMessage;
+		const role = typeof msg.role === "string" ? msg.role : "unknown";
 		const timestamp = typeof msg.timestamp === "number" ? msg.timestamp : Date.now();
-		const id = makeId(msg.role, timestamp, i);
+		const id = makeId(instanceId, msg, role, timestamp, i);
 
-		switch (msg.role) {
+		switch (role) {
 			case "user": {
 				const um = msg as BackendUserMessage;
 				result.push({

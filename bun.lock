@@ -191,6 +191,7 @@
       "version": "0.0.1",
       "dependencies": {
         "@local/pi-dashboard": "workspace:*",
+        "@local/pi-logger": "workspace:*",
         "@local/pi-subagents": "workspace:*",
         "diff": "^8.0.2",
       },
@@ -202,9 +203,20 @@
         "typebox": "*",
       },
     },
+    "packages/logger": {
+      "name": "@local/pi-logger",
+      "version": "0.0.1",
+      "peerDependencies": {
+        "@types/node": "*",
+      },
+    },
     "packages/subagents": {
       "name": "@local/pi-subagents",
       "version": "0.0.1",
+      "dependencies": {
+        "@local/pi-logger": "workspace:*",
+        "typebox": "^1.1.24",
+      },
       "devDependencies": {
         "vitest": "^3.2.4",
       },
@@ -528,6 +540,8 @@
     "@local/pi-dashboard-frontend": ["@local/pi-dashboard-frontend@workspace:packages/dashboard/frontend"],
 
     "@local/pi-extensions": ["@local/pi-extensions@workspace:packages/extensions"],
+
+    "@local/pi-logger": ["@local/pi-logger@workspace:packages/logger"],
 
     "@local/pi-subagents": ["@local/pi-subagents@workspace:packages/subagents"],
 
@@ -2056,8 +2070,6 @@
     "@babel/code-frame/js-tokens": ["js-tokens@4.0.0", "", {}, "sha512-RdJUflcE3cUzKiMqQgsCu06FPu9UdIJO0beYbPhHN4k6apgJtifcoCtT9bcxOpYBtpD2kCM6Sbzg4CausW/PKQ=="],
 
     "@babel/helper-compilation-targets/lru-cache": ["lru-cache@5.1.1", "", { "dependencies": { "yallist": "^3.0.2" } }, "sha512-KpNARQA3Iwv+jTA0utUVVbrh+Jlrr1Fv0e56GGzAFOXN7dk/FviaDW8LHmK52DlcH4WP2n6gI8vN1aesBFgo9w=="],
-
-    "@earendil-works/pi-agent-core/@earendil-works/pi-ai": ["@earendil-works/pi-ai@file:packages/ai", { "dependencies": { "@anthropic-ai/sdk": "^0.91.1", "@aws-sdk/client-bedrock-runtime": "^3.1030.0", "@google/genai": "^1.40.0", "@mistralai/mistralai": "^2.2.0", "@smithy/node-http-handler": "^4.6.1", "@smithy/types": "^4.14.1", "openai": "6.26.0", "partial-json": "^0.1.7", "proxy-agent": "^6.5.0", "proxy-from-env": "^1.1.0", "typebox": "^1.1.24" }, "devDependencies": { "@types/node": "^24.3.0", "canvas": "^3.2.0", "vitest": "^3.2.4" }, "bin": { "pi-ai": "./dist/cli.js" } }],
 
     "@earendil-works/pi-agent-core/@types/node": ["@types/node@24.12.4", "", { "dependencies": { "undici-types": "~7.16.0" } }, "sha512-GUUEShf+PBCGW2KaXwcIt3Yk+e3pkKwWKb9GSyM9WQVE+ep2jzmHdGsHzu4wgcZy5fN9FBdVzjpBQsYlpfpgLA=="],
 
