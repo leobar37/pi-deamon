@@ -16,7 +16,7 @@ export function MessageItem({ message }: MessageItemProps) {
 
 	const handleCopy = useCallback(() => {
 		if (!copyText.trim()) return;
-		navigator.clipboard.writeText(copyText).then(() => {
+		copyToClipboard(copyText).then(() => {
 			setCopied(true);
 			setTimeout(() => setCopied(false), 1600);
 		});
@@ -25,7 +25,7 @@ export function MessageItem({ message }: MessageItemProps) {
 	return (
 		<div className={`group flex ${isUser ? "justify-end" : "justify-start"}`}>
 			<div
-				className={`max-w-[85%] min-w-0 rounded-lg px-4 py-3 ${
+				className={`max-w-[85%] min-w-0 select-text rounded-lg px-4 py-3 ${
 					isUser ? "bg-accent-muted" : isAssistant ? "bg-bg-elevated" : "bg-bg-surface"
 				}`}
 			>
@@ -36,7 +36,7 @@ export function MessageItem({ message }: MessageItemProps) {
 						onClick={handleCopy}
 						disabled={!copyText.trim()}
 						title="Copy message"
-						className="flex h-6 w-6 items-center justify-center rounded-md border border-border-subtle text-text-muted opacity-0 transition hover:border-border-hover hover:text-text-primary disabled:cursor-not-allowed disabled:opacity-0 group-hover:opacity-100"
+						className="flex h-6 w-6 items-center justify-center rounded-md border border-border-subtle text-text-muted transition hover:border-border-hover hover:text-text-primary disabled:cursor-not-allowed disabled:opacity-40"
 					>
 						{copied ? (
 							<svg className="h-3.5 w-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -62,4 +62,24 @@ export function MessageItem({ message }: MessageItemProps) {
 			</div>
 		</div>
 	);
+}
+
+async function copyToClipboard(text: string): Promise<void> {
+	try {
+		await navigator.clipboard.writeText(text);
+		return;
+	} catch {
+		const textarea = document.createElement("textarea");
+		textarea.value = text;
+		textarea.setAttribute("readonly", "");
+		textarea.style.position = "fixed";
+		textarea.style.left = "-9999px";
+		document.body.appendChild(textarea);
+		textarea.select();
+		const success = document.execCommand("copy");
+		document.body.removeChild(textarea);
+		if (!success) {
+			throw new Error("Clipboard fallback failed");
+		}
+	}
 }

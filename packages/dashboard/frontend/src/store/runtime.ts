@@ -55,6 +55,20 @@ export interface SessionEntry {
 	model?: ModelInfo;
 }
 
+export interface SubagentEntry {
+	id: string;
+	parentId: string | null;
+	sessionId: string;
+	name: string;
+	status: "running" | "completed" | "failed" | "cancelled";
+	progress?: number;
+	message?: string;
+	result?: unknown;
+	error?: string;
+	startedAt: number;
+	endedAt?: number;
+}
+
 // ---------------------------------------------------------------------------
 // SessionRuntime
 // ---------------------------------------------------------------------------
@@ -65,10 +79,13 @@ export interface SessionRuntime {
 		sessions: ReactiveMapAtoms<string, SessionEntry>;
 		messages: ReactiveMapAtoms<string, ChatMessage>;
 		streaming: ReactiveMapAtoms<string, StreamingState>;
+		subagents: ReactiveMapAtoms<string, SubagentEntry>;
 	};
 	indexes: {
 		messagesBySession: DerivedIndexAtoms<string, ChatMessage, string>;
 		sessionsByCwd: DerivedIndexAtoms<string, SessionEntry, string>;
+		subagentsBySession: DerivedIndexAtoms<string, SubagentEntry, string>;
+		subagentTree: DerivedIndexAtoms<string, SubagentEntry, string | null>;
 	};
 	trackedSessions: Map<string, number>;
 	trackSession(sessionId: string): void;
@@ -84,6 +101,7 @@ export function createSessionRuntime(): SessionRuntime {
 	const sessions = createReactiveMap<string, SessionEntry>();
 	const messages = createReactiveMap<string, ChatMessage>();
 	const streaming = createReactiveMap<string, StreamingState>();
+	const subagents = createReactiveMap<string, SubagentEntry>();
 
 	const messagesBySession = createDerivedIndex(
 		messages.mapAtom,
@@ -93,6 +111,16 @@ export function createSessionRuntime(): SessionRuntime {
 	const sessionsByCwd = createDerivedIndex(
 		sessions.mapAtom,
 		(entry: SessionEntry) => entry.info.cwd || "default",
+	);
+
+	const subagentsBySession = createDerivedIndex(
+		subagents.mapAtom,
+		(sub: SubagentEntry) => sub.sessionId,
+	);
+
+	const subagentTree = createDerivedIndex(
+		subagents.mapAtom,
+		(sub: SubagentEntry) => sub.parentId,
 	);
 
 	const trackedSessions = new Map<string, number>();
@@ -110,6 +138,11 @@ export function createSessionRuntime(): SessionRuntime {
 				store.set(messages.mapAtom, { type: "delete", key: msgId });
 			}
 			store.set(streaming.mapAtom, { type: "delete", key: sessionId });
+			// Clean up subagents associated with this session
+			const sessionSubagentIds = store.get(subagentsBySession.atomFor(sessionId));
+			for (const subId of sessionSubagentIds) {
+				store.set(subagents.mapAtom, { type: "delete", key: subId });
+			}
 		} else {
 			trackedSessions.set(sessionId, next);
 		}
@@ -284,8 +317,8 @@ export function createSessionRuntime(): SessionRuntime {
 
 	const runtime: SessionRuntime = {
 		store,
-		maps: { sessions, messages, streaming },
-		indexes: { messagesBySession, sessionsByCwd },
+		maps: { sessions, messages, streaming, subagents },
+		indexes: { messagesBySession, sessionsByCwd, subagentsBySession, subagentTree },
 		trackedSessions,
 		trackSession,
 		untrackSession,

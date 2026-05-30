@@ -40,7 +40,8 @@ export const LION_STATE_ENTRY_TYPE = "lion-state";
 export const LION_MESSAGE_TYPE = "lion-message";
 export const LION_DEFAULT_MAX_ATTEMPTS = 3;
 
-export type LionMode = "planning" | "building";
+export type LionStrategyName = "plan" | "simple";
+export type LionPhase = "planning" | "building";
 export type LionPlanKind = "structured" | "overview";
 export type LionTaskStatus = "pending" | "in_progress" | "complete" | "blocked" | "retryable";
 export type LionReviewVerdict = "approved" | "rejected" | "unknown";
@@ -82,9 +83,10 @@ export interface LionBuildResult {
 }
 
 export interface LionState {
-	version: 1;
+	version: 2;
 	active: boolean;
-	mode: LionMode;
+	strategy: LionStrategyName;
+	phase: LionPhase;
 	activePlanPath: string | null;
 	activePlanSlug: string | null;
 	planKind: LionPlanKind | null;
@@ -154,9 +156,17 @@ export interface LionEventBase {
 
 export interface LionEventMap {
 	"lion.activate.start": LionEventBase & { type: "lion.activate.start"; input?: string };
-	"lion.activate.complete": LionEventBase & { type: "lion.activate.complete"; mode: LionMode };
+	"lion.activate.complete": LionEventBase & {
+		type: "lion.activate.complete";
+		strategy: LionStrategyName;
+		phase: LionPhase;
+	};
 	"lion.plan.loaded": LionEventBase & { type: "lion.plan.loaded"; taskCount: number; kind: LionPlanKind };
-	"lion.mode.changed": LionEventBase & { type: "lion.mode.changed"; mode: LionMode };
+	"lion.mode.changed": LionEventBase & {
+		type: "lion.mode.changed";
+		strategy: LionStrategyName;
+		phase: LionPhase;
+	};
 	"lion.build.start": LionEventBase & { type: "lion.build.start" };
 	"lion.task.selected": LionEventBase & { type: "lion.task.selected"; title: string };
 	"lion.delegation.prompt.created": LionEventBase & {

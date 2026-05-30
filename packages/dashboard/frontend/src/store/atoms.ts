@@ -1,6 +1,6 @@
 import { atom } from "jotai";
 import type { Atom } from "jotai";
-import type { SessionRuntime, SessionEntry, ChatMessage, StreamingState } from "./runtime.js";
+import type { SessionRuntime, SessionEntry, ChatMessage, StreamingState, SubagentEntry } from "./runtime.js";
 import type { ModelInfo } from "../api-types.js";
 
 // ---------------------------------------------------------------------------
@@ -21,6 +21,13 @@ const sessionModelAtomCache = new WeakMap<
 	SessionRuntime,
 	Map<string, Atom<ModelInfo | undefined>>
 >();
+const subagentAtomCache = new WeakMap<
+	SessionRuntime,
+	Map<string, Atom<SubagentEntry | undefined>>
+>();
+const subagentIdsAtomCache = new WeakMap<SessionRuntime, Map<string, Atom<string[]>>>();
+const subagentsBySessionAtomCache = new WeakMap<SessionRuntime, Map<string, Atom<SubagentEntry[]>>>();
+const subagentTreeAtomCache = new WeakMap<SessionRuntime, Map<string, Atom<SubagentEntry[]>>>();
 
 function getCachedAtom<K, V>(
 	cache: WeakMap<SessionRuntime, Map<K, Atom<V>>>,
@@ -148,6 +155,78 @@ export function sessionModelAtom(
 		atom((get) => {
 			const entry = get(runtime.maps.sessions.atomFor(sessionId));
 			return entry?.model;
+		}),
+	);
+}
+
+// ---------------------------------------------------------------------------
+// Subagent atoms
+// ---------------------------------------------------------------------------
+
+/** Atom for a single subagent by id. */
+export function subagentAtom(
+	runtime: SessionRuntime,
+	subagentId: string | null,
+): Atom<SubagentEntry | undefined> {
+	if (!subagentId) return atom(() => undefined);
+	return getCachedAtom(subagentAtomCache, runtime, subagentId, () =>
+		atom((get) => get(runtime.maps.subagents.atomFor(subagentId))),
+	);
+}
+
+/** Atom for all subagent entries. */
+export function subagentListAtom(runtime: SessionRuntime): Atom<SubagentEntry[]> {
+	return atom((get) => {
+		const entries = get(runtime.maps.subagents.entriesAtom);
+		return entries.map(([, entry]) => entry);
+	});
+}
+
+/** Atom for subagent ids ordered by session. */
+export function subagentIdsBySessionAtom(
+	runtime: SessionRuntime,
+	sessionId: string | null,
+): Atom<string[]> {
+	if (!sessionId) return atom(() => []);
+	return getCachedAtom(subagentIdsAtomCache, runtime, sessionId, () =>
+		atom((get) => get(runtime.indexes.subagentsBySession.atomFor(sessionId))),
+	);
+}
+
+/** Atom for all subagents of a session, ordered. */
+export function subagentsBySessionAtom(
+	runtime: SessionRuntime,
+	sessionId: string | null,
+): Atom<SubagentEntry[]> {
+	if (!sessionId) return atom(() => []);
+	return getCachedAtom(subagentsBySessionAtomCache, runtime, sessionId, () =>
+		atom((get) => {
+			const ids = get(runtime.indexes.subagentsBySession.atomFor(sessionId));
+			return ids
+				.map((id) => get(runtime.maps.subagents.atomFor(id)))
+				.filter((e): e is SubagentEntry => e !== undefined);
+		}),
+	);
+}
+
+/** Atom for subagent tree — children grouped by parentId. */
+export function subagentTreeAtom(
+	runtime: SessionRuntime,
+	parentId: string | null,
+): Atom<SubagentEntry[]> {
+	const cacheKey = parentId ?? "__root__";
+	return getCachedAtom(subagentTreeAtomCache, runtime, cacheKey, () =>
+		atom((get) => {
+			if (parentId === null) {
+				const entries = get(runtime.maps.subagents.entriesAtom);
+				return entries
+					.filter(([, entry]) => entry.parentId === null)
+					.map(([, entry]) => entry);
+			}
+			const ids = get(runtime.indexes.subagentTree.atomFor(parentId));
+			return ids
+				.map((id) => get(runtime.maps.subagents.atomFor(id)))
+				.filter((e): e is SubagentEntry => e !== undefined);
 		}),
 	);
 }

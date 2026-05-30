@@ -1,4 +1,4 @@
-import type { ChatMessage, SubAgentEvent, SubAgentInstanceState } from "./types.ts";
+import type { ChatMessage, SubAgentEvent, SubAgentInstanceState, SubAgentRunRecord } from "./types.ts";
 import { convertAgentMessages } from "./utils/message-converter.ts";
 
 const BASE = "";
@@ -27,6 +27,10 @@ export async function fetchAgentMessages(instanceId: string): Promise<ChatMessag
 		return raw;
 	}
 	return convertAgentMessages(instanceId, raw);
+}
+
+export async function fetchAgentRun(instanceId: string): Promise<SubAgentRunRecord> {
+	return fetchJson<SubAgentRunRecord>(`/api/threads/${encodeURIComponent(instanceId)}/run`);
 }
 
 function isChatMessageRecord(message: Record<string, unknown>): message is Record<string, unknown> & ChatMessage {

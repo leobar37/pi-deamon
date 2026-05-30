@@ -5,9 +5,11 @@ const COMMAND_PATTERN =
 	/(?:^|\n)\s*(?:[$>]\s*)?((?:bun|pnpm|yarn|npm|cargo|go|python|pytest|vitest|tsc|tsgo|grep|rg|find|git)\b[^\n]*)/gi;
 const CHANGED_FILE_PATTERN =
 	/(?:modified|created|deleted|renamed|changed|updated|files? changed|archivo[s]?):?\s+([^\n]+)/gi;
-const FAILURE_PATTERN = /\b(error|failed|failure|exception|stack overflow|maximum call stack|stderr|timeout)\b/i;
-const BLOCKED_PATTERN = /\b(blocked|eperm|permission denied|sandbox|network|cannot connect|listen eperm)\b/i;
-const PASSED_PATTERN = /\b(pass(?:ed|es)?|success|succeeded|clean|ok)\b/i;
+const FAILURE_PATTERN = /\b(error|failed|failure|exception|stack overflow|maximum call stack|stderr|timeout)\b/gi;
+const BLOCKED_PATTERN = /\b(blocked|eperm|permission denied|sandbox|network|cannot connect|listen eperm)\b/gi;
+const PASSED_PATTERN = /\b(pass(?:ed|es)?|success|succeeded|clean|ok)\b/gi;
+const NEGATION_PATTERN =
+	/\b(no(?:t)?\s+(?:error|failure|fail|exception|errors|failures|fails|exceptions)|(?:error|failure|fail|exception|errors|failures|fails|exceptions)\s+(?:not\s+found|free|cleared|fixed|resolved|handled|expected|0|zero))\b/gi;
 const EXTERNAL_PATTERN = /\b(unrelated|external|pre-existing|preexisting|out of scope)\b/i;
 const RISK_PATTERN = /\b(risk|warning|warn|unverified|not run|skipped|todo|remaining|follow-up|follow up)\b/i;
 
@@ -114,6 +116,7 @@ function extractMatchingLines(summary: string, pattern: RegExp): string[] {
 
 function lineStatus(line: string): "passed" | "failed" | "blocked" | "unknown" {
 	if (BLOCKED_PATTERN.test(line)) return "blocked";
+	if (NEGATION_PATTERN.test(line)) return "passed";
 	if (FAILURE_PATTERN.test(line)) return "failed";
 	if (PASSED_PATTERN.test(line)) return "passed";
 	return "unknown";

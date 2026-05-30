@@ -5,6 +5,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { SubAgentEventBus } from "../../src/event-bus.js";
+import { SubAgentRunStore } from "../../src/run-store.js";
 import { HttpServerTransport } from "../../src/transport/http-server.js";
 import type { DashboardSessionSource } from "../../src/transport/types.js";
 import type { SubAgentInstanceState } from "../../src/types.js";
@@ -110,6 +111,71 @@ describe("HttpServerTransport", () => {
 
 		const res = await fetch(`http://127.0.0.1:${transport.port}/api/threads/nonexistent`);
 		expect(res.status).toBe(404);
+	});
+
+	it("serves /api/threads/:id/run with stored subagent input and output", async () => {
+		transport = new HttpServerTransport({
+			controller: controller as any,
+			port: 0,
+			host: "127.0.0.1",
+		});
+		await transport.start();
+		await waitForServer();
+
+		const runStore = new SubAgentRunStore(tmpDir);
+		await runStore.start({
+			sessionId: "session-1",
+			taskId: "task-1",
+			instanceId: "instance-1",
+			definitionName: "executor",
+			cwd: tmpDir,
+			prompt: "Input brief",
+			systemPrompt: "Executor prompt",
+			startedAt: 100,
+		});
+		await runStore.complete({
+			sessionId: "session-1",
+			taskId: "task-1",
+			status: "completed",
+			summary: "Output summary",
+			completedAt: 200,
+			turnCount: 1,
+			toolCount: 2,
+		});
+		transport.emit({
+			type: "instance.state",
+			instanceId: "instance-1",
+			taskId: "task-1",
+			state: {
+				instanceId: "instance-1",
+				taskId: "task-1",
+				definitionName: "executor",
+				state: "completed",
+				startTime: 100,
+				endTime: 200,
+				turnCount: 1,
+				lastActivityAt: 200,
+				currentTool: null,
+				error: null,
+				toolCount: 2,
+				currentToolStartedAt: null,
+				durationMs: 100,
+				sessionId: "session-1",
+			},
+			timestamp: Date.now(),
+		} as any);
+
+		const res = await fetch(`http://127.0.0.1:${transport.port}/api/threads/instance-1/run`);
+		expect(res.status).toBe(200);
+		const body = await res.json();
+		expect(body).toMatchObject({
+			sessionId: "session-1",
+			taskId: "task-1",
+			prompt: "Input brief",
+			systemPrompt: "Executor prompt",
+			status: "completed",
+			summary: "Output summary",
+		});
 	});
 
 	it("serves /api/events SSE endpoint with correct headers", async () => {

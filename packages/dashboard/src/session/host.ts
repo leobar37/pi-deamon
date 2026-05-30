@@ -100,6 +100,43 @@ export class SessionHost {
 		return live;
 	}
 
+	/**
+	 * Create a Lion session that listens to an external event source.
+	 *
+	 * Injects `LION_DASHBOARD_MODE=true` into the environment.
+	 * The caller should attach a LionRuntime event source via
+	 * `session.setExternalEventSource()` before calling `start()`.
+	 */
+	async createLionSession(
+		plan: unknown,
+		options?: {
+			cwd?: string;
+			env?: Record<string, string>;
+		},
+	): Promise<{ session: LiveSession; plan: unknown }> {
+		const sessionCwd = options?.cwd ?? this.config.defaultCwd;
+		logger.info("Creating lion session", { cwd: sessionCwd });
+		const manager = SessionManager.create(sessionCwd, this.config.sessionsDir);
+		const live = new LiveSession(manager, this.eventProvider ?? undefined, this.modelRegistry, "lion");
+
+		// Inject Lion dashboard mode env var
+		// NOTE: This mutates global process.env. In a concurrent server context,
+		// multiple Lion sessions could interfere. The coding-agent runtime reads
+		// env at process startup, so this is acceptable for now, but a future
+		// refactor should pass env explicitly to the child process.
+		process.env.LION_DASHBOARD_MODE = "true";
+		if (options?.env) {
+			for (const [key, value] of Object.entries(options.env)) {
+				process.env[key] = value;
+			}
+		}
+
+		this.sessions.set(live.id, live);
+		this.emitSessionEvent(live.id, "session_created");
+		logger.info("Lion session created", { sessionId: live.id, cwd: live.cwd });
+		return { session: live, plan };
+	}
+
 	get(sessionId: string): LiveSession | undefined {
 		return this.sessions.get(sessionId);
 	}

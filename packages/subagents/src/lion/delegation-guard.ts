@@ -1,16 +1,10 @@
 import type { ToolCallEvent, ToolCallEventResult } from "@earendil-works/pi-coding-agent";
 
-const ALLOWED_TOOLS = new Set([
-	"lion_list_plans",
-	"lion_activate_plan",
-	"lion_next_task",
-	"lion_update_task_status",
-	"lion_record_task_result",
-	"lion_reconcile_plan",
-]);
-const BLOCKED_TOOLS = new Set(["edit", "write", "grep", "bash"]);
+const MAX_DELEGATION_DEPTH = 3;
 
 export class LionDelegationGuard {
+	#depthMap = new Map<string, number>();
+
 	startTurn(): void {
 		// Compatibility hook for builds that still notify the guard per turn.
 	}
@@ -20,39 +14,34 @@ export class LionDelegationGuard {
 	}
 
 	handleToolCall(event: ToolCallEvent): ToolCallEventResult | undefined {
-		if (ALLOWED_TOOLS.has(event.toolName)) return undefined;
-		if (isPlanPathToolCall(event)) return undefined;
-		if (BLOCKED_TOOLS.has(event.toolName)) {
+		if (event.toolName !== "lion_tasks") return undefined;
+
+		const threadId = "main";
+		const currentDepth = this.#depthMap.get(threadId) ?? 0;
+
+		if (currentDepth >= MAX_DELEGATION_DEPTH) {
 			return {
 				block: true,
-				reason:
-					"Lion build mode blocks direct app-code tools in the main thread. Use lion_tasks for code analysis/implementation, or edit only .plans/* files in this thread.",
+				reason: `Delegation depth limit (${MAX_DELEGATION_DEPTH}) reached. Cannot nest lion_tasks further.`,
 			};
 		}
+
+		this.#depthMap.set(threadId, currentDepth + 1);
 		return undefined;
 	}
-}
 
-function isPlanPathToolCall(event: ToolCallEvent): boolean {
-	return collectStringValues(event.input).some(isPlanPath);
-}
-
-function collectStringValues(value: unknown): string[] {
-	if (typeof value === "string") return [value];
-	if (Array.isArray(value)) return value.flatMap(collectStringValues);
-	if (!value || typeof value !== "object") return [];
-
-	const result: string[] = [];
-	for (const [key, child] of Object.entries(value)) {
-		if ((key === "path" || key === "reference") && typeof child === "string") {
-			result.push(child);
-			continue;
+	releaseDepth(threadId: string): void {
+		const current = this.#depthMap.get(threadId) ?? 0;
+		if (current > 0) {
+			this.#depthMap.set(threadId, current - 1);
 		}
-		result.push(...collectStringValues(child));
 	}
-	return result;
-}
 
-function isPlanPath(value: string): boolean {
-	return value.startsWith(".plans/") || value === ".plans";
+	getDepth(threadId: string): number {
+		return this.#depthMap.get(threadId) ?? 0;
+	}
+
+	reset(): void {
+		this.#depthMap.clear();
+	}
 }

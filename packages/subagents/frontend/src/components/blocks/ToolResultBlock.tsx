@@ -26,7 +26,6 @@ function isJson(content: string): boolean {
 
 function isPlainOutput(content: string): boolean {
 	const lines = content.split("\n");
-	if (lines.length > 20) return true;
 	return lines.some((line) => line.startsWith("$ ") || line.includes("Error:") || line.includes(" at "));
 }
 

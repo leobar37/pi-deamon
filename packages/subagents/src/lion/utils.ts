@@ -61,6 +61,8 @@ export function relativeDisplayPath(cwd: string, path: string): string {
 	return rel.startsWith("..") ? path : rel;
 }
 
+import { randomUUID } from "node:crypto";
+
 export function createRunId(): string {
-	return `lion-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+	return `lion-${Date.now()}-${randomUUID().replace(/-/g, "").slice(0, 12)}`;
 }

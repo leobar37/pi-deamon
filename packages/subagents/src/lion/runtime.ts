@@ -17,9 +17,11 @@ import {
 import { LionLogger } from "./logger.js";
 import { MainSessionBridge } from "./main-session.js";
 import { LionPersistence } from "./persistence.js";
+import { type MainLogEntry, RunLogger } from "./run-logger.js";
 import { createInitialLionState } from "./state.js";
+import { getLionStrategy } from "./strategies/index.js";
 import { createLionSubAgentController } from "./subagents/index.js";
-import type { LionBuildResult, LionEvent, LionMode, LionPlan, LionState, PersistedLionState } from "./types.js";
+import type { LionBuildResult, LionEvent, LionPhase, LionPlan, LionState, PersistedLionState } from "./types.js";
 import { LionUI } from "./ui.js";
 
 export const LION_ORCHESTRATOR_FEEDBACK_TYPE = "lion-orchestrator-feedback";
@@ -35,6 +37,8 @@ export class LionRuntime {
 	readonly delegationGuard: LionDelegationGuard;
 	readonly #logger: LionLogger;
 	readonly #jobTracker: SubagentJobManager;
+	#runLogger: RunLogger | null;
+	#unsubscribeRunLogger: (() => void) | null;
 
 	#pi: ExtensionAPI;
 	#state: LionState;
@@ -65,6 +69,8 @@ export class LionRuntime {
 		this.#lastUiContext = null;
 		this.#widgetTimer = null;
 		this.dashboard = null;
+		this.#runLogger = null;
+		this.#unsubscribeRunLogger = null;
 	}
 
 	get pi(): ExtensionAPI {
@@ -80,6 +86,38 @@ export class LionRuntime {
 	set logger(value: SessionLogger | null) {
 		this.#sessionLogger = value;
 		this.#logger.setLogger(value);
+	}
+
+	get runLogger(): RunLogger | null {
+		return this.#runLogger;
+	}
+
+	initRunLogger(cwd: string, runId: string): RunLogger {
+		// Clean up previous run logger if one exists
+		if (this.#runLogger) {
+			this.#unsubscribeRunLogger?.();
+			this.#runLogger.stopHeartbeat();
+			if (!this.#runLogger.closed) {
+				this.#runLogger.interruptRun(undefined, "new_run_started");
+			}
+		}
+		const runLogger = new RunLogger({ cwd, runId });
+		this.#runLogger = runLogger;
+		this.#logger.setRunLogger(runLogger);
+		// Wire runLogger to also receive lion events
+		this.#unsubscribeRunLogger = this.events.on("*", (event) => {
+			runLogger.logEvent("lion", "event", event);
+		});
+		runLogger.startHeartbeat();
+		return runLogger;
+	}
+
+	completeRun(status: "completed" | "failed" | "cancelled", reason?: string): void {
+		this.#runLogger?.completeRun(status, reason);
+	}
+
+	interruptRun(signal?: string, reason?: string): void {
+		this.#runLogger?.interruptRun(signal, reason);
 	}
 
 	get state(): LionState {
@@ -136,13 +174,35 @@ export class LionRuntime {
 	}
 
 	ensureController(ctx: ExtensionContext): SubAgentController {
-		if (this.#activeController) return this.#activeController;
+		if (this.#activeController) {
+			// Cleanup old instances if controller has too many
+			const instanceCount = this.#activeController.getInstances().length;
+			if (instanceCount > 50) {
+				this.cleanupControllerInstances(this.#activeController);
+			}
+			return this.#activeController;
+		}
 		const controller = createLionSubAgentController({
 			ctx: ctx as ExtensionCommandContext,
 			logger: this.#sessionLogger ?? undefined,
 		});
 		this.#activeController = controller;
 		return controller;
+	}
+
+	private cleanupControllerInstances(controller: SubAgentController): void {
+		const instances = controller.getInstances();
+		const now = Date.now();
+		const maxAgeMs = 30 * 60 * 1000; // 30 minutes
+		for (const instance of instances) {
+			const state = instance.getState();
+			const isDone = state.state === "completed" || state.state === "failed" || state.state === "cancelled";
+			const isOld = state.endTime && now - state.endTime > maxAgeMs;
+			if (isDone && isOld) {
+				// Instance is done and old - dispose it
+				instance.dispose().catch(() => {});
+			}
+		}
 	}
 
 	createSubAgentController(ctx: ExtensionContext, runId: string): SubAgentController {
@@ -221,12 +281,38 @@ export class LionRuntime {
 			role: options.role,
 			title: options.title,
 		});
+		this.#runLogger?.logMain({
+			type: "state",
+			source: "lion",
+			data: {
+				action: "start_job",
+				runId: options.runId,
+				taskId: options.taskId,
+				role: options.role,
+				title: options.title,
+			},
+		} as Omit<MainLogEntry, "timestamp"> & Record<string, unknown>);
 		return job;
 	}
 
 	finishJob(taskId: string, result: DelegationResult | null, error?: string): LionSubagentJob | null {
 		const job = this.#jobTracker.finishJob(taskId, result, error);
-		if (job) this.logState("finish_job", { taskId, status: job.status, error: job.error });
+		if (job) {
+			this.logState("finish_job", { taskId, status: job.status, error: job.error });
+			this.#runLogger?.logMain({
+				type: "state",
+				source: "lion",
+				data: { action: "finish_job", taskId, status: job.status, error: job.error },
+			} as Omit<MainLogEntry, "timestamp"> & Record<string, unknown>);
+			// Update task counts in run logger
+			const jobs = Array.from(this.#jobTracker.subagentJobs.values());
+			const completed = jobs.filter((j) => j.status === "completed").length;
+			const failed = jobs.filter((j) => j.status === "failed").length;
+			const pending = jobs.filter(
+				(j) => j.status === "queued" || j.status === "starting" || j.status === "running",
+			).length;
+			this.#runLogger?.updateTaskCounts(completed, failed, pending, jobs.length);
+		}
 		return job;
 	}
 
@@ -248,14 +334,28 @@ export class LionRuntime {
 
 	// State transitions
 	activatePlanning(): void {
-		this.#state = { ...this.#state, active: true, mode: "planning" };
+		this.#state = { ...this.#state, active: true, strategy: "plan", phase: "planning" };
 		this.logState("activate_planning");
+	}
+	activateSimple(): void {
+		this.#state = {
+			...this.#state,
+			active: true,
+			strategy: "simple",
+			phase: "building",
+			activePlanPath: null,
+			activePlanSlug: null,
+			planKind: null,
+			activeTaskId: null,
+		};
+		this.logState("activate_simple");
 	}
 	activatePlan(plan: LionPlan): void {
 		this.#state = {
 			...this.#state,
 			active: true,
-			mode: "planning",
+			strategy: "plan",
+			phase: "planning",
 			activePlanPath: plan.rootPath,
 			activePlanSlug: plan.slug,
 			planKind: plan.kind,
@@ -263,10 +363,10 @@ export class LionRuntime {
 		};
 		this.logState("activate_plan", { planSlug: plan.slug, planPath: plan.rootPath, taskCount: plan.tasks.length });
 	}
-	setMode(mode: LionMode): void {
-		const previous = this.#state.mode;
-		this.#state = { ...this.#state, active: true, mode };
-		this.logState("set_mode", { previous, mode });
+	setPhase(phase: LionPhase): void {
+		const previous = this.#state.phase;
+		this.#state = { ...this.#state, active: true, phase };
+		this.logState("set_phase", { previous, phase });
 	}
 	setActiveTask(taskId: string | null): void {
 		this.#state = { ...this.#state, activeTaskId: taskId };
@@ -277,7 +377,7 @@ export class LionRuntime {
 		this.logState("set_last_run", { runId });
 	}
 	applyBuildResult(result: LionBuildResult): void {
-		this.#state = { ...this.#state, mode: "planning", activeTaskId: null, lastBuild: result };
+		this.#state = { ...this.#state, phase: "planning", activeTaskId: null, lastBuild: result };
 		this.mainSession.notifyRunComplete(result);
 		this.logState("apply_build_result", { result });
 	}
@@ -301,51 +401,45 @@ export class LionRuntime {
 
 	async buildCompactionInstructions(ctx: ExtensionContext): Promise<string | null> {
 		if (!this.#state.active) return null;
-		const parts = [
-			"Lion orchestration is active. Preserve the Lion state, active plan, active task, run status, subagent summaries, blockers, and next orchestration step in the compaction summary.",
-			`Mode: ${this.#state.mode}`,
-			`Active plan: ${this.#state.activePlanSlug ?? "none"}`,
-			`Active plan path: ${this.#state.activePlanPath ?? "none"}`,
-			`Active task: ${this.#state.activeTaskId ?? "none"}`,
-		];
-
-		const activeRun = this.#core.activeRun;
-		if (activeRun) {
-			parts.push(
-				[
-					"Active run:",
-					`- runId: ${activeRun.runId}`,
-					`- taskId: ${activeRun.taskId}`,
-					`- taskTitle: ${activeRun.taskTitle}`,
-					`- status: ${activeRun.status}`,
-					`- attempts: ${activeRun.attempts}/${activeRun.maxAttempts}`,
-					`- verdict: ${activeRun.verdict ?? "none"}`,
-					`- error: ${activeRun.error ?? "none"}`,
-				].join("\n"),
-			);
-
-			const contextStore = new SubAgentContextStore(ctx.cwd ?? ctx.sessionManager.getCwd());
-			for (const subagent of activeRun.subagents.slice(-6)) {
-				const sessionId = this.findRetainedSessionId(subagent.taskId);
-				const contextPath = sessionId ? contextStore.getPath(sessionId, subagent.taskId) : "unknown";
+		const contextStore = new SubAgentContextStore(ctx.cwd ?? ctx.sessionManager.getCwd());
+		return getLionStrategy(this.#state.strategy).buildCompactionInstructions(this.#state, {
+			ctx,
+			activeRun: this.#core.activeRun,
+			recentJobs: this.getRecentJobs(6),
+			getSubagentContext: async (taskId) => {
+				const sessionId = this.findRetainedSessionId(taskId);
+				const contextPath = sessionId ? contextStore.getPath(sessionId, taskId) : "unknown";
 				const contextSummary = sessionId
-					? await contextStore.formatForPrompt(sessionId, subagent.taskId, 5)
+					? await contextStore.formatForPrompt(sessionId, taskId, 5)
 					: "No context path is available for this retained subagent.";
-				parts.push(
-					[
-						`Subagent ${subagent.role}:`,
-						`- taskId: ${subagent.taskId}`,
-						`- status: ${subagent.status}`,
-						`- contextPath: ${contextPath}`,
-						`- summary: ${subagent.summary}`,
-						`- durableContext:`,
-						contextSummary,
-					].join("\n"),
-				);
-			}
-		}
+				return { path: contextPath, summary: contextSummary };
+			},
+		});
+	}
 
-		return parts.join("\n\n");
+	getRecentJobs(limit: number): Array<{
+		role: string;
+		taskId: string;
+		status: string;
+		summary: string;
+	}> {
+		return Array.from(this.#jobTracker.subagentJobs.values())
+			.filter((job) => {
+				// In plan mode with active run, filter to current run
+				if (this.#state.strategy === "plan" && this.#activeRunId) {
+					return job.runId === this.#activeRunId;
+				}
+				// Fallback: include all recent jobs when no active run or in simple mode
+				return true;
+			})
+			.sort((a, b) => b.updatedAt - a.updatedAt)
+			.slice(0, limit)
+			.map((job) => ({
+				role: job.role,
+				taskId: job.taskId,
+				status: job.status,
+				summary: job.result?.summary ?? job.error ?? "No summary available",
+			}));
 	}
 
 	private findRetainedSessionId(taskId: string): string | undefined {

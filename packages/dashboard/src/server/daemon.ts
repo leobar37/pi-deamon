@@ -87,6 +87,9 @@ export class DashboardDaemon {
 			return this.url!;
 		}
 
+		// Signal to Lion that it runs inside the web dashboard and should not start its own frontend UI.
+		process.env.LION_DASHBOARD_MODE = "true";
+
 		this.startTime = Date.now();
 
 		// Wire up event forwarding so agent events reach SSE subscribers
@@ -180,7 +183,7 @@ export class DashboardDaemon {
 		return this.url!;
 	}
 
-	stop(): void {
+	async stop(): Promise<void> {
 		if (!this.server) return;
 
 		// Kill Vite dev server if running
@@ -196,9 +199,11 @@ export class DashboardDaemon {
 		this.eventProvider.clear();
 
 		// Dispose all live sessions
-		this.sessionHost.dispose().catch((err) => {
+		try {
+			await this.sessionHost.dispose();
+		} catch (err) {
 			logger.error("Error disposing sessions", { error: String(err) });
-		});
+		}
 
 		// Stop HTTP server
 		this.server.stop(true);

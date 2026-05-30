@@ -126,6 +126,28 @@ export function createSessionProcedures(sessionHost: SessionHost, _eventProvider
 				}
 			}),
 
+		startLion: os
+			.input(
+				z.object({
+					plan: z.unknown(),
+					cwd: z.string().optional(),
+					env: z.record(z.string()).optional(),
+				}),
+			)
+			.output(z.object({ session: SessionInfoSchema }))
+			.handler(async ({ input }) => {
+				try {
+					const { session } = await sessionHost.createLionSession(input.plan, {
+						cwd: input.cwd,
+						env: input.env,
+					});
+					return { session: session.info };
+				} catch (err) {
+					const message = err instanceof Error ? err.message : String(err);
+					throw new Error(`StartLion failed: ${message}`);
+				}
+			}),
+
 		// ---------------------------------------------------------------------
 		// Interaction
 		// ---------------------------------------------------------------------

@@ -37,7 +37,13 @@ export class PlanActivator {
 				kind: plan.kind,
 			}),
 		);
-		bus.emit(LionEvents.activateComplete({ runId, mode: this.runtime.state.mode }));
+		bus.emit(
+			LionEvents.activateComplete({
+				runId,
+				strategy: this.runtime.state.strategy,
+				phase: this.runtime.state.phase,
+			}),
+		);
 
 		return {
 			run: this.runtime.core.activeRun,

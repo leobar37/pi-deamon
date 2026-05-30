@@ -79,6 +79,34 @@ export interface SessionInfoChangedPayload {
 	name: string | undefined;
 }
 
+/** Payload for subagent_start */
+export interface SubagentStartPayload {
+	id: string;
+	parentId?: string;
+	name: string;
+	status: string;
+}
+
+/** Payload for subagent_end */
+export interface SubagentEndPayload {
+	id: string;
+	result: unknown;
+	status: string;
+}
+
+/** Payload for subagent_progress */
+export interface SubagentProgressPayload {
+	id: string;
+	message: string;
+	progress?: number;
+}
+
+/** Payload for subagent_error */
+export interface SubagentErrorPayload {
+	id: string;
+	error: string;
+}
+
 /** Payload for message events (start, update, end) */
 export interface MessagePayload {
 	message: unknown; // AgentMessage serialized to JSON
@@ -166,6 +194,11 @@ export type ServerEvent =
 	// Turn events
 	| (ServerEventBase & { type: "turn_start" })
 	| (ServerEventBase & { type: "turn_end" })
+	// Subagent events
+	| (ServerEventBase & { type: "subagent_start"; id: string; parentId?: string; name: string; status: string })
+	| (ServerEventBase & { type: "subagent_end"; id: string; result: unknown; status: string })
+	| (ServerEventBase & { type: "subagent_progress"; id: string; message: string; progress?: number })
+	| (ServerEventBase & { type: "subagent_error"; id: string; error: string })
 	// Ping (keep-alive)
 	| (ServerEventBase & { type: "ping" });
 
@@ -203,6 +236,10 @@ export const SERVER_EVENT_TYPES = [
 	"model_select",
 	"turn_start",
 	"turn_end",
+	"subagent_start",
+	"subagent_end",
+	"subagent_progress",
+	"subagent_error",
 	"ping",
 ] as const;
 

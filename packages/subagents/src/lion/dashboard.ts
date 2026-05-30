@@ -1,6 +1,10 @@
 import { HttpServerTransport } from "../transport/http-server.js";
 import type { LionRuntime } from "./runtime.js";
 
+function isDashboardMode(): boolean {
+	return process.env.LION_DASHBOARD_MODE === "true";
+}
+
 export interface LionDashboard {
 	start(): Promise<URL>;
 	stop(): Promise<void>;
@@ -13,6 +17,13 @@ export function getOrStartLionDashboard(runtime: LionRuntime): LionDashboard {
 	return runtime.dashboard;
 }
 
+/**
+ * Lion dashboard server.
+ *
+ * Environment:
+ * - `LION_DASHBOARD_MODE=true` — disables the standalone frontend UI.
+ *   Used when Lion is embedded in the web dashboard.
+ */
 class LionDashboardServer implements LionDashboard {
 	private transport: HttpServerTransport | null = null;
 	private unsubscribeBus?: () => void;
@@ -20,6 +31,10 @@ class LionDashboardServer implements LionDashboard {
 	constructor(private runtime: LionRuntime) {}
 
 	async start(): Promise<URL> {
+		if (isDashboardMode()) {
+			return new URL("http://disabled");
+		}
+
 		const controller = this.runtime.activeController;
 		if (!controller) {
 			throw new Error("Lion is not active. Use /lion-activate or lion_activate_plan to start Lion first.");

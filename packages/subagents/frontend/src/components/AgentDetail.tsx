@@ -3,12 +3,14 @@ import type { SubAgentEvent, SubAgentInstanceState } from "../types.ts";
 import { useAgent } from "../hooks/use-agent.ts";
 import { useAgentEvents } from "../hooks/use-agent-events.ts";
 import { useAgentMessages } from "../hooks/use-agent-messages.ts";
+import { useAgentRun } from "../hooks/use-agent-run.ts";
 import { ChatView } from "./ChatView.tsx";
 import { StatusBadge } from "./StatusBadge.tsx";
 import { useSubAgentStore } from "../store/use-subagent-store.ts";
 import { useSessionMessagesStore } from "../store/session-messages.ts";
 import { navigateToThread } from "../navigation.ts";
 import { ErrorBoundary } from "./ErrorBoundary.tsx";
+import { AgentRunSidebar } from "./AgentRunSidebar.tsx";
 
 interface AgentDetailProps {
   instanceId: string;
@@ -19,6 +21,7 @@ export function AgentDetail({ instanceId, onBack }: AgentDetailProps) {
   const { data: fetchedAgent } = useAgent(instanceId);
   const { data: fetchedEvents } = useAgentEvents(instanceId);
   const { data: fetchedMessages } = useAgentMessages(instanceId);
+  const { data: fetchedRun, isLoading: isRunLoading } = useAgentRun(instanceId);
 
   const setMessages = useSessionMessagesStore((s) => s.setMessages);
   const mergeEvents = useSubAgentStore((s) => s.mergeEvents);
@@ -45,6 +48,10 @@ export function AgentDetail({ instanceId, onBack }: AgentDetailProps) {
   const parentThread = displayAgent?.parentThreadId
     ? agents.find((agent) => agent.instanceId === displayAgent.parentThreadId)
     : null;
+  const modelLabel =
+    displayAgent?.modelProvider && displayAgent.modelId
+      ? `${displayAgent.modelProvider}/${displayAgent.modelId}`
+      : null;
 
   return (
     <div className="flex flex-col h-full">
@@ -73,16 +80,24 @@ export function AgentDetail({ instanceId, onBack }: AgentDetailProps) {
             <span className="text-xs text-text-muted shrink-0">
               {displayAgent.kind === "main" ? displayAgent.sessionId ?? "main" : displayAgent.taskId}
             </span>
+            {modelLabel ? (
+              <span className="min-w-0 truncate rounded border border-border-subtle bg-bg px-2 py-1 text-xs text-text-secondary">
+                {modelLabel}
+              </span>
+            ) : null}
           </div>
         ) : (
           <span className="text-sm text-text-muted">Loading...</span>
         )}
       </div>
 
-      <div className="flex-1 min-w-0 overflow-hidden">
-        <ErrorBoundary threadId={instanceId}>
-          <ChatView instanceId={instanceId} />
-        </ErrorBoundary>
+      <div className="flex min-h-0 flex-1 overflow-hidden">
+        <div className="min-w-0 flex-1 overflow-hidden">
+          <ErrorBoundary threadId={instanceId}>
+            <ChatView instanceId={instanceId} />
+          </ErrorBoundary>
+        </div>
+        <AgentRunSidebar agent={displayAgent} run={fetchedRun} isLoading={isRunLoading} />
       </div>
     </div>
   );

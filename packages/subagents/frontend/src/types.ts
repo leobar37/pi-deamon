@@ -47,6 +47,32 @@ export interface SubAgentEvent {
 	[key: string]: unknown;
 }
 
+export interface SubAgentRunRecord {
+	version: 1;
+	sessionId: string;
+	taskId: string;
+	instanceId: string;
+	definitionName: string;
+	cwd: string;
+	parentThreadId?: string;
+	parentToolCallId?: string;
+	runId?: string;
+	runIndex?: number;
+	description?: string;
+	prompt: string;
+	systemPrompt?: string;
+	modelProvider?: string;
+	modelId?: string;
+	status: "running" | "completed" | "failed" | "blocked" | "timed_out" | "cancelled";
+	summary?: string;
+	error?: string;
+	startedAt: number;
+	updatedAt: number;
+	completedAt?: number;
+	turnCount: number;
+	toolCount: number;
+}
+
 export type SubAgentEventType =
 	| "lifecycle.change"
 	| "task.start"

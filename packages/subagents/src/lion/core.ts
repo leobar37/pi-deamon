@@ -171,6 +171,10 @@ export function finishRun(
 	return result;
 }
 
+export function addSyntheticRun(core: LionCore, run: LionRun): void {
+	core.runHistory = [...core.runHistory, run].slice(-20);
+}
+
 export function snapshot(core: LionCore): LionCore {
 	return {
 		activeRun: core.activeRun ? cloneRun(core.activeRun) : null,

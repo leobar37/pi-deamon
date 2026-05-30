@@ -1,0 +1,120 @@
+import type { SubAgentInstanceState, SubAgentRunRecord } from "../types.ts";
+import { MarkdownRenderer } from "./blocks/MarkdownRenderer.js";
+
+interface AgentRunSidebarProps {
+	agent?: SubAgentInstanceState;
+	run?: SubAgentRunRecord;
+	isLoading?: boolean;
+}
+
+function formatTime(value?: number | null): string {
+	if (!value) return "n/a";
+	return new Date(value).toLocaleString();
+}
+
+function CopyButton({ text, label }: { text: string; label: string }) {
+	return (
+		<button
+			type="button"
+			onClick={() => copyText(text)}
+			disabled={!text.trim()}
+			className="rounded border border-border-subtle px-2 py-1 text-xs text-text-secondary transition hover:border-border-hover hover:text-text-primary disabled:cursor-not-allowed disabled:opacity-50"
+		>
+			{label}
+		</button>
+	);
+}
+
+async function copyText(text: string): Promise<void> {
+	if (!text.trim()) return;
+	try {
+		await navigator.clipboard.writeText(text);
+		return;
+	} catch {
+		const textarea = document.createElement("textarea");
+		textarea.value = text;
+		textarea.setAttribute("readonly", "");
+		textarea.style.position = "fixed";
+		textarea.style.left = "-9999px";
+		document.body.appendChild(textarea);
+		textarea.select();
+		document.execCommand("copy");
+		document.body.removeChild(textarea);
+	}
+}
+
+export function AgentRunSidebar({ agent, run, isLoading }: AgentRunSidebarProps) {
+	const input = run?.prompt ?? "";
+	const systemPrompt = run?.systemPrompt ?? "";
+	const output = run?.summary ?? run?.error ?? "";
+	const modelLabel =
+		(run?.modelProvider && run.modelId ? `${run.modelProvider}/${run.modelId}` : null) ??
+		(agent?.modelProvider && agent.modelId ? `${agent.modelProvider}/${agent.modelId}` : "n/a");
+
+	return (
+		<aside className="flex w-[340px] shrink-0 flex-col border-l border-border-subtle bg-bg-elevated">
+			<div className="border-b border-border-subtle px-4 py-3">
+				<div className="text-xs uppercase tracking-wide text-text-tertiary">Run</div>
+				<div className="mt-1 truncate text-sm font-medium text-text-primary">{run?.description ?? agent?.description ?? agent?.definitionName ?? "Subagent"}</div>
+				<div className="mt-2 grid grid-cols-2 gap-2 text-xs text-text-secondary">
+					<div>
+						<div className="text-text-tertiary">Model</div>
+						<div className="truncate">{modelLabel}</div>
+					</div>
+					<div>
+						<div className="text-text-tertiary">Status</div>
+						<div>{run?.status ?? agent?.state ?? (isLoading ? "loading" : "n/a")}</div>
+					</div>
+					<div>
+						<div className="text-text-tertiary">Turns</div>
+						<div>{run?.turnCount ?? agent?.turnCount ?? 0}</div>
+					</div>
+					<div>
+						<div className="text-text-tertiary">Tools</div>
+						<div>{run?.toolCount ?? agent?.toolCount ?? 0}</div>
+					</div>
+				</div>
+			</div>
+
+			<div className="min-h-0 flex-1 space-y-4 overflow-y-auto p-4">
+				<section>
+					<div className="mb-2 flex items-center justify-between gap-2">
+						<h2 className="text-xs font-semibold uppercase tracking-wide text-text-tertiary">Input</h2>
+						<CopyButton text={input} label="Copy" />
+					</div>
+					<pre className="max-h-72 overflow-auto rounded border border-border-subtle bg-bg px-3 py-2 font-mono text-xs leading-relaxed text-text-secondary whitespace-pre-wrap">
+						{input || "No run input recorded yet."}
+					</pre>
+				</section>
+
+				{systemPrompt ? (
+					<section>
+						<div className="mb-2 flex items-center justify-between gap-2">
+							<h2 className="text-xs font-semibold uppercase tracking-wide text-text-tertiary">System Prompt</h2>
+							<CopyButton text={systemPrompt} label="Copy" />
+						</div>
+						<pre className="max-h-56 overflow-auto rounded border border-border-subtle bg-bg px-3 py-2 font-mono text-xs leading-relaxed text-text-secondary whitespace-pre-wrap">
+							{systemPrompt}
+						</pre>
+					</section>
+				) : null}
+
+				<section>
+					<div className="mb-2 flex items-center justify-between gap-2">
+						<h2 className="text-xs font-semibold uppercase tracking-wide text-text-tertiary">Output</h2>
+						<CopyButton text={output} label="Copy" />
+					</div>
+					<div className="rounded border border-border-subtle bg-bg px-3 py-2">
+						{output ? <MarkdownRenderer content={output} /> : <div className="text-xs text-text-muted">No output recorded yet.</div>}
+					</div>
+				</section>
+
+				<div className="border-t border-border-subtle pt-3 text-xs text-text-tertiary">
+					<div>Started: {formatTime(run?.startedAt ?? agent?.startTime)}</div>
+					<div>Updated: {formatTime(run?.updatedAt ?? agent?.lastActivityAt)}</div>
+					<div>Completed: {formatTime(run?.completedAt ?? agent?.endTime)}</div>
+				</div>
+			</div>
+		</aside>
+	);
+}

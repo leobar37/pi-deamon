@@ -4,9 +4,10 @@ import type {
 	LionBuildResult,
 	LionDelegationAgent,
 	LionEventMap,
-	LionMode,
+	LionPhase,
 	LionPlanKind,
 	LionReviewVerdict,
+	LionStrategyName,
 	LionTaskStrategy,
 	LionTasksResult,
 } from "../types.js";
@@ -23,7 +24,11 @@ export const LionEvents = {
 		return { type: "lion.activate.start", timestamp: Date.now(), id: randomUUID(), ...payload };
 	},
 
-	activateComplete(payload: { runId: string; mode: LionMode }): LionEventMap["lion.activate.complete"] {
+	activateComplete(payload: {
+		runId: string;
+		strategy: LionStrategyName;
+		phase: LionPhase;
+	}): LionEventMap["lion.activate.complete"] {
 		return { type: "lion.activate.complete", timestamp: Date.now(), id: randomUUID(), ...payload };
 	},
 
@@ -37,7 +42,11 @@ export const LionEvents = {
 		return { type: "lion.plan.loaded", timestamp: Date.now(), id: randomUUID(), ...payload };
 	},
 
-	modeChanged(payload: { runId: string; mode: LionMode }): LionEventMap["lion.mode.changed"] {
+	modeChanged(payload: {
+		runId: string;
+		strategy: LionStrategyName;
+		phase: LionPhase;
+	}): LionEventMap["lion.mode.changed"] {
 		return { type: "lion.mode.changed", timestamp: Date.now(), id: randomUUID(), ...payload };
 	},
 

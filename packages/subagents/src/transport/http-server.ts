@@ -2,6 +2,7 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { SessionManager } from "@earendil-works/pi-coding-agent";
 import type { SubAgentController } from "../controller.js";
+import { SubAgentRunStore } from "../run-store.js";
 import { DashboardStateManager } from "./state-manager.js";
 import type {
 	DashboardSessionSource,
@@ -20,6 +21,10 @@ export interface HttpServerTransportOptions {
 	 */
 	staticDir?: string;
 	mainSession?: DashboardSessionSource;
+}
+
+function isDashboardMode(): boolean {
+	return process.env.LION_DASHBOARD_MODE === "true";
 }
 
 interface SseClient {
@@ -63,10 +68,12 @@ export class HttpServerTransport implements SubAgentTransport {
 	 */
 	readonly stateManager: DashboardStateManager;
 	private unsubscribeMainSession?: () => void;
+	private runStore: SubAgentRunStore;
 
 	constructor(private options: HttpServerTransportOptions) {
 		this.staticDir = resolveStaticDir(options);
 		this.stateManager = new DashboardStateManager(options.controller.getCwd());
+		this.runStore = new SubAgentRunStore(options.controller.getCwd());
 		this.sseCleanupTimer = setInterval(() => this.cleanupStaleSseClients(), 30000);
 	}
 
@@ -156,10 +163,16 @@ export class HttpServerTransport implements SubAgentTransport {
 		}
 
 		if (req.method === "GET" && pathname === "/") {
+			if (isDashboardMode()) {
+				return new Response("Not Found", { status: 404 });
+			}
 			return this.serveStaticFile("index.html", "text/html; charset=utf-8");
 		}
 
 		if (req.method === "GET" && pathname.startsWith("/assets/")) {
+			if (isDashboardMode()) {
+				return new Response("Not Found", { status: 404 });
+			}
 			return this.serveAsset(pathname);
 		}
 
@@ -188,6 +201,9 @@ export class HttpServerTransport implements SubAgentTransport {
 			if (segments.length === 2 && segments[1] === "messages") {
 				return this.withCors(await this.serveMessages(threadId));
 			}
+			if (segments.length === 2 && segments[1] === "run") {
+				return this.withCors(await this.serveRun(threadId));
+			}
 		}
 
 		if (req.method === "GET" && pathname.startsWith("/api/instances/")) {
@@ -207,6 +223,9 @@ export class HttpServerTransport implements SubAgentTransport {
 			if (segments.length === 2 && segments[1] === "messages") {
 				return this.withCors(await this.serveMessages(instanceId));
 			}
+			if (segments.length === 2 && segments[1] === "run") {
+				return this.withCors(await this.serveRun(instanceId));
+			}
 		}
 
 		if (req.method === "GET" && pathname === "/events") {
@@ -215,6 +234,9 @@ export class HttpServerTransport implements SubAgentTransport {
 
 		// Fallback to index.html for SPA routing
 		if (req.method === "GET") {
+			if (isDashboardMode()) {
+				return new Response("Not Found", { status: 404 });
+			}
 			return this.serveStaticFile("index.html", "text/html; charset=utf-8");
 		}
 
@@ -380,6 +402,25 @@ export class HttpServerTransport implements SubAgentTransport {
 		}
 
 		return new Response("Not Found", { status: 404 });
+	}
+
+	private async serveRun(threadId: string): Promise<Response> {
+		const main = this.options.mainSession?.getThread();
+		if (main?.instanceId === threadId) {
+			return new Response("Run record not available", { status: 404 });
+		}
+
+		const live = this.options.controller.getInstanceById(threadId)?.getState();
+		const state = live ?? this.stateManager.getInstance(threadId);
+		if (!state?.sessionId) {
+			return new Response("Run record not available", { status: 404 });
+		}
+
+		const record = await this.runStore.read(state.sessionId, state.taskId);
+		if (!record) {
+			return new Response("Run record not found", { status: 404 });
+		}
+		return Response.json(record);
 	}
 
 	private serveEvents(req: Request, url: URL): Response {

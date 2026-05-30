@@ -184,6 +184,73 @@ export function serializeAgentSessionEvent(event: AgentSessionEvent, sessionId: 
 }
 
 /**
+ * Serialize a LionEvent or SubAgentEvent to a ServerEvent.
+ *
+ * This handles both raw SubAgentEvents and LionEvent wrappers
+ * (e.g. `lion.subagent.event`). Unknown event types are mapped to `ping`.
+ */
+export function serializeLionEvent(event: Record<string, unknown>, sessionId: string): ServerEvent {
+	// Handle LionEvent wrapper that contains a nested subagentEvent
+	if (event.type === "lion.subagent.event" && event.subagentEvent) {
+		const subagentEvent = event.subagentEvent as Record<string, unknown>;
+		return serializeSubAgentEvent(subagentEvent, sessionId);
+	}
+
+	// Handle direct SubAgentEvent
+	return serializeSubAgentEvent(event, sessionId);
+}
+
+function serializeSubAgentEvent(event: Record<string, unknown>, sessionId: string): ServerEvent {
+	const base = { sessionId, timestamp: Date.now() };
+	const eventType = event.type as string;
+
+	switch (eventType) {
+		case "task.start": {
+			const id = String(event.taskId ?? event.instanceId ?? `subagent-${Date.now()}`);
+			return {
+				...base,
+				type: "subagent_start",
+				id,
+				parentId: event.parentThreadId ? String(event.parentThreadId) : undefined,
+				name: String(event.definitionName ?? ""),
+				status: "starting",
+			};
+		}
+		case "task.end": {
+			const result = event.result as Record<string, unknown> | undefined;
+			const id = String(event.taskId ?? event.instanceId ?? `subagent-${Date.now()}`);
+			return {
+				...base,
+				type: "subagent_end",
+				id,
+				result: event.result,
+				status: String(result?.status ?? "unknown"),
+			};
+		}
+		case "progress.update": {
+			const id = String(event.taskId ?? event.instanceId ?? `subagent-${Date.now()}`);
+			return {
+				...base,
+				type: "subagent_progress",
+				id,
+				message: String(event.message ?? ""),
+			};
+		}
+		case "error": {
+			const id = String(event.taskId ?? event.instanceId ?? `subagent-${Date.now()}`);
+			return {
+				...base,
+				type: "subagent_error",
+				id,
+				error: String(event.error ?? ""),
+			};
+		}
+		default:
+			return { ...base, type: "ping" as const };
+	}
+}
+
+/**
  * Create a ping event for keep-alive.
  */
 export function createPingEvent(sessionId = ""): ServerEvent {

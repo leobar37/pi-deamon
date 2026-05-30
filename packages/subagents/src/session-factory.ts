@@ -25,7 +25,11 @@ export function buildSubAgentInstructions(options: {
 	task: CreateSubAgentSessionOptions["task"];
 }): string {
 	const builder = resolveBuilder(options.config);
-	const ctx: InstructionContext = { task: options.task, config: options.config };
+	const ctx: InstructionContext = {
+		task: options.task,
+		config: options.config,
+		orchestration: options.task.orchestration,
+	};
 	return builder(ctx);
 }
 

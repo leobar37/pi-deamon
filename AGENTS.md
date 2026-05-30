@@ -25,7 +25,7 @@
 - Use Bun for all package scripts. NEVER use `npm` commands in this repo.
 - After code changes (not documentation changes): `bun run check` (get full output, no tail). Fix all errors, warnings, and infos before committing.
 - Note: `bun run check` does not run tests.
-- NEVER run: `bun run dev`, `bun run build`, `bun test`
+- NEVER run: `bun run dev`, `bun test`
 - Only run specific tests if user instructs: `bun x tsx ../../node_modules/vitest/dist/cli.js --run test/specific.test.ts`
 - Run tests from the package root, not the repo root.
 - If you create or modify a test file, you MUST run that test file and iterate until it passes.

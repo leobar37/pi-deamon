@@ -1,5 +1,12 @@
 import type { InstructionBuilder } from "../types.js";
 
+function sourceTruthInstruction(ctx: Parameters<InstructionBuilder>[0]): string {
+	if (ctx.orchestration?.strategy === "simple") {
+		return "Use the delegated scope and referenced files as the source of truth. Do not assume a durable plan or plan task file exists.";
+	}
+	return "Use referenced plan, task, and source files as the source of truth. Do not assume the delegation brief contains the full task.";
+}
+
 export const DEFAULT_BUILDER: InstructionBuilder = (ctx) =>
 	`${ctx.config.name}. ${ctx.config.description}
 
@@ -13,7 +20,7 @@ ${ctx.task.prompt}
   <must_not>Pretend to be the orchestrator.</must_not>
 </role_contract>
 
-Use referenced plan, task, and source files as the source of truth. Do not assume the delegation brief contains the full task.
+${sourceTruthInstruction(ctx)}
 Use any relevant loaded skill before analyzing or changing a specialized flow. If a matching skill is available, read and follow it, then mention it in your final summary.
 Read referenced sources before reaching conclusions. Use subagent_record_context for durable decisions, blockers, relevant files, and evidence when the tool is available.
 Do not ask the user for clarification or wait for external input. If context is missing, report it under unknowns and return the best concrete result possible.
@@ -34,7 +41,7 @@ ${ctx.task.prompt}
   <output>Return summary, files_changed, validation, risks, and unknowns.</output>
 </executor_contract>
 
-Use referenced plan, task, and source files as the source of truth. Do not assume the delegation brief contains the full task.
+${sourceTruthInstruction(ctx)}
 Use any relevant loaded skill before analyzing or changing a specialized flow. If a matching skill is available, read and follow it, then mention it in your final summary.
 Read referenced sources before changing code. Use subagent_record_context for durable decisions, blockers, relevant files, and evidence when the tool is available.
 Do not ask the user for clarification or wait for external input. If context is missing, report it under unknowns and return the best concrete result possible.
@@ -58,7 +65,7 @@ ${ctx.task.prompt}
   <output>Return findings, files_inspected, risks, unknowns, and recommended_next_step.</output>
 </analyzer_contract>
 
-Use referenced plan, task, and source files as the source of truth. Do not assume the delegation brief contains the full task.
+${sourceTruthInstruction(ctx)}
 Use any relevant loaded skill before analyzing a specialized flow. If a matching skill is available, read and follow it, then mention it in your final summary.
 Read referenced sources before reaching conclusions. Use subagent_record_context for durable decisions, blockers, relevant files, and evidence when the tool is available.
 You are a non-interactive analyzer worker. Do not ask the user for clarification, do not wait for external input, do not edit files, and do not invent missing context.
@@ -78,7 +85,7 @@ ${ctx.task.prompt}
   <output>Return summary, ordered_steps, risks, validation, and unknowns.</output>
 </planner_contract>
 
-Use referenced plan, task, and source files as the source of truth. Do not assume the delegation brief contains the full task.
+${sourceTruthInstruction(ctx)}
 Use any relevant loaded skill before planning a specialized flow. If a matching skill is available, read and follow it, then mention it in your final summary.
 Read referenced sources before reaching conclusions. Use subagent_record_context for durable decisions, blockers, relevant files, and evidence when the tool is available.
 Do not ask the user for clarification or wait for external input. If context is missing, report it under unknowns and return the best concrete result possible.
@@ -100,7 +107,7 @@ ${ctx.task.prompt}
   <output>Return verdict, findings, evidence_checked, risks, and required_next_step.</output>
 </reviewer_contract>
 
-Use referenced plan, task, and source files as the source of truth. Do not assume the delegation brief contains the full task.
+${sourceTruthInstruction(ctx)}
 Use any relevant loaded skill before reviewing a specialized flow. If a matching skill is available, read and follow it, then mention it in your final summary.
 Read referenced sources before reaching conclusions. Use subagent_record_context for durable decisions, blockers, relevant files, and evidence when the tool is available.
 Do not ask the user for clarification or wait for external input. If context is missing, report it under unknowns and return the best concrete result possible.

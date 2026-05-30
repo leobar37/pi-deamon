@@ -15,7 +15,7 @@ export class LionUI {
 			return;
 		}
 		const plan = state.activePlanSlug ? `: ${state.activePlanSlug}` : "";
-		ctx.ui.setStatus("lion", ctx.ui.theme.fg("accent", `Lion ${state.mode}${plan}`));
+		ctx.ui.setStatus("lion", ctx.ui.theme.fg("accent", `Lion ${state.strategy}/${state.phase}${plan}`));
 	}
 
 	clearStatus(ctx: ExtensionContext): void {

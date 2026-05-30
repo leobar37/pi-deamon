@@ -17,7 +17,7 @@ export class LionPersistence {
 			.map((entry) => (entry as { data: PersistedLionState }).data)
 			.sort((a, b) => a.updatedAt - b.updatedAt);
 		const lastState = states[states.length - 1];
-		if (!lastState || lastState.version !== 1) return createInitialLionState();
+		if (!lastState || lastState.version !== 2) return createInitialLionState();
 		const { action: _action, updatedAt: _updatedAt, ...state } = lastState;
 		return state;
 	}

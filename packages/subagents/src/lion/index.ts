@@ -2,10 +2,11 @@ import { compact, type ExtensionAPI, type ExtensionContext } from "@earendil-wor
 import { SessionLogger } from "@local/pi-logger";
 import { resolveConfiguredModel, SubAgentConfigManager } from "../config-manager.js";
 import { registerLionCommands } from "./commands.js";
-import { buildPlanningSystemPrompt } from "./prompts/index.js";
 import { LionRuntime } from "./runtime.js";
+import { getLionStrategy } from "./strategies/index.js";
 import { registerLionTools } from "./tools.js";
 import { stopLionSubagentWidget } from "./ui/subagents-widget.js";
+import { createRunId } from "./utils.js";
 
 export function lionExtension(pi: ExtensionAPI): void {
 	const runtime = new LionRuntime(pi);
@@ -24,10 +25,20 @@ export function lionExtension(pi: ExtensionAPI): void {
 	}
 
 	pi.on("session_start", async (_event, ctx) => {
+		const cwd = ctx.sessionManager.getCwd();
+		const sessionId = ctx.sessionManager.getSessionId();
 		if (!runtime.logger) {
 			runtime.logger = new SessionLogger({
-				cwd: ctx.sessionManager.getCwd(),
-				sessionId: ctx.sessionManager.getSessionId(),
+				cwd,
+				sessionId,
+			});
+		}
+		// Initialize structured run logger for this session
+		if (!runtime.runLogger) {
+			const runLogger = runtime.initRunLogger(cwd, createRunId());
+			runLogger.startRun({
+				planSlug: runtime.state.activePlanSlug,
+				planPath: runtime.state.activePlanPath,
 			});
 		}
 		restore(ctx);
@@ -57,6 +68,11 @@ export function lionExtension(pi: ExtensionAPI): void {
 		return runtime.delegationGuard.handleToolCall(event);
 	});
 	pi.on("session_shutdown", async () => {
+		// Mark run as interrupted only if it hasn't already completed
+		const runLogger = runtime.runLogger;
+		if (runLogger && !runLogger.closed) {
+			runtime.interruptRun(undefined, "session_shutdown");
+		}
 		stopLionSubagentWidget(runtime);
 		await runtime.stopDashboard();
 	});
@@ -68,7 +84,8 @@ export function lionExtension(pi: ExtensionAPI): void {
 
 	pi.on("before_agent_start", async (event) => {
 		if (!runtime.state.active) return;
-		return { systemPrompt: `${event.systemPrompt}\n\n${buildPlanningSystemPrompt(runtime.state)}` };
+		const strategy = getLionStrategy(runtime.state.strategy);
+		return { systemPrompt: `${event.systemPrompt}\n\n${strategy.buildMainPrompt(runtime.state)}` };
 	});
 
 	pi.on("session_before_compact", async (event, ctx) => {

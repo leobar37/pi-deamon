@@ -8,12 +8,60 @@
  * rendering. Each block is self-contained and renderable.
  */
 
+export type SubAgentState =
+	| "created"
+	| "starting"
+	| "running"
+	| "paused"
+	| "completing"
+	| "completed"
+	| "failed"
+	| "cancelled"
+	| "timed_out"
+	| "queued";
+
+export interface SubAgentInstanceState {
+	instanceId: string;
+	taskId: string;
+	definitionName: string;
+	kind?: "main" | "subagent";
+	parentThreadId?: string;
+	parentToolCallId?: string;
+	runId?: string;
+	runIndex?: number;
+	description?: string;
+	state: SubAgentState;
+	startTime: number | null;
+	endTime: number | null;
+	turnCount: number;
+	lastActivityAt: number;
+	currentTool: string | null;
+	error: string | null;
+	toolCount: number;
+	currentToolStartedAt: number | null;
+	durationMs: number;
+	isLive?: boolean;
+	sessionFile?: string;
+	sessionId?: string;
+	modelProvider?: string;
+	modelId?: string;
+}
+
+export interface SubAgentEvent {
+	type: string;
+	timestamp: number;
+	instanceId: string;
+	taskId: string;
+	[key: string]: unknown;
+}
+
 export type MessageBlock =
 	| { type: "text"; text: string }
 	| { type: "thinking"; thinking: string; signature?: string; redacted?: boolean }
 	| { type: "toolCall"; id: string; name: string; arguments: Record<string, unknown> }
 	| { type: "toolResult"; toolCallId: string; content: string; isError: boolean }
-	| { type: "image"; data: string; mimeType: string };
+	| { type: "image"; data: string; mimeType: string }
+	| { type: "subagentRun"; threads: SubAgentInstanceState[]; strategy: string };
 
 /**
  * Convert an agent-core message (which may have content as string or array)
@@ -104,16 +152,19 @@ export function blocksToPlainText(blocks: MessageBlock[]): string {
 				parts.push(block.text);
 				break;
 			case "thinking":
-				parts.push(`[Thinking: ${block.thinking.slice(0, 80)}...]`);
+				parts.push(`[Thinking: ${block.thinking?.slice(0, 80) ?? ""}...]`);
 				break;
 			case "toolCall":
 				parts.push(`[Tool: ${block.name}]`);
 				break;
 			case "toolResult":
-				parts.push(`[Result: ${block.content.slice(0, 80)}...]`);
+				parts.push(`[Result: ${block.content?.slice(0, 80) ?? ""}...]`);
 				break;
 			case "image":
 				parts.push("[Image]");
+				break;
+			case "subagentRun":
+				parts.push(`[Subagents: ${block.threads.length} tasks]`);
 				break;
 		}
 	}

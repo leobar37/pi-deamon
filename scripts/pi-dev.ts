@@ -5,14 +5,9 @@
  */
 
 import { realpathSync } from "node:fs";
-import { dirname, join } from "node:path";
-import { fileURLToPath } from "node:url";
+import { join } from "node:path";
 
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = dirname(__filename);
-
-// Resolve repo root from this script's location (scripts/ -> repo root)
-const REPO_ROOT = realpathSync(join(__dirname, ".."));
+const REPO_ROOT = realpathSync("/Users/leobar37/code/opensource/piiiiiiiiiiiiiiiiiiiiiiiiii");
 const CLI_ENTRY = join(REPO_ROOT, "packages", "coding-agent", "src", "cli.ts");
 const SUBAGENTS_DIR = join(REPO_ROOT, "packages", "subagents");
 const EXT_DIR = join(REPO_ROOT, "packages", "extensions");

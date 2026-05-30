@@ -119,8 +119,8 @@ export class DashboardStateManager {
 				...live,
 				kind: "subagent",
 				isLive: true,
-				sessionFile: existingVirtual?.sessionFile,
-				sessionId: existingVirtual?.sessionId,
+				sessionFile: live.sessionFile ?? existingVirtual?.sessionFile,
+				sessionId: live.sessionId ?? existingVirtual?.sessionId,
 				modelProvider: live.modelProvider ?? existingVirtual?.modelProvider,
 				modelId: live.modelId ?? existingVirtual?.modelId,
 			});
@@ -137,8 +137,8 @@ export class DashboardStateManager {
 				...live,
 				kind: "subagent",
 				isLive: true,
-				sessionFile: virtual?.sessionFile,
-				sessionId: virtual?.sessionId,
+				sessionFile: live.sessionFile ?? virtual?.sessionFile,
+				sessionId: live.sessionId ?? virtual?.sessionId,
 				modelProvider: live.modelProvider ?? virtual?.modelProvider,
 				modelId: live.modelId ?? virtual?.modelId,
 			};

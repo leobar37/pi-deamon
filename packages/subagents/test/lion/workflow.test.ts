@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { ToolCallEvent } from "@earendil-works/pi-coding-agent";
 import { visibleWidth } from "@earendil-works/pi-tui";
+import { registerLionCommands } from "../../src/lion/commands.js";
 import {
 	createLionCore,
 	finishRun,
@@ -177,9 +178,10 @@ function testBuildPlanReviewPrompt(): void {
 
 function testBuildPlanningSystemPrompt(): void {
 	const state = {
-		version: 1 as const,
+		version: 2 as const,
 		active: true,
-		mode: "planning" as const,
+		strategy: "plan" as const,
+		phase: "planning" as const,
 		planKind: "structured" as const,
 		activePlanPath: "/tmp/test-plan",
 		activePlanSlug: "test-plan",
@@ -205,6 +207,28 @@ function testBuildPlanningSystemPrompt(): void {
 	assert.ok(prompt.includes("Do not delegate the raw user prompt just to understand it"));
 	assert.ok(prompt.includes("use any relevant loaded skill"));
 	assert.ok(prompt.includes("Executor delegations must reference the active plan and task file"));
+}
+
+function testBuildSimpleSystemPrompt(): void {
+	const state = {
+		version: 2 as const,
+		active: true,
+		strategy: "simple" as const,
+		phase: "building" as const,
+		planKind: null,
+		activePlanPath: null,
+		activePlanSlug: null,
+		activeTaskId: null,
+		maxAttempts: 3,
+		lastRunId: null,
+		lastBuild: undefined,
+	};
+	const prompt = buildPlanningSystemPrompt(state);
+	assert.ok(prompt.includes("Lion simple mode is active"));
+	assert.ok(prompt.includes("Do not create, activate, or require a durable plan"));
+	assert.ok(prompt.includes("Use lion_tasks"));
+	assert.ok(!prompt.includes("lion_next_task: Select the next executable"));
+	assert.ok(!prompt.includes("checklist.json"));
 }
 
 async function testTaskRunnerAddsPlanContextToDelegations(): Promise<void> {
@@ -268,6 +292,115 @@ async function testTaskRunnerAddsPlanContextToDelegations(): Promise<void> {
 	} finally {
 		rmSync(dir, { recursive: true, force: true });
 	}
+}
+
+async function testTaskRunnerAddsPlanContextWhenBriefHasGenericLionContext(): Promise<void> {
+	const dir = createStructuredPlanDirWithChecklist();
+	const capturedPrompts: string[] = [];
+	try {
+		const runtime = new LionRuntime(fakePi() as any);
+		const loaded = loadLionPlan(dir);
+		runtime.activatePlan(loaded);
+		runtime.activeController = {
+			createInstance(task: DelegationTask) {
+				capturedPrompts.push(task.prompt);
+				return {
+					instanceId: `inst-${task.id}`,
+					getState: () => ({
+						instanceId: `inst-${task.id}`,
+						taskId: task.id,
+						definitionName: task.definition,
+						state: "completed",
+						startTime: 1,
+						endTime: 2,
+						turnCount: 1,
+						lastActivityAt: 2,
+						currentTool: null,
+						error: null,
+						toolCount: 0,
+						currentToolStartedAt: null,
+						durationMs: 1,
+					}),
+					start: async () => delegationResult(task, "completed", "done"),
+				};
+			},
+			getEventBus: () => ({ subscribe: () => () => {} }),
+		} as any;
+
+		const runner = new TaskRunner(runtime);
+		await runner.run(
+			fakeCtx({}) as any,
+			{
+				strategy: "sequential",
+				tasks: [
+					{
+						definition: "executor",
+						title: "T-001: Task 1",
+						prompt: "<lion_context>Generic context only.</lion_context>\n\nImplement the task.",
+					},
+				],
+			},
+			{ threadId: "main:test-session", toolCallId: "tool-1" },
+		);
+
+		assert.equal(capturedPrompts.length, 1);
+		assert.ok(capturedPrompts[0].includes(`path="${dir}`));
+		assert.ok(capturedPrompts[0].includes('id="T-001"'));
+		assert.ok(capturedPrompts[0].includes("Generic context only."));
+	} finally {
+		rmSync(dir, { recursive: true, force: true });
+	}
+}
+
+async function testTaskRunnerAddsSimpleContextToDelegations(): Promise<void> {
+	const capturedPrompts: string[] = [];
+	const capturedOrchestration: Array<DelegationTask["orchestration"]> = [];
+	const runtime = new LionRuntime(fakePi() as any);
+	runtime.activateSimple();
+	runtime.activeController = {
+		createInstance(task: DelegationTask) {
+			capturedPrompts.push(task.prompt);
+			capturedOrchestration.push(task.orchestration);
+			return {
+				instanceId: `inst-${task.id}`,
+				getState: () => ({
+					instanceId: `inst-${task.id}`,
+					taskId: task.id,
+					definitionName: task.definition,
+					state: "completed",
+					startTime: 1,
+					endTime: 2,
+					turnCount: 1,
+					lastActivityAt: 2,
+					currentTool: null,
+					error: null,
+					toolCount: 0,
+					currentToolStartedAt: null,
+					durationMs: 1,
+				}),
+				start: async () => delegationResult(task, "completed", "done"),
+			};
+		},
+		getEventBus: () => ({ subscribe: () => () => {} }),
+	} as any;
+
+	const runner = new TaskRunner(runtime);
+	await runner.run(
+		fakeCtx({}) as any,
+		{
+			strategy: "sequential",
+			tasks: [{ definition: "executor", title: "Simple task", prompt: "Implement the bounded change." }],
+		},
+		{ threadId: "main:test-session", toolCallId: "tool-1" },
+	);
+
+	assert.equal(capturedPrompts.length, 1);
+	assert.ok(capturedPrompts[0].includes('mode="simple"'));
+	assert.ok(capturedPrompts[0].includes("durable plan"));
+	assert.ok(!capturedPrompts[0].includes("<plan "));
+	assert.deepEqual(capturedOrchestration[0], {
+		strategy: "simple",
+	});
 }
 
 function testStructuredPlanNextTaskRespectsDependencies(): void {
@@ -404,7 +537,7 @@ function testDelegationGuardAllowsAfterLionTasks(): void {
 	assert.equal(result, undefined);
 }
 
-function testDelegationGuardBlocksDirectEdits(): void {
+function testDelegationGuardAllowsDirectEdits(): void {
 	const runtime = new LionRuntime(fakePi() as any);
 	runtime.activatePlanning();
 
@@ -415,9 +548,7 @@ function testDelegationGuardBlocksDirectEdits(): void {
 		input: { path: "packages/subagents/src/index.ts" },
 	});
 
-	assert.equal(result?.block, true);
-	assert.ok(result?.reason?.includes("blocks direct app-code tools"));
-	assert.ok(result?.reason?.includes(".plans/*"));
+	assert.equal(result, undefined);
 }
 
 function testDelegationGuardAllowsPlanReads(): void {
@@ -510,7 +641,7 @@ function testWidgetLinesWithFailedJob(): void {
 	assert.ok(lines.some((line) => line.includes("Build auth")));
 }
 
-function testWidgetLinesWithToolInfo(): void {
+function testWidgetLinesHidesProgressDetails(): void {
 	const runtime = new LionRuntime(fakePi() as any);
 	runtime.startJob({ runId: "run-1", taskId: "task-1", role: "executor", title: "Build auth" });
 	runtime.subagentUi.set("task-1", {
@@ -529,7 +660,11 @@ function testWidgetLinesWithToolInfo(): void {
 		completedAt: null,
 	});
 	const lines = buildLionSubagentWidgetLines(runtime.subagentUi.values(), plainTheme as any);
-	assert.ok(lines.some((line) => line.includes("edit_file")));
+	assert.ok(lines.some((line) => line.includes("Build auth")));
+	assert.ok(!lines.some((line) => line.includes("edit_file")));
+	assert.ok(!lines.some((line) => line.includes("Working on auth")));
+	assert.ok(!lines.some((line) => line.includes("turn")));
+	assert.ok(!lines.some((line) => line.includes("tool use")));
 }
 
 function testWidgetLinesFitInPanel(): void {
@@ -854,13 +989,16 @@ function testRuntimeRestoreState(): void {
 				type: "custom",
 				customType: "lion-state",
 				data: {
-					version: 1,
+					version: 2,
 					action: "activate",
 					active: true,
-					mode: "planning",
+					strategy: "plan",
+					phase: "planning",
 					activePlanPath: "/tmp/plan",
 					activePlanSlug: "plan",
+					planKind: "structured",
 					activeTaskId: null,
+					maxAttempts: 3,
 					lastRunId: null,
 					lastBuild: null,
 				},
@@ -869,8 +1007,34 @@ function testRuntimeRestoreState(): void {
 	});
 	runtime.restore(ctx as any);
 	assert.equal(runtime.state.active, true);
-	assert.equal(runtime.state.mode, "planning");
+	assert.equal(runtime.state.strategy, "plan");
+	assert.equal(runtime.state.phase, "planning");
 	assert.equal(runtime.state.activePlanSlug, "plan");
+}
+
+function testRuntimeRestoreStateIgnoresLegacyVersion(): void {
+	const pi = fakePi();
+	const runtime = new LionRuntime(pi as any);
+	const ctx = fakeCtx({
+		entries: [
+			{
+				type: "custom",
+				customType: "lion-state",
+				data: {
+					version: 1,
+					action: "activate",
+					active: true,
+					mode: "planning",
+					activePlanPath: "/tmp/plan",
+					activePlanSlug: "plan",
+				},
+			},
+		],
+	});
+	runtime.restore(ctx as any);
+	assert.equal(runtime.state.active, false);
+	assert.equal(runtime.state.strategy, "plan");
+	assert.equal(runtime.state.phase, "planning");
 }
 
 function testRuntimeRestoreStateInvalidVersion(): void {
@@ -945,9 +1109,49 @@ function testRuntimeEnsureControllerReturnsSame(): void {
 
 function testRuntimeSetMode(): void {
 	const runtime = new LionRuntime(fakePi() as any);
-	runtime.setMode("building");
-	assert.equal(runtime.state.mode, "building");
+	runtime.setPhase("building");
+	assert.equal(runtime.state.phase, "building");
 	assert.equal(runtime.state.active, true);
+}
+
+function testRuntimeActivateSimple(): void {
+	const runtime = new LionRuntime(fakePi() as any);
+	runtime.activatePlan(plan);
+	runtime.activateSimple();
+	assert.equal(runtime.state.active, true);
+	assert.equal(runtime.state.strategy, "simple");
+	assert.equal(runtime.state.phase, "building");
+	assert.equal(runtime.state.activePlanPath, null);
+	assert.equal(runtime.state.activePlanSlug, null);
+	assert.equal(runtime.state.planKind, null);
+}
+
+async function testLionSimpleCommandActivatesSimpleStrategy(): Promise<void> {
+	const pi = fakePiWithCommands();
+	const runtime = new LionRuntime(pi as any);
+	registerLionCommands(pi as any, runtime);
+
+	await pi.commands.get("lion-simple")!.handler("packages/subagents", fakeCtx({}) as any);
+
+	assert.equal(runtime.state.active, true);
+	assert.equal(runtime.state.strategy, "simple");
+	assert.equal(runtime.state.phase, "building");
+	assert.equal(runtime.state.activePlanPath, null);
+	assert.ok(pi.messages.some((message) => message.content.content.includes("Lion simple mode active")));
+}
+
+async function testRuntimeCompactionInstructionsUseStrategy(): Promise<void> {
+	const runtime = new LionRuntime(fakePi() as any);
+	runtime.activateSimple();
+	const simple = await runtime.buildCompactionInstructions(fakeCtx({}) as any);
+	assert.ok(simple?.includes("Lion simple orchestration is active"));
+	assert.ok(simple?.includes("Strategy: simple"));
+	assert.ok(!simple?.includes("Active plan path"));
+
+	runtime.activatePlan(plan);
+	const durable = await runtime.buildCompactionInstructions(fakeCtx({}) as any);
+	assert.ok(durable?.includes("Lion durable plan orchestration is active"));
+	assert.ok(durable?.includes("Active plan path: /tmp/test-plan"));
 }
 
 function testRuntimeSetActiveTask(): void {
@@ -966,7 +1170,7 @@ function testRuntimeApplyBuildResult(): void {
 	const runtime = new LionRuntime(fakePi() as any);
 	const result = { status: "approved" as const, summary: "Done", taskId: "T-001", attempts: 1 };
 	runtime.applyBuildResult(result);
-	assert.equal(runtime.state.mode, "planning");
+	assert.equal(runtime.state.phase, "planning");
 	assert.equal(runtime.state.activeTaskId, null);
 	assert.deepEqual(runtime.state.lastBuild, result);
 }
@@ -1347,6 +1551,16 @@ function fakePi() {
 	};
 }
 
+function fakePiWithCommands() {
+	return {
+		...fakePi(),
+		commands: new Map<string, any>(),
+		registerCommand(name: string, command: any) {
+			this.commands.set(name, command);
+		},
+	};
+}
+
 function fakeCtx(opts: { entries?: any[]; isIdle?: boolean; hasPending?: boolean; hasUI?: boolean }) {
 	return {
 		sessionManager: {
@@ -1494,7 +1708,13 @@ const tests = [
 	{ name: "testParseReviewVerdict", fn: testParseReviewVerdict },
 	{ name: "testBuildPlanReviewPrompt", fn: testBuildPlanReviewPrompt },
 	{ name: "testBuildPlanningSystemPrompt", fn: testBuildPlanningSystemPrompt },
+	{ name: "testBuildSimpleSystemPrompt", fn: testBuildSimpleSystemPrompt },
 	{ name: "testTaskRunnerAddsPlanContextToDelegations", fn: testTaskRunnerAddsPlanContextToDelegations },
+	{
+		name: "testTaskRunnerAddsPlanContextWhenBriefHasGenericLionContext",
+		fn: testTaskRunnerAddsPlanContextWhenBriefHasGenericLionContext,
+	},
+	{ name: "testTaskRunnerAddsSimpleContextToDelegations", fn: testTaskRunnerAddsSimpleContextToDelegations },
 	{ name: "testStructuredPlanNextTaskRespectsDependencies", fn: testStructuredPlanNextTaskRespectsDependencies },
 	{ name: "testStructuredPlanRecordTaskResultPersistsSummary", fn: testStructuredPlanRecordTaskResultPersistsSummary },
 	{ name: "testLionTaskEvidenceRequiresValidation", fn: testLionTaskEvidenceRequiresValidation },
@@ -1508,7 +1728,7 @@ const tests = [
 	},
 	{ name: "testDelegationGuardAllowsUnlimitedStructureProbes", fn: testDelegationGuardAllowsUnlimitedStructureProbes },
 	{ name: "testDelegationGuardAllowsAfterLionTasks", fn: testDelegationGuardAllowsAfterLionTasks },
-	{ name: "testDelegationGuardBlocksDirectEdits", fn: testDelegationGuardBlocksDirectEdits },
+	{ name: "testDelegationGuardAllowsDirectEdits", fn: testDelegationGuardAllowsDirectEdits },
 	{ name: "testDelegationGuardAllowsPlanReads", fn: testDelegationGuardAllowsPlanReads },
 	{ name: "testDelegationGuardAllowsPlanEdits", fn: testDelegationGuardAllowsPlanEdits },
 	{ name: "testDelegationGuardAllowsPlanMultiEdits", fn: testDelegationGuardAllowsPlanMultiEdits },
@@ -1516,7 +1736,7 @@ const tests = [
 	{ name: "testWidgetLinesWithJobs", fn: testWidgetLinesWithJobs },
 	{ name: "testWidgetLinesWithCompletedJob", fn: testWidgetLinesWithCompletedJob },
 	{ name: "testWidgetLinesWithFailedJob", fn: testWidgetLinesWithFailedJob },
-	{ name: "testWidgetLinesWithToolInfo", fn: testWidgetLinesWithToolInfo },
+	{ name: "testWidgetLinesHidesProgressDetails", fn: testWidgetLinesHidesProgressDetails },
 	{ name: "testWidgetLinesFitInPanel", fn: testWidgetLinesFitInPanel },
 	{ name: "testWidgetCleanupRemovesOldCompleted", fn: testWidgetCleanupRemovesOldCompleted },
 	{ name: "testWidgetCleanupKeepsRecentCompleted", fn: testWidgetCleanupKeepsRecentCompleted },
@@ -1535,6 +1755,7 @@ const tests = [
 	{ name: "testResolvePlanPath", fn: testResolvePlanPath },
 	{ name: "testResolvePlanPathWithDir", fn: testResolvePlanPathWithDir },
 	{ name: "testRuntimeRestoreState", fn: testRuntimeRestoreState },
+	{ name: "testRuntimeRestoreStateIgnoresLegacyVersion", fn: testRuntimeRestoreStateIgnoresLegacyVersion },
 	{ name: "testRuntimeRestoreStateInvalidVersion", fn: testRuntimeRestoreStateInvalidVersion },
 	{ name: "testRuntimeRestoreStateNoEntries", fn: testRuntimeRestoreStateNoEntries },
 	{ name: "testRuntimePersist", fn: testRuntimePersist },
@@ -1544,6 +1765,9 @@ const tests = [
 	{ name: "testRuntimeCreateSubAgentController", fn: testRuntimeCreateSubAgentController },
 	{ name: "testRuntimeEnsureControllerReturnsSame", fn: testRuntimeEnsureControllerReturnsSame },
 	{ name: "testRuntimeSetMode", fn: testRuntimeSetMode },
+	{ name: "testRuntimeActivateSimple", fn: testRuntimeActivateSimple },
+	{ name: "testLionSimpleCommandActivatesSimpleStrategy", fn: testLionSimpleCommandActivatesSimpleStrategy },
+	{ name: "testRuntimeCompactionInstructionsUseStrategy", fn: testRuntimeCompactionInstructionsUseStrategy },
 	{ name: "testRuntimeSetActiveTask", fn: testRuntimeSetActiveTask },
 	{ name: "testRuntimeSetLastRun", fn: testRuntimeSetLastRun },
 	{ name: "testRuntimeApplyBuildResult", fn: testRuntimeApplyBuildResult },

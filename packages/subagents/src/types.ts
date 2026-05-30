@@ -71,6 +71,8 @@ export interface InstructionContext {
 	task: DelegationTask;
 	/** The effective config after merging definition + task overrides */
 	config: EffectiveSubAgentConfig;
+	/** Orchestration metadata supplied by Lion or another delegating runtime. */
+	orchestration?: SubAgentOrchestrationContext;
 }
 
 export type InstructionBuilder = (ctx: InstructionContext) => string;
@@ -108,6 +110,12 @@ export interface SubAgentDefinition {
 
 export type EffectiveSubAgentConfig = SubAgentDefinition;
 
+export interface SubAgentOrchestrationContext {
+	strategy: "plan" | "simple";
+	planSlug?: string;
+	planPath?: string;
+}
+
 // =============================================================================
 // DelegationTask (with dynamic overrides)
 // =============================================================================
@@ -127,6 +135,8 @@ export interface DelegationTask {
 	runId?: string;
 	/** Position of this task inside the delegated run. */
 	runIndex?: number;
+	/** Orchestration metadata used to adapt subagent instructions. */
+	orchestration?: SubAgentOrchestrationContext;
 
 	/** --- Dynamic overrides (all optional) --- */
 
@@ -397,6 +407,7 @@ export interface SubAgentControllerOptions {
 	transports?: SubAgentTransport[];
 	configManager?: SubAgentRuntimeConfigManager;
 	contextStore?: SubAgentContextStore;
+	runStore?: SubAgentRunStore;
 }
 
 export interface SubAgentRoleConfig {
@@ -460,6 +471,66 @@ export interface SubAgentContextStore {
 		entry: RecordSubAgentContextInput;
 	}): Promise<SubAgentContextDocument>;
 	formatForPrompt(sessionId: string, taskId: string, limit?: number): Promise<string>;
+}
+
+export interface SubAgentRunRecord {
+	version: 1;
+	sessionId: string;
+	taskId: string;
+	instanceId: string;
+	definitionName: string;
+	cwd: string;
+	parentThreadId?: string;
+	parentToolCallId?: string;
+	runId?: string;
+	runIndex?: number;
+	description?: string;
+	prompt: string;
+	systemPrompt?: string;
+	modelProvider?: string;
+	modelId?: string;
+	status: DelegationStatus | "running";
+	summary?: string;
+	error?: string;
+	startedAt: number;
+	updatedAt: number;
+	completedAt?: number;
+	turnCount: number;
+	toolCount: number;
+}
+
+export interface SubAgentRunStore {
+	getPath(sessionId: string, taskId: string): string;
+	read(sessionId: string, taskId: string): Promise<SubAgentRunRecord | null>;
+	start(input: {
+		sessionId: string;
+		taskId: string;
+		instanceId: string;
+		definitionName: string;
+		cwd: string;
+		parentThreadId?: string;
+		parentToolCallId?: string;
+		runId?: string;
+		runIndex?: number;
+		description?: string;
+		prompt: string;
+		systemPrompt?: string;
+		modelProvider?: string;
+		modelId?: string;
+		startedAt?: number;
+	}): Promise<SubAgentRunRecord>;
+	complete(input: {
+		sessionId: string;
+		taskId: string;
+		status: DelegationStatus;
+		summary: string;
+		error?: string;
+		completedAt?: number;
+		turnCount: number;
+		toolCount: number;
+		modelProvider?: string;
+		modelId?: string;
+	}): Promise<SubAgentRunRecord | null>;
 }
 
 // =============================================================================
@@ -550,6 +621,7 @@ export interface CreateSubAgentSessionOptions {
 	settingsManager?: SettingsManager;
 	configManager?: SubAgentRuntimeConfigManager;
 	contextStore?: SubAgentContextStore;
+	runStore?: SubAgentRunStore;
 }
 
 export interface CreateSubAgentSessionResult {
@@ -571,4 +643,5 @@ export interface CreateSubAgentInstanceOptions {
 	logger?: SessionLogger;
 	configManager?: SubAgentRuntimeConfigManager;
 	contextStore?: SubAgentContextStore;
+	runStore?: SubAgentRunStore;
 }

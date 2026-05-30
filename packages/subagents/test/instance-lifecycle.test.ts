@@ -1,6 +1,6 @@
 import type { AgentSessionEventListener } from "@earendil-works/pi-coding-agent";
 import { describe, expect, it, vi } from "vitest";
-import type { DelegationTask, SubAgentDefinition } from "../src/types.js";
+import type { DelegationTask, SubAgentDefinition, SubAgentRunStore } from "../src/types.js";
 
 // =====================================================================
 // Mocks — all functions must be defined inline since vi.mock is hoisted
@@ -47,7 +47,7 @@ vi.mock("../src/session-factory.js", () => {
 		steer: vi.fn().mockResolvedValue(undefined),
 		abort: vi.fn().mockResolvedValue(undefined),
 		dispose: vi.fn(),
-		model: null,
+		model: { provider: "test-provider", id: "test-model" },
 		thinkingLevel: "medium",
 		isStreaming: false,
 		isCompacting: false,
@@ -115,7 +115,7 @@ const sampleTask: DelegationTask = {
 	prompt: "Do the thing",
 };
 
-function createInstance(eventBus?: any): SubAgentInstance {
+function createInstance(eventBus?: any, runStore?: SubAgentRunStore): SubAgentInstance {
 	return new SubAgentInstance({
 		instanceId: "inst-1",
 		config: {
@@ -130,6 +130,7 @@ function createInstance(eventBus?: any): SubAgentInstance {
 		cwd: "/fake/root",
 		resourceCwd: "/fake/root",
 		eventBus: eventBus ?? { on: vi.fn(), emit: vi.fn(), subscribe: vi.fn(), clear: vi.fn() },
+		runStore,
 	});
 }
 
@@ -213,6 +214,61 @@ describe("SubAgentInstance", () => {
 					resourceCwd: "/repo/root",
 				}),
 			);
+		});
+
+		it("emits model metadata after creating the session", async () => {
+			const eventBus = { on: vi.fn(), emit: vi.fn(), subscribe: vi.fn(), clear: vi.fn() };
+			const instance = createInstance(eventBus);
+
+			await instance.start();
+
+			expect(eventBus.emit).toHaveBeenCalledWith(
+				expect.objectContaining({
+					type: "instance.state",
+					state: expect.objectContaining({
+						modelProvider: "test-provider",
+						modelId: "test-model",
+					}),
+				}),
+			);
+		});
+
+		it("records run input and final output", async () => {
+			const runStore: SubAgentRunStore = {
+				getPath: vi.fn().mockReturnValue("/tmp/run.json"),
+				read: vi.fn().mockResolvedValue(null),
+				start: vi.fn().mockResolvedValue({} as any),
+				complete: vi.fn().mockResolvedValue({} as any),
+			};
+			const instance = createInstance(undefined, runStore);
+
+			await instance.start();
+
+			expect(runStore.start).toHaveBeenCalledWith(
+				expect.objectContaining({
+					sessionId: "fake-session",
+					taskId: "task-1",
+					instanceId: "inst-1",
+					definitionName: "test-agent",
+					prompt: "Do the thing",
+					modelProvider: "test-provider",
+					modelId: "test-model",
+				}),
+			);
+			await vi.waitFor(() => {
+				expect(runStore.complete).toHaveBeenCalledWith(
+					expect.objectContaining({
+						sessionId: "fake-session",
+						taskId: "task-1",
+						status: "completed",
+						summary: "Completed summary",
+						turnCount: 1,
+						toolCount: 0,
+						modelProvider: "test-provider",
+						modelId: "test-model",
+					}),
+				);
+			});
 		});
 	});
 

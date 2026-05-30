@@ -1,6 +1,7 @@
 import { describe, expect, it, beforeEach } from "vitest";
 import { createSessionRuntime } from "../src/store/runtime.js";
 import { applyEvent } from "../src/store/event-handlers/index.js";
+import { subagentTreeAtom } from "../src/store/atoms.js";
 import type { SessionRuntime } from "../src/store/runtime.js";
 import type { ServerEvent } from "@local/pi-dashboard";
 
@@ -411,6 +412,190 @@ describe("event handlers", () => {
 			const entry = runtime.store.get(runtime.maps.sessions.atomFor("s1"));
 			expect(entry?.streaming).toBe(true);
 			expect(entry?.info.status).toBe("streaming");
+		});
+	});
+
+	describe("subagent lifecycle", () => {
+		it("creates subagent on subagent_start", () => {
+			const event: ServerEvent = {
+				sessionId: "s1",
+				timestamp: Date.now(),
+				type: "subagent_start",
+				id: "sa1",
+				parentId: undefined,
+				name: "ResearchAgent",
+				status: "running",
+			};
+			applyEvent(runtime, event);
+
+			const sub = runtime.store.get(runtime.maps.subagents.atomFor("sa1"));
+			expect(sub).toBeDefined();
+			expect(sub?.id).toBe("sa1");
+			expect(sub?.parentId).toBeNull();
+			expect(sub?.sessionId).toBe("s1");
+			expect(sub?.name).toBe("ResearchAgent");
+			expect(sub?.status).toBe("running");
+		});
+
+		it("creates child subagent with parentId on subagent_start", () => {
+			const event: ServerEvent = {
+				sessionId: "s1",
+				timestamp: Date.now(),
+				type: "subagent_start",
+				id: "sa2",
+				parentId: "sa1",
+				name: "ChildAgent",
+				status: "running",
+			};
+			applyEvent(runtime, event);
+
+			const sub = runtime.store.get(runtime.maps.subagents.atomFor("sa2"));
+			expect(sub?.parentId).toBe("sa1");
+		});
+
+		it("updates subagent on subagent_end", () => {
+			runtime.store.set(runtime.maps.subagents.mapAtom, {
+				type: "set",
+				key: "sa1",
+				value: {
+					id: "sa1",
+					parentId: null,
+					sessionId: "s1",
+					name: "ResearchAgent",
+					status: "running" as const,
+					startedAt: Date.now(),
+				},
+			});
+
+			const event: ServerEvent = {
+				sessionId: "s1",
+				timestamp: Date.now(),
+				type: "subagent_end",
+				id: "sa1",
+				result: { data: "done" },
+				status: "completed",
+			};
+			applyEvent(runtime, event);
+
+			const sub = runtime.store.get(runtime.maps.subagents.atomFor("sa1"));
+			expect(sub?.status).toBe("completed");
+			expect(sub?.result).toEqual({ data: "done" });
+			expect(sub?.endedAt).toBeDefined();
+		});
+
+		it("updates progress on subagent_progress", () => {
+			runtime.store.set(runtime.maps.subagents.mapAtom, {
+				type: "set",
+				key: "sa1",
+				value: {
+					id: "sa1",
+					parentId: null,
+					sessionId: "s1",
+					name: "ResearchAgent",
+					status: "running" as const,
+					startedAt: Date.now(),
+				},
+			});
+
+			const event: ServerEvent = {
+				sessionId: "s1",
+				timestamp: Date.now(),
+				type: "subagent_progress",
+				id: "sa1",
+				message: "Processing...",
+				progress: 0.5,
+			};
+			applyEvent(runtime, event);
+
+			const sub = runtime.store.get(runtime.maps.subagents.atomFor("sa1"));
+			expect(sub?.message).toBe("Processing...");
+			expect(sub?.progress).toBe(0.5);
+		});
+
+		it("sets failed status on subagent_error", () => {
+			runtime.store.set(runtime.maps.subagents.mapAtom, {
+				type: "set",
+				key: "sa1",
+				value: {
+					id: "sa1",
+					parentId: null,
+					sessionId: "s1",
+					name: "ResearchAgent",
+					status: "running" as const,
+					startedAt: Date.now(),
+				},
+			});
+
+			const event: ServerEvent = {
+				sessionId: "s1",
+				timestamp: Date.now(),
+				type: "subagent_error",
+				id: "sa1",
+				error: "Something went wrong",
+			};
+			applyEvent(runtime, event);
+
+			const sub = runtime.store.get(runtime.maps.subagents.atomFor("sa1"));
+			expect(sub?.status).toBe("failed");
+			expect(sub?.error).toBe("Something went wrong");
+			expect(sub?.endedAt).toBeDefined();
+		});
+
+		it("indexes subagents by session", () => {
+			const event1: ServerEvent = {
+				sessionId: "s1",
+				timestamp: Date.now(),
+				type: "subagent_start",
+				id: "sa1",
+				parentId: undefined,
+				name: "Agent1",
+				status: "running",
+			};
+			const event2: ServerEvent = {
+				sessionId: "s1",
+				timestamp: Date.now(),
+				type: "subagent_start",
+				id: "sa2",
+				parentId: "sa1",
+				name: "Agent2",
+				status: "running",
+			};
+			applyEvent(runtime, event1);
+			applyEvent(runtime, event2);
+
+			const s1Ids = runtime.store.get(runtime.indexes.subagentsBySession.atomFor("s1"));
+			expect(s1Ids).toContain("sa1");
+			expect(s1Ids).toContain("sa2");
+		});
+
+		it("indexes subagents by parentId in tree", () => {
+			const event1: ServerEvent = {
+				sessionId: "s1",
+				timestamp: Date.now(),
+				type: "subagent_start",
+				id: "sa1",
+				parentId: undefined,
+				name: "Root",
+				status: "running",
+			};
+			const event2: ServerEvent = {
+				sessionId: "s1",
+				timestamp: Date.now(),
+				type: "subagent_start",
+				id: "sa2",
+				parentId: "sa1",
+				name: "Child",
+				status: "running",
+			};
+			applyEvent(runtime, event1);
+			applyEvent(runtime, event2);
+
+			const rootChildren = runtime.store.get(subagentTreeAtom(runtime, null));
+			expect(rootChildren.map((s) => s.id)).toContain("sa1");
+			expect(rootChildren.map((s) => s.id)).not.toContain("sa2");
+
+			const sa1Children = runtime.store.get(subagentTreeAtom(runtime, "sa1"));
+			expect(sa1Children.map((s) => s.id)).toContain("sa2");
 		});
 	});
 });

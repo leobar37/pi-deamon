@@ -27,6 +27,18 @@ function makeCtx(overrides: Partial<InstructionContext["task"]> = {}): Instructi
 	};
 }
 
+function makeSimpleCtx(): InstructionContext {
+	const ctx = makeCtx();
+	return {
+		...ctx,
+		task: {
+			...ctx.task,
+			orchestration: { strategy: "simple" },
+		},
+		orchestration: { strategy: "simple" },
+	};
+}
+
 describe("Default instruction builders", () => {
 	it("DEFAULT_BUILDER includes name, description, prompt, and summary instruction", () => {
 		const output = DEFAULT_BUILDER(makeCtx());
@@ -87,6 +99,16 @@ describe("Default instruction builders", () => {
 			expect(output).toContain("subagent_record_context");
 			expect(output).toContain("Do not ask the user for clarification");
 			expect(output).toContain("unknowns");
+		}
+	});
+
+	it("simple orchestration builders do not assume plan files", () => {
+		const builders = [DEFAULT_BUILDER, EXECUTOR_BUILDER, ANALYZER_BUILDER, PLANNER_BUILDER, REVIEWER_BUILDER];
+		for (const builder of builders) {
+			const output = builder(makeSimpleCtx());
+			expect(output).toContain("delegated scope and referenced files");
+			expect(output).toContain("Do not assume a durable plan");
+			expect(output).not.toContain("Use referenced plan, task, and source files as the source of truth");
 		}
 	});
 

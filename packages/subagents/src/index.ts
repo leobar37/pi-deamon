@@ -1,3 +1,9 @@
+/**
+ * Environment variables:
+ * - `LION_DASHBOARD_MODE=true` — Disables the standalone Lion frontend UI.
+ *   Set automatically by the web dashboard so Lion does not conflict on ports.
+ */
+
 // Config resolver
 
 export {
@@ -69,12 +75,13 @@ export type {
 	LionEventBase,
 	LionEventMap,
 	LionEventType,
-	LionMode,
+	LionPhase,
 	LionPlan,
 	LionPlanKind,
 	LionPlanValidationResult,
 	LionReviewVerdict,
 	LionState,
+	LionStrategyName,
 	LionTask,
 	LionTaskResult,
 	LionTaskStatus,
@@ -88,6 +95,7 @@ export {
 	stopLionSubagentWidget,
 } from "./lion/ui/subagents-widget.js";
 export { parseReviewVerdict } from "./lion/utils.js";
+export { SubAgentRunStore } from "./run-store.js";
 // Session factory
 export { createSubAgentSession } from "./session-factory.js";
 // Summarizer
@@ -132,6 +140,8 @@ export type {
 	SubAgentProjectConfig,
 	SubAgentRoleConfig,
 	SubAgentRpcState,
+	SubAgentRunRecord,
+	SubAgentRunStore as SubAgentRunStoreContract,
 	SubAgentRuntimeConfigManager,
 	SubAgentState,
 	SummarizerOptions,

@@ -15,6 +15,7 @@ import { resolveEffectiveConfig } from "./config-resolver.js";
 import { SubAgentContextStore as FileSubAgentContextStore } from "./context-store.js";
 import { SubAgentEventBus } from "./event-bus.js";
 import { SubAgentInstance } from "./instance.js";
+import { SubAgentRunStore as FileSubAgentRunStore } from "./run-store.js";
 import { TaskExecutor } from "./task-executor.js";
 import { TransportManager } from "./transport/manager.js";
 
@@ -32,6 +33,7 @@ import type {
 	SubAgentDefinition,
 	SubAgentInstanceState,
 	SubAgentRpcState,
+	SubAgentRunStore,
 	SubAgentRuntimeConfigManager,
 	SummarizerOptions,
 } from "./types.js";
@@ -49,6 +51,7 @@ export class SubAgentController {
 	private logger?: SessionLogger;
 	private configManager: SubAgentRuntimeConfigManager;
 	private contextStore: SubAgentContextStore;
+	private runStore: SubAgentRunStore;
 
 	constructor(options: SubAgentControllerOptions) {
 		this.cwd = options.cwd;
@@ -59,6 +62,7 @@ export class SubAgentController {
 		this.logger = options.logger;
 		this.configManager = options.configManager ?? SubAgentConfigManager.load(options.cwd);
 		this.contextStore = options.contextStore ?? new FileSubAgentContextStore(options.cwd);
+		this.runStore = options.runStore ?? new FileSubAgentRunStore(options.cwd);
 		this.eventBus = new SubAgentEventBus();
 		this.definitions = new Map();
 
@@ -152,6 +156,7 @@ export class SubAgentController {
 			logger: this.logger,
 			configManager: this.configManager,
 			contextStore: this.contextStore,
+			runStore: this.runStore,
 		});
 
 		this.instances.set(task.id, instance);
@@ -182,6 +187,10 @@ export class SubAgentController {
 
 	getInstance(taskId: string): SubAgentInstance | undefined {
 		return this.instances.get(taskId);
+	}
+
+	removeInstance(taskId: string): boolean {
+		return this.instances.delete(taskId);
 	}
 
 	getInstanceById(instanceId: string): SubAgentInstance | undefined {

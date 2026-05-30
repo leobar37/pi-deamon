@@ -197,6 +197,31 @@ export const ServerEventSchema: z.ZodType<unknown> = z.union([
 	}),
 	ServerEventBaseSchema.extend({ type: z.literal("turn_start") }),
 	ServerEventBaseSchema.extend({ type: z.literal("turn_end") }),
+	// Subagent events
+	ServerEventBaseSchema.extend({
+		type: z.literal("subagent_start"),
+		id: z.string(),
+		parentId: z.string().optional(),
+		name: z.string(),
+		status: z.string(),
+	}),
+	ServerEventBaseSchema.extend({
+		type: z.literal("subagent_end"),
+		id: z.string(),
+		result: z.unknown(),
+		status: z.string(),
+	}),
+	ServerEventBaseSchema.extend({
+		type: z.literal("subagent_progress"),
+		id: z.string(),
+		message: z.string(),
+		progress: z.number().optional(),
+	}),
+	ServerEventBaseSchema.extend({
+		type: z.literal("subagent_error"),
+		id: z.string(),
+		error: z.string(),
+	}),
 	// Ping
 	ServerEventBaseSchema.extend({ type: z.literal("ping") }),
 ]);

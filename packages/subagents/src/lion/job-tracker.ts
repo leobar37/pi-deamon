@@ -95,9 +95,10 @@ export class SubagentJobManager {
 		const job = this.#subagentJobs.get(taskId);
 		if (!job) return null;
 		const now = Date.now();
+		const status = this.normalizeJobStatus(result?.status ?? "failed");
 		const next: LionSubagentJob = {
 			...job,
-			status: result?.status === "completed" ? "completed" : "failed",
+			status,
 			updatedAt: now,
 			completedAt: now,
 			result,
@@ -105,6 +106,19 @@ export class SubagentJobManager {
 		};
 		this.#subagentJobs.set(taskId, next);
 		return next;
+	}
+
+	private normalizeJobStatus(status: string): LionVisibleSubagentStatus {
+		switch (status) {
+			case "completed":
+				return "completed";
+			case "blocked":
+			case "timed_out":
+			case "cancelled":
+				return "failed";
+			default:
+				return "failed";
+		}
 	}
 
 	getSubagentHealth(taskId?: string): LionSubagentJob[] {
@@ -197,6 +211,7 @@ export class SubagentJobManager {
 			// Completed/failed: clean after retentionMs from completion
 			if (state.completedAt && now - state.completedAt > retentionMs) {
 				this.#subagentUi.delete(taskId);
+				this.#subagentJobs.delete(taskId);
 				continue;
 			}
 			// Queued that never started: clean after orphanedQueuedMs
@@ -206,6 +221,17 @@ export class SubagentJobManager {
 				now - state.startedAt > orphanedQueuedMs
 			) {
 				this.#subagentUi.delete(taskId);
+				this.#subagentJobs.delete(taskId);
+			}
+		}
+	}
+
+	cleanupJobs(now = Date.now(), retentionMs = 60 * 60 * 1000): void {
+		// Clean up completed/failed jobs older than retentionMs (default 1 hour)
+		for (const [taskId, job] of this.#subagentJobs.entries()) {
+			if (job.status === "running" || job.status === "queued" || job.status === "starting") continue;
+			if (job.completedAt && now - job.completedAt > retentionMs) {
+				this.#subagentJobs.delete(taskId);
 			}
 		}
 	}

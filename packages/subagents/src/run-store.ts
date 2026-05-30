@@ -1,0 +1,103 @@
+import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { dirname, join } from "node:path";
+import type { SubAgentRunRecord, SubAgentRunStore as SubAgentRunStoreContract } from "./types.js";
+
+const SUBAGENT_RUN_VERSION = 1;
+
+export class SubAgentRunStore implements SubAgentRunStoreContract {
+	constructor(private readonly cwd: string) {}
+
+	getPath(sessionId: string, taskId: string): string {
+		return join(this.cwd, ".pi", "subagents", "runs", sessionId, `${taskId}.json`);
+	}
+
+	async read(sessionId: string, taskId: string): Promise<SubAgentRunRecord | null> {
+		const path = this.getPath(sessionId, taskId);
+		try {
+			return parseRecord(await readFile(path, "utf8"), path);
+		} catch (err) {
+			if (err && typeof err === "object" && "code" in err && err.code === "ENOENT") {
+				return null;
+			}
+			throw err;
+		}
+	}
+
+	async start(input: Parameters<SubAgentRunStoreContract["start"]>[0]): Promise<SubAgentRunRecord> {
+		const now = input.startedAt ?? Date.now();
+		const record: SubAgentRunRecord = {
+			version: SUBAGENT_RUN_VERSION,
+			sessionId: input.sessionId,
+			taskId: input.taskId,
+			instanceId: input.instanceId,
+			definitionName: input.definitionName,
+			cwd: input.cwd,
+			parentThreadId: input.parentThreadId,
+			parentToolCallId: input.parentToolCallId,
+			runId: input.runId,
+			runIndex: input.runIndex,
+			description: input.description,
+			prompt: input.prompt,
+			systemPrompt: input.systemPrompt,
+			modelProvider: input.modelProvider,
+			modelId: input.modelId,
+			status: "running",
+			startedAt: now,
+			updatedAt: now,
+			turnCount: 0,
+			toolCount: 0,
+		};
+		await this.write(record);
+		return record;
+	}
+
+	async complete(input: Parameters<SubAgentRunStoreContract["complete"]>[0]): Promise<SubAgentRunRecord | null> {
+		const current = await this.read(input.sessionId, input.taskId);
+		if (!current) return null;
+		const now = input.completedAt ?? Date.now();
+		const updated: SubAgentRunRecord = {
+			...current,
+			status: input.status,
+			summary: input.summary,
+			error: input.error,
+			modelProvider: input.modelProvider ?? current.modelProvider,
+			modelId: input.modelId ?? current.modelId,
+			completedAt: now,
+			updatedAt: now,
+			turnCount: input.turnCount,
+			toolCount: input.toolCount,
+		};
+		await this.write(updated);
+		return updated;
+	}
+
+	private async write(record: SubAgentRunRecord): Promise<void> {
+		const path = this.getPath(record.sessionId, record.taskId);
+		await mkdir(dirname(path), { recursive: true });
+		await writeFile(path, `${JSON.stringify(record, null, 2)}\n`, "utf8");
+	}
+}
+
+function parseRecord(raw: string, path: string): SubAgentRunRecord {
+	const parsed = JSON.parse(raw) as unknown;
+	if (!parsed || typeof parsed !== "object") {
+		throw new Error(`Invalid subagent run record at ${path}`);
+	}
+	const record = parsed as SubAgentRunRecord;
+	if (
+		record.version !== SUBAGENT_RUN_VERSION ||
+		typeof record.sessionId !== "string" ||
+		typeof record.taskId !== "string" ||
+		typeof record.instanceId !== "string" ||
+		typeof record.definitionName !== "string" ||
+		typeof record.cwd !== "string" ||
+		typeof record.prompt !== "string" ||
+		typeof record.startedAt !== "number" ||
+		typeof record.updatedAt !== "number" ||
+		typeof record.turnCount !== "number" ||
+		typeof record.toolCount !== "number"
+	) {
+		throw new Error(`Invalid subagent run record shape at ${path}`);
+	}
+	return record;
+}

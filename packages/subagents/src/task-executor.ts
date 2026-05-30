@@ -16,6 +16,7 @@ export class TaskExecutor {
 	private controller: SubAgentController;
 	private onEvent?: (event: SubAgentEvent) => void;
 	private abortController = new AbortController();
+	private activeInstances: Set<string> = new Set();
 
 	constructor(options: TaskExecutorOptions) {
 		this.controller = options.controller;
@@ -24,6 +25,7 @@ export class TaskExecutor {
 
 	async execute(plan: ExecutionPlan): Promise<TaskExecutionResult> {
 		this.abortController = new AbortController();
+		this.activeInstances.clear();
 
 		switch (plan.strategy) {
 			case "sequential":
@@ -39,6 +41,14 @@ export class TaskExecutor {
 
 	cancel(): void {
 		this.abortController.abort();
+		// Cancel all active instances
+		for (const taskId of this.activeInstances) {
+			const instance = this.controller.getInstance(taskId);
+			if (instance) {
+				instance.cancel().catch(() => {});
+			}
+		}
+		this.activeInstances.clear();
 	}
 
 	private async executeSequential(plan: ExecutionPlan): Promise<TaskExecutionResult> {
@@ -130,6 +140,7 @@ export class TaskExecutor {
 
 	private async executeTask(task: DelegationTask): Promise<DelegationResult> {
 		const instance = this.controller.createInstance(task);
+		this.activeInstances.add(task.id);
 
 		const unsubscribe = this.controller.getEventBus().subscribe((event: SubAgentEvent) => {
 			if ("instanceId" in event && event.instanceId === instance.instanceId) {
@@ -153,6 +164,15 @@ export class TaskExecutor {
 			};
 		} finally {
 			unsubscribe();
+			this.activeInstances.delete(task.id);
+			// Dispose instance to free resources
+			try {
+				await instance.dispose();
+			} catch {
+				/* best effort */
+			}
+			// Remove from controller to prevent memory leak
+			this.controller.removeInstance(task.id);
 		}
 	}
 }

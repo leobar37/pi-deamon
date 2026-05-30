@@ -12,13 +12,14 @@ import type { AgentSession, AgentSessionEvent, CreateAgentSessionOptions } from 
 import { createAgentSession, type ModelRegistry, type SessionManager } from "@earendil-works/pi-coding-agent";
 import { EventPublisher } from "@orpc/server";
 import type { EventStreamProvider } from "../events/provider.js";
-import { serializeAgentSessionEvent } from "../events/serialize.js";
+import { serializeAgentSessionEvent, serializeLionEvent } from "../events/serialize.js";
 import { logger } from "../logging.js";
 import type { LiveSessionInfo, SessionStatus } from "./types.js";
 
 export class LiveSession {
 	readonly id: string;
 	readonly sessionManager: SessionManager;
+	readonly sessionType: "agent" | "lion";
 	readonly eventPublisher = new EventPublisher<Record<string, AgentSessionEvent>>();
 
 	private _status: SessionStatus = "created";
@@ -28,10 +29,20 @@ export class LiveSession {
 	private readonly _createdAt: number;
 	private _eventProvider: EventStreamProvider | null = null;
 	private readonly _modelRegistry: ModelRegistry | undefined;
+	private _externalEventSource?: {
+		subscribe: (handler: (event: Record<string, unknown>) => void) => () => void;
+	};
+	private _subagents = new Map<string, { id: string; parentId?: string; name: string; status: string }>();
 
-	constructor(sessionManager: SessionManager, eventProvider?: EventStreamProvider, modelRegistry?: ModelRegistry) {
+	constructor(
+		sessionManager: SessionManager,
+		eventProvider?: EventStreamProvider,
+		modelRegistry?: ModelRegistry,
+		sessionType: "agent" | "lion" = "agent",
+	) {
 		this.sessionManager = sessionManager;
 		this.id = sessionManager.getSessionId();
+		this.sessionType = sessionType;
 		this._lastActivityAt = Date.now();
 		this._eventProvider = eventProvider ?? null;
 		this._modelRegistry = modelRegistry;
@@ -75,6 +86,7 @@ export class LiveSession {
 			createdAt: this._createdAt,
 			lastActivityAt: this._lastActivityAt,
 			messageCount: entries.filter((e) => e.type === "message").length,
+			sessionType: this.sessionType,
 		};
 	}
 
@@ -94,6 +106,52 @@ export class LiveSession {
 				`Session ${this.id} is in error state from a previous start attempt. ` +
 					"Resolve the error or remove the session before retrying.",
 			);
+		}
+
+		// Lion sessions attach to an external event source instead of creating an AgentSession
+		if (this.sessionType === "lion") {
+			if (!this._externalEventSource) {
+				logger.warn("Lion session start failed — no external event source", { sessionId: this.id });
+				throw new Error(
+					`Session ${this.id} is a Lion session but has no external event source. ` +
+						"Call setExternalEventSource() before start().",
+				);
+			}
+			this._status = "starting";
+			logger.info("Starting lion session", { sessionId: this.id, cwd: this.cwd });
+
+			this._eventUnsubscribe = this._externalEventSource.subscribe((event) => {
+				const serverEvent = serializeLionEvent(event, this.id);
+				if (this._eventProvider) {
+					this._eventProvider.publish(serverEvent);
+				}
+				this._touch();
+
+				// Track subagent state for tree queries
+				if (serverEvent.type === "subagent_start") {
+					this._subagents.set(serverEvent.id, {
+						id: serverEvent.id,
+						parentId: serverEvent.parentId,
+						name: serverEvent.name,
+						status: serverEvent.status,
+					});
+				} else if (serverEvent.type === "subagent_end") {
+					const existing = this._subagents.get(serverEvent.id);
+					if (existing) {
+						existing.status = serverEvent.status;
+					}
+				} else if (serverEvent.type === "subagent_error") {
+					const existing = this._subagents.get(serverEvent.id);
+					if (existing) {
+						existing.status = "failed";
+					}
+				}
+			});
+
+			this._status = "idle";
+			this._touch();
+			logger.info("Lion session started", { sessionId: this.id });
+			return;
 		}
 
 		this._status = "starting";
@@ -139,13 +197,34 @@ export class LiveSession {
 	}
 
 	async stop(): Promise<void> {
+		this._eventUnsubscribe?.();
+		this._eventUnsubscribe = undefined;
 		if (this._agentSession) {
-			this._eventUnsubscribe?.();
-			this._eventUnsubscribe = undefined;
 			this._agentSession.dispose();
 			this._agentSession = null;
 		}
 		this._status = "stopped";
+	}
+
+	// -------------------------------------------------------------------------
+	// External event source (Lion sessions)
+	// -------------------------------------------------------------------------
+
+	/**
+	 * Attach an external event source for Lion sessions.
+	 * The source's `subscribe` method should return an unsubscribe function.
+	 */
+	setExternalEventSource(source: {
+		subscribe: (handler: (event: Record<string, unknown>) => void) => () => void;
+	}): void {
+		this._externalEventSource = source;
+	}
+
+	/**
+	 * Get the current flat list of tracked subagents.
+	 */
+	getSubagentTree(): Array<{ id: string; parentId?: string; name: string; status: string }> {
+		return Array.from(this._subagents.values());
 	}
 
 	// -------------------------------------------------------------------------

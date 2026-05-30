@@ -28,6 +28,12 @@ import {
 	handleAutoRetryEnd,
 } from "./queue-compaction.js";
 import { handleSessionInfoChanged } from "./session-info.js";
+import {
+	handleSubagentStart,
+	handleSubagentEnd,
+	handleSubagentProgress,
+	handleSubagentError,
+} from "./subagent-lifecycle.js";
 
 export const HANDLERS: Record<string, EventHandler | undefined> = {
 	session_started: handleSessionStarted,
@@ -56,6 +62,10 @@ export const HANDLERS: Record<string, EventHandler | undefined> = {
 	session_info_changed: handleSessionInfoChanged,
 	session_created: handleSessionCreated,
 	model_select: handleModelSelect,
+	subagent_start: handleSubagentStart,
+	subagent_end: handleSubagentEnd,
+	subagent_progress: handleSubagentProgress,
+	subagent_error: handleSubagentError,
 };
 
 /**

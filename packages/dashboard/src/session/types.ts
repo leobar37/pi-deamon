@@ -15,6 +15,8 @@ export interface LiveSessionInfo {
 	createdAt: number;
 	lastActivityAt: number;
 	messageCount: number;
+	/** Session kind — agent (default) or lion */
+	sessionType?: "agent" | "lion";
 }
 
 export interface SessionHostConfig {

@@ -29,6 +29,7 @@ export const SessionInfoSchema = z.object({
 	createdAt: z.number(),
 	lastActivityAt: z.number(),
 	messageCount: z.number(),
+	sessionType: z.enum(["agent", "lion"]).optional(),
 }) satisfies z.ZodType<LiveSessionInfo>;
 
 export const SessionStateSchema = z.object({

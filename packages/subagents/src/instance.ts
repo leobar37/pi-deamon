@@ -29,6 +29,7 @@ import type {
 	SubAgentEvent,
 	SubAgentInstanceState,
 	SubAgentRpcState,
+	SubAgentRunStore,
 	SubAgentRuntimeConfigManager,
 	SubAgentState,
 	SummarizerOptions,
@@ -74,6 +75,7 @@ export class SubAgentInstance {
 	private logger?: SessionLogger;
 	private configManager?: SubAgentRuntimeConfigManager;
 	private contextStore?: SubAgentContextStore;
+	private runStore?: SubAgentRunStore;
 
 	constructor(options: CreateSubAgentInstanceOptions) {
 		this.instanceId = options.instanceId;
@@ -92,6 +94,7 @@ export class SubAgentInstance {
 		this.logger = options.logger;
 		this.configManager = options.configManager;
 		this.contextStore = options.contextStore;
+		this.runStore = options.runStore;
 
 		const createdEvent: SubAgentEvent = {
 			type: "instance.created",
@@ -208,6 +211,7 @@ export class SubAgentInstance {
 				this.transition("failed");
 				this.endTime = Date.now();
 				const result = this.buildResult("failed", errorMessage);
+				this.recordRunCompletion(result).catch(() => {});
 				this.logEvent({
 					type: "task.end",
 					instanceId: this.instanceId,
@@ -256,6 +260,7 @@ export class SubAgentInstance {
 
 		this.session = session;
 		this.unsubscribeSession = session.subscribe(this.handleSessionEvent.bind(this));
+		this.emitState();
 
 		// Emit session info so the dashboard can read messages after Pi restart
 		const rpcState = this.getRpcState();
@@ -269,6 +274,7 @@ export class SubAgentInstance {
 		};
 		this.logEvent(sessionInfoEvent);
 		this.eventBus.emit(sessionInfoEvent);
+		this.recordRunStart().catch(() => {});
 
 		const instructions = buildSubAgentInstructions({ config: this.config, task: this.task });
 		await session.sendUserMessage(instructions);
@@ -434,6 +440,7 @@ export class SubAgentInstance {
 		const summary = this.getLastAssistantText() ?? "Completed";
 		const result = this.buildResult("completed", summary);
 		this.transition("completed");
+		this.recordRunCompletion(result).catch(() => {});
 		const endEvent: SubAgentEvent = {
 			type: "task.end",
 			instanceId: this.instanceId,
@@ -457,9 +464,49 @@ export class SubAgentInstance {
 			status,
 			summary,
 			duration: this.endTime && this.startTime ? this.endTime - this.startTime : 0,
+			error: status === "failed" ? (this.error ?? summary) : undefined,
 			turnCount: this.turnCount,
 			finalState: this.getState(),
 		};
+	}
+
+	private async recordRunStart(): Promise<void> {
+		if (!this.runStore || !this.session) return;
+		const rpcState = this.getRpcState();
+		await this.runStore.start({
+			sessionId: rpcState.sessionId,
+			taskId: this.taskId,
+			instanceId: this.instanceId,
+			definitionName: this.definitionName,
+			cwd: this.cwd,
+			parentThreadId: this.task.parentThreadId,
+			parentToolCallId: this.task.parentToolCallId,
+			runId: this.task.runId,
+			runIndex: this.task.runIndex,
+			description: this.taskDescription,
+			prompt: this.task.prompt,
+			systemPrompt: this.task.systemPrompt ?? this.definition.systemPrompt,
+			modelProvider: this.session.model?.provider,
+			modelId: this.session.model?.id,
+			startedAt: this.startTime ?? Date.now(),
+		});
+	}
+
+	private async recordRunCompletion(result: DelegationResult): Promise<void> {
+		if (!this.runStore || !this.session) return;
+		const rpcState = this.getRpcState();
+		await this.runStore.complete({
+			sessionId: rpcState.sessionId,
+			taskId: this.taskId,
+			status: result.status,
+			summary: result.summary,
+			error: result.error ?? this.error ?? undefined,
+			completedAt: this.endTime ?? Date.now(),
+			turnCount: this.turnCount,
+			toolCount: this.toolCount,
+			modelProvider: this.session.model?.provider,
+			modelId: this.session.model?.id,
+		});
 	}
 
 	private logEvent(event: SubAgentEvent): void {
@@ -661,6 +708,7 @@ export class SubAgentInstance {
 		this.transition("cancelled");
 		this.endTime = Date.now();
 		const result = this.buildResult("cancelled", "Cancelled by orchestrator");
+		await this.recordRunCompletion(result);
 		const endEvent: SubAgentEvent = {
 			type: "task.end",
 			instanceId: this.instanceId,
