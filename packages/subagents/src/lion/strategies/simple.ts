@@ -82,6 +82,8 @@ For implementation:
 			`Strategy: ${state.strategy}`,
 			`Phase: ${state.phase}`,
 			"Active plan: none",
+			"Completion gate: use structured subagent results and verified evidence before claiming completion.",
+			"Next orchestration step: inspect recent delegated work, resolve blockers or unverified results, then continue with lion_tasks if needed.",
 		];
 
 		const activeRun = context.activeRun;
@@ -119,6 +121,8 @@ For implementation:
 						`Subagent ${job.role}:`,
 						`- taskId: ${job.taskId}`,
 						`- status: ${job.status}`,
+						`- structuredResult: ${job.structuredResult}`,
+						`- verificationStatus: ${job.verificationStatus}`,
 						`- contextPath: ${subagentContext.path}`,
 						`- summary: ${job.summary}`,
 						`- durableContext:`,

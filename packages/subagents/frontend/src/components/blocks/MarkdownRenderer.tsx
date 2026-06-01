@@ -29,7 +29,7 @@ export function MarkdownRenderer({ content }: MarkdownRendererProps) {
 			remarkPlugins={[remarkGfm]}
 			components={{
 				p: ({ children }) => (
-					<p className="mb-3 break-words text-sm leading-relaxed text-text-primary last:mb-0">
+					<p className="mb-2 break-words text-sm leading-6 text-text-primary last:mb-0">
 						{children}
 					</p>
 				),
@@ -59,12 +59,12 @@ export function MarkdownRenderer({ content }: MarkdownRendererProps) {
 					return <>{children}</>;
 				},
 				ul: ({ children }) => (
-					<ul className="mb-3 list-inside list-disc space-y-1 text-sm text-text-primary">
+					<ul className="mb-2 list-inside list-disc space-y-0.5 text-sm text-text-primary">
 						{children}
 					</ul>
 				),
 				ol: ({ children }) => (
-					<ol className="mb-3 list-inside list-decimal space-y-1 text-sm text-text-primary">
+					<ol className="mb-2 list-inside list-decimal space-y-0.5 text-sm text-text-primary">
 						{children}
 					</ol>
 				),
@@ -82,11 +82,11 @@ export function MarkdownRenderer({ content }: MarkdownRendererProps) {
 					</a>
 				),
 				blockquote: ({ children }) => (
-					<blockquote className="border-l-2 border-border-default pl-3 text-text-secondary italic my-3">
+					<blockquote className="my-2 border-l-2 border-border-default pl-3 text-text-secondary italic">
 						{children}
 					</blockquote>
 				),
-				hr: () => <hr className="border-border-subtle my-4" />,
+				hr: () => <hr className="my-3 border-border-subtle" />,
 				h1: ({ children }) => (
 					<h1 className="text-lg font-semibold text-text-primary mb-2">{children}</h1>
 				),

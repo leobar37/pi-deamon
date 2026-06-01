@@ -2,6 +2,7 @@ import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
 import type { TaskExecutionResult } from "../task-executor.js";
 import { TaskExecutor } from "../task-executor.js";
 import type { ExecutionPlan, SubAgentCapabilities } from "../types.js";
+import { addSyntheticRun, type LionRun, type LionSubagentRole } from "./core.js";
 import { LionEvents } from "./events/defs.js";
 import { classifyLionTaskResult } from "./evidence.js";
 import {
@@ -148,17 +149,10 @@ export class TaskRunner {
 
 		let result: TaskExecutionResult;
 		try {
-			const guardResult = runtime.delegationGuard.handleToolCall({
-				toolName: "lion_tasks",
-				toolCallId: `guard-${runId}`,
-				input: {},
-			} as unknown as import("@earendil-works/pi-coding-agent").ToolCallEvent);
-			if (guardResult?.block) {
-				throw new Error(guardResult.reason ?? "Delegation blocked by guard");
-			}
 			result = await executor.execute(executionPlan);
 		} catch (err: unknown) {
 			const error = err instanceof Error ? err.message : String(err);
+			const isRetryable = isRetryableOrchestrationFailure(error);
 			this.handleExecutionError(runId, taskConfigs, plan, error);
 			renderLionSubagentWidget(runtime, ctx);
 			runtime.completeRun("failed", error);
@@ -169,6 +163,7 @@ export class TaskRunner {
 					agent: t.definition,
 					status: "failed" as const,
 					summary: error,
+					structuredResult: false,
 					duration: 0,
 					turnCount: 0,
 					finalState: {
@@ -192,8 +187,16 @@ export class TaskRunner {
 			const run =
 				runtime.core.activeRun ?? this.buildSyntheticRun(runId, strategy, batchTask, failedResult, taskConfigs);
 			if (selectedPlanTask && plan) {
-				recordStructuredTaskResult(plan, selectedPlanTask.id, "blocked", error);
+				recordStructuredTaskResult(plan, selectedPlanTask.id, isRetryable ? "retryable" : "blocked", error);
 				this.runtime.setActiveTask(null);
+			}
+			if (isRetryable) {
+				runtime.queueFeedback(ctx, buildRetryableOrchestrationFeedback(error), {
+					runId,
+					reason: error,
+					nextTools: ["lion_tasks"],
+					retryable: true,
+				});
 			}
 			return {
 				run,
@@ -201,8 +204,6 @@ export class TaskRunner {
 				nextTask: selectedPlanTask,
 				plan: selectedPlanTask && activePlanPath ? loadLionPlan(activePlanPath) : (plan ?? undefined),
 			};
-		} finally {
-			runtime.delegationGuard.releaseDepth("main");
 		}
 
 		if (selectedPlanTask) {
@@ -226,7 +227,6 @@ export class TaskRunner {
 
 		// Persist synthetic run to core history for simple mode
 		if (!runtime.core.activeRun) {
-			const { addSyntheticRun } = await import("./core.js");
 			addSyntheticRun(runtime.core, run);
 		}
 
@@ -340,8 +340,33 @@ export class TaskRunner {
 	): void {
 		if (!plan) return;
 		const summary = result.results.map((item) => item.summary).join("\n\n");
-		const status = result.results.every((item) => item.status === "completed") ? "complete" : "blocked";
-		recordStructuredTaskResult(plan, taskId, status, summary);
+		const classifications = result.results.map((item) => classifyLionTaskResult(item));
+		const canComplete = result.results.every((item, index) => {
+			return (
+				item.status === "completed" &&
+				item.structuredResult &&
+				classifications[index].verificationStatus === "verified"
+			);
+		});
+		const blocked = classifications.some((item) => item.verificationStatus === "blocked");
+		const failed = classifications.some((item) => item.verificationStatus === "failed");
+		const status = canComplete ? "complete" : failed || blocked ? "blocked" : "retryable";
+		const gateSummary = canComplete
+			? summary
+			: [
+					"Lion completion gate did not pass.",
+					"",
+					...result.results.map((item, index) =>
+						[
+							`Task ${item.taskId}:`,
+							`- status: ${item.status}`,
+							`- structuredResult: ${item.structuredResult}`,
+							`- verificationStatus: ${classifications[index].verificationStatus}`,
+							`- summary: ${item.summary}`,
+						].join("\n"),
+					),
+				].join("\n");
+		recordStructuredTaskResult(plan, taskId, status, gateSummary);
 		this.runtime.setActiveTask(null);
 	}
 
@@ -450,6 +475,7 @@ export class TaskRunner {
 				verificationStatus: classification.verificationStatus,
 				evidence: classification.evidence,
 				summary: r.summary,
+				recordedResult: r.recordedResult,
 				duration: r.duration,
 				turnCount: r.turnCount,
 				error: r.error,
@@ -479,7 +505,7 @@ export class TaskRunner {
 		batchTask: LionTask,
 		result: TaskExecutionResult,
 		taskConfigs?: PreparedTaskConfig[],
-	): import("./core.js").LionRun {
+	): LionRun {
 		const allCompleted = result.results.every((r) => r.status === "completed");
 		const anyFailed = result.results.some((r) => r.status === "failed");
 		const now = Date.now();
@@ -515,7 +541,7 @@ export class TaskRunner {
 		};
 	}
 
-	private inferRoleFromDefinition(definition: string): import("./core.js").LionSubagentRole {
+	private inferRoleFromDefinition(definition: string): LionSubagentRole {
 		switch (definition) {
 			case "analyzer":
 				return "analyzer";
@@ -529,6 +555,20 @@ export class TaskRunner {
 				return "executor";
 		}
 	}
+}
+
+function isRetryableOrchestrationFailure(error: string): boolean {
+	return /Delegation depth limit|No subagent activity|AgentHarness is busy|subagent activity|stalled/i.test(error);
+}
+
+function buildRetryableOrchestrationFeedback(error: string): string {
+	return [
+		"Lion delegation infrastructure failed before a reliable task outcome was produced.",
+		"",
+		`Reason: ${error}`,
+		"",
+		"Retry the current task with lion_tasks. Treat the active plan task as retryable, not blocked.",
+	].join("\n");
 }
 
 function isPlanningRole(definition: string): boolean {

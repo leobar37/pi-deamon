@@ -1,14 +1,22 @@
-import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { mkdir, readdir, readFile, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
-import type { SubAgentRunRecord, SubAgentRunStore as SubAgentRunStoreContract } from "./types.js";
+import type {
+	SubAgentRunListFilters,
+	SubAgentRunRecord,
+	SubAgentRunStore as SubAgentRunStoreContract,
+} from "./types.js";
 
 const SUBAGENT_RUN_VERSION = 1;
 
 export class SubAgentRunStore implements SubAgentRunStoreContract {
 	constructor(private readonly cwd: string) {}
 
+	private getDir(): string {
+		return join(this.cwd, ".pi", "subagents", "runs");
+	}
+
 	getPath(sessionId: string, taskId: string): string {
-		return join(this.cwd, ".pi", "subagents", "runs", sessionId, `${taskId}.json`);
+		return join(this.getDir(), sessionId, `${taskId}.json`);
 	}
 
 	async read(sessionId: string, taskId: string): Promise<SubAgentRunRecord | null> {
@@ -21,6 +29,17 @@ export class SubAgentRunStore implements SubAgentRunStoreContract {
 			}
 			throw err;
 		}
+	}
+
+	async list(filters: SubAgentRunListFilters = {}): Promise<SubAgentRunRecord[]> {
+		const paths = await this.listRecordPaths();
+		const records: SubAgentRunRecord[] = [];
+		for (const path of paths) {
+			const record = parseRecord(await readFile(path, "utf8"), path);
+			if (!matchesFilters(record, filters)) continue;
+			records.push(record);
+		}
+		return records.sort((a, b) => b.updatedAt - a.updatedAt || b.startedAt - a.startedAt);
 	}
 
 	async start(input: Parameters<SubAgentRunStoreContract["start"]>[0]): Promise<SubAgentRunRecord> {
@@ -59,6 +78,7 @@ export class SubAgentRunStore implements SubAgentRunStoreContract {
 			...current,
 			status: input.status,
 			summary: input.summary,
+			recordedResult: input.recordedResult,
 			error: input.error,
 			modelProvider: input.modelProvider ?? current.modelProvider,
 			modelId: input.modelId ?? current.modelId,
@@ -76,6 +96,37 @@ export class SubAgentRunStore implements SubAgentRunStoreContract {
 		await mkdir(dirname(path), { recursive: true });
 		await writeFile(path, `${JSON.stringify(record, null, 2)}\n`, "utf8");
 	}
+
+	private async listRecordPaths(): Promise<string[]> {
+		const root = this.getDir();
+		try {
+			const sessionDirs = await readdir(root, { withFileTypes: true });
+			const result: string[] = [];
+			for (const sessionDir of sessionDirs) {
+				if (!sessionDir.isDirectory()) continue;
+				const sessionPath = join(root, sessionDir.name);
+				const files = await readdir(sessionPath, { withFileTypes: true });
+				for (const file of files) {
+					if (!file.isFile() || !file.name.endsWith(".json")) continue;
+					result.push(join(sessionPath, file.name));
+				}
+			}
+			return result;
+		} catch (err) {
+			if (err && typeof err === "object" && "code" in err && err.code === "ENOENT") {
+				return [];
+			}
+			throw err;
+		}
+	}
+}
+
+function matchesFilters(record: SubAgentRunRecord, filters: SubAgentRunListFilters): boolean {
+	if (filters.status && record.status !== filters.status) return false;
+	if (filters.runId && record.runId !== filters.runId) return false;
+	if (filters.definitionName && record.definitionName !== filters.definitionName) return false;
+	if (filters.sessionId && record.sessionId !== filters.sessionId) return false;
+	return true;
 }
 
 function parseRecord(raw: string, path: string): SubAgentRunRecord {

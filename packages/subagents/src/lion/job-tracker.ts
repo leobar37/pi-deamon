@@ -41,7 +41,7 @@ export interface LionSubagentJob {
 export type LionVisibleSubagentStatus =
 	| "stalled"
 	| "queued"
-	| Extract<SubAgentState, "starting" | "running" | "completed" | "failed">;
+	| Extract<SubAgentState, "starting" | "running" | "completed" | "blocked" | "failed">;
 
 export class SubagentJobManager {
 	#subagentJobs: Map<string, LionSubagentJob>;
@@ -113,6 +113,7 @@ export class SubagentJobManager {
 			case "completed":
 				return "completed";
 			case "blocked":
+				return "blocked";
 			case "timed_out":
 			case "cancelled":
 				return "failed";
@@ -178,7 +179,12 @@ export class SubagentJobManager {
 				next.summary = event.message || next.summary;
 				break;
 			case "task.end":
-				next.status = event.result.status === "completed" ? "completed" : "failed";
+				next.status =
+					event.result.status === "completed"
+						? "completed"
+						: event.result.status === "blocked"
+							? "blocked"
+							: "failed";
 				next.currentTool = null;
 				next.summary = event.result.summary;
 				next.turnCount = event.result.turnCount;
@@ -262,7 +268,12 @@ export class SubagentJobManager {
 			next.error = event.state.error;
 		}
 		if (event.type === "task.end") {
-			next.status = event.result.status === "completed" ? "completed" : "failed";
+			next.status =
+				event.result.status === "completed"
+					? "completed"
+					: event.result.status === "blocked"
+						? "blocked"
+						: "failed";
 			next.completedAt = event.timestamp;
 			next.result = event.result;
 			next.error = event.result.error ?? null;
@@ -313,6 +324,7 @@ function normalizeVisibleSubagentState(
 		case "starting":
 		case "running":
 		case "completed":
+		case "blocked":
 		case "failed":
 			return state;
 		case "completing":

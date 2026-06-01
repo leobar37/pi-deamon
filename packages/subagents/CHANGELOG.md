@@ -4,6 +4,9 @@
 
 ### Fixed
 
+- Fixed Lion plan task completion so active plan tasks require structured subagent results with verified evidence before marking checklist tasks complete.
+- Fixed blocked Lion subagent outcomes being flattened into failed status in job and dashboard state.
+- Fixed Lion compaction handoffs missing explicit completion-gate and next-step context.
 - Fixed `paramsStrategy` in `TaskRunner` accessing non-existent `result.plan.strategy` by passing `strategy` directly from the execution context.
 - Fixed `SimpleLionStrategy.decorateTaskPrompt` idempotency check to use `</lion_context>` tag detection instead of fragile string matching.
 - Fixed null `activeRun` in simple mode by adding `buildSyntheticRun()` to create synthetic run records for both success and error paths.

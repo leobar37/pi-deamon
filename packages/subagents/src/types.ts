@@ -22,6 +22,7 @@ export type SubAgentState =
 	| "paused"
 	| "completing"
 	| "completed"
+	| "blocked"
 	| "failed"
 	| "cancelled"
 	| "timed_out";
@@ -208,6 +209,8 @@ export interface DelegationResult {
 	agent: string;
 	status: DelegationStatus;
 	summary: string;
+	structuredResult: boolean;
+	recordedResult?: RecordSubAgentResultInput;
 	duration: number;
 	error?: string;
 	turnCount: number;
@@ -511,6 +514,7 @@ export interface SubAgentRunRecord {
 	modelId?: string;
 	status: DelegationStatus | "running";
 	summary?: string;
+	recordedResult?: RecordSubAgentResultInput;
 	error?: string;
 	startedAt: number;
 	updatedAt: number;
@@ -519,9 +523,17 @@ export interface SubAgentRunRecord {
 	toolCount: number;
 }
 
+export interface SubAgentRunListFilters {
+	status?: SubAgentRunRecord["status"];
+	runId?: string;
+	definitionName?: string;
+	sessionId?: string;
+}
+
 export interface SubAgentRunStore {
 	getPath(sessionId: string, taskId: string): string;
 	read(sessionId: string, taskId: string): Promise<SubAgentRunRecord | null>;
+	list(filters?: SubAgentRunListFilters): Promise<SubAgentRunRecord[]>;
 	start(input: {
 		sessionId: string;
 		taskId: string;
@@ -544,6 +556,7 @@ export interface SubAgentRunStore {
 		taskId: string;
 		status: DelegationStatus;
 		summary: string;
+		recordedResult?: RecordSubAgentResultInput;
 		error?: string;
 		completedAt?: number;
 		turnCount: number;

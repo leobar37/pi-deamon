@@ -200,10 +200,21 @@ describe("SubAgentInstance", () => {
 			expect(result).toHaveProperty("agent");
 			expect(result).toHaveProperty("status");
 			expect(result).toHaveProperty("summary");
+			expect(result).toHaveProperty("structuredResult");
 			expect(result).toHaveProperty("duration");
 			expect(result).toHaveProperty("turnCount");
 			expect(result).toHaveProperty("finalState");
 			expect(result.agent).toBe("test-agent");
+		});
+
+		it("marks assistant-only completion as unstructured", async () => {
+			const instance = createInstance();
+
+			const result = await instance.start();
+
+			expect(result.status).toBe("completed");
+			expect(result.structuredResult).toBe(false);
+			expect(result.recordedResult).toBeUndefined();
 		});
 
 		it("fails if called from non-created state", async () => {
@@ -259,6 +270,7 @@ describe("SubAgentInstance", () => {
 			const runStore: SubAgentRunStore = {
 				getPath: vi.fn().mockReturnValue("/tmp/run.json"),
 				read: vi.fn().mockResolvedValue(null),
+				list: vi.fn().mockResolvedValue([]),
 				start: vi.fn().mockResolvedValue({} as any),
 				complete: vi.fn().mockResolvedValue({} as any),
 			};
@@ -320,6 +332,16 @@ describe("SubAgentInstance", () => {
 			const result = await instance.start();
 
 			expect(result.status).toBe("completed");
+			expect(result.structuredResult).toBe(true);
+			expect(result.recordedResult).toEqual({
+				status: "completed",
+				summary: "Recorded canonical output",
+				details: "Detailed findings",
+				files: ["packages/subagents/src/instance.ts"],
+				evidence: ["Inspected lifecycle completion"],
+				risks: ["No extra risk"],
+				nextStep: "Return to orchestrator",
+			});
 			expect(result.summary).toContain("Recorded canonical output");
 			expect(result.summary).toContain("Detailed findings");
 			expect(result.summary).toContain("packages/subagents/src/instance.ts");
@@ -336,6 +358,7 @@ describe("SubAgentInstance", () => {
 			const result = await instance.start();
 
 			expect(result.status).toBe("blocked");
+			expect(result.structuredResult).toBe(true);
 			expect(result.summary).toBe("Blocked by missing plan file");
 			expect(result.finalState.state).toBe("completed");
 		});
@@ -348,6 +371,7 @@ describe("SubAgentInstance", () => {
 			const runStore: SubAgentRunStore = {
 				getPath: vi.fn().mockReturnValue("/tmp/run.json"),
 				read: vi.fn().mockResolvedValue(null),
+				list: vi.fn().mockResolvedValue([]),
 				start: vi.fn().mockResolvedValue({} as any),
 				complete: vi.fn().mockResolvedValue({} as any),
 			};
@@ -360,6 +384,10 @@ describe("SubAgentInstance", () => {
 					expect.objectContaining({
 						status: "completed",
 						summary: "Persist this canonical result",
+						recordedResult: {
+							status: "completed",
+							summary: "Persist this canonical result",
+						},
 					}),
 				);
 			});

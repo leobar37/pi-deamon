@@ -175,6 +175,8 @@ Ask concise clarifying questions before writing or changing plan files.`;
 			`Active plan: ${state.activePlanSlug ?? "none"}`,
 			`Active plan path: ${state.activePlanPath ?? "none"}`,
 			`Active task: ${state.activeTaskId ?? "none"}`,
+			`Completion gate: active plan tasks require a structured subagent result and verified evidence before checklist completion.`,
+			`Next orchestration step: ${buildPlanNextStep(state)}`,
 		];
 
 		const activeRun = context.activeRun;
@@ -193,6 +195,8 @@ Ask concise clarifying questions before writing or changing plan files.`;
 						`Subagent ${job.role}:`,
 						`- taskId: ${job.taskId}`,
 						`- status: ${job.status}`,
+						`- structuredResult: ${job.structuredResult}`,
+						`- verificationStatus: ${job.verificationStatus}`,
 						`- contextPath: ${subagentContext.path}`,
 						`- summary: ${job.summary}`,
 						`- durableContext:`,
@@ -233,4 +237,17 @@ function formatSubagent(
 		`- durableContext:`,
 		contextSummary,
 	].join("\n");
+}
+
+function buildPlanNextStep(state: LionState): string {
+	if (state.phase === "building") {
+		if (state.activeTaskId) {
+			return `inspect active task ${state.activeTaskId}, verify the latest lion_tasks result, then retry or continue with source: "active_plan_next_task"`;
+		}
+		return 'use lion_tasks with source: "active_plan_next_task" for the next ready task, then apply the completion gate';
+	}
+	if (state.activePlanSlug) {
+		return "continue planning or validation; use /lion-build before executor work";
+	}
+	return "select or create a durable plan before build work";
 }

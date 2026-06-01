@@ -14,6 +14,7 @@ describe("FsArtifactStore", () => {
 		agent: "analyzer",
 		status: "completed",
 		summary: "Analysis complete. Found 3 issues.",
+		structuredResult: true,
 		duration: 1500,
 		turnCount: 5,
 		finalState: {
@@ -137,6 +138,7 @@ describe("FsArtifactStore", () => {
 			agent: "analyzer",
 			status: "failed",
 			summary: "Failed",
+			structuredResult: false,
 			duration: 500,
 			turnCount: 1,
 			error: "Something went wrong",

@@ -13,6 +13,7 @@ function createFakeController() {
 					agent: task.definition,
 					status: "completed",
 					summary: `Done: ${task.prompt}`,
+					structuredResult: true,
 					duration: 100,
 					turnCount: 2,
 					finalState: {
@@ -47,6 +48,7 @@ function createFakeController() {
 					currentToolStartedAt: null,
 					durationMs: 100,
 				}),
+				cancel: vi.fn().mockResolvedValue(undefined),
 			};
 			instances.set(task.id, instance);
 			return instance;
@@ -54,6 +56,8 @@ function createFakeController() {
 		getEventBus: vi.fn().mockReturnValue({
 			subscribe: vi.fn().mockReturnValue(vi.fn()),
 		}),
+		getInstance: vi.fn((taskId: string) => instances.get(taskId)),
+		removeInstance: vi.fn((taskId: string) => instances.delete(taskId)),
 	};
 
 	return { controller, instances };
@@ -127,6 +131,7 @@ describe("TaskExecutor", () => {
 						agent: task.definition,
 						status: "completed",
 						summary: "Done",
+						structuredResult: true,
 						duration: 100,
 						turnCount: 1,
 						finalState: {
@@ -146,10 +151,17 @@ describe("TaskExecutor", () => {
 						},
 					} as DelegationResult;
 				}),
+				cancel: vi.fn().mockResolvedValue(undefined),
 			})),
 			getEventBus: vi.fn().mockReturnValue({
 				subscribe: vi.fn().mockReturnValue(vi.fn()),
 			}),
+			getInstance: vi.fn(
+				(taskId: string) =>
+					controller.createInstance.mock.results.find((result) => result.value?.instanceId === `inst-${taskId}`)
+						?.value,
+			),
+			removeInstance: vi.fn(),
 		};
 		const executor = new TaskExecutor({ controller: controller as any });
 

@@ -158,6 +158,7 @@ export class TaskExecutor {
 				agent: task.definition,
 				status: "failed",
 				summary: errorMessage,
+				structuredResult: false,
 				duration: 0,
 				turnCount: 0,
 				finalState: instance.getState(),

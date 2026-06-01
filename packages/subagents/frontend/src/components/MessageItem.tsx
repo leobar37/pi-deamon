@@ -11,6 +11,7 @@ export function MessageItem({ message }: MessageItemProps) {
 	const [copied, setCopied] = useState(false);
 	const isUser = message.role === "user";
 	const isAssistant = message.role === "assistant";
+	const isTool = message.role === "tool";
 	const copyText = useMemo(() => messageToText(message), [message]);
 	const label = message.role === "assistant" ? "assistant" : message.role;
 
@@ -22,21 +23,35 @@ export function MessageItem({ message }: MessageItemProps) {
 		});
 	}, [copyText]);
 
+	if (isTool) {
+		return (
+			<div className="group flex justify-start">
+				<div className="max-w-[85%] min-w-0 select-text">
+					<div className="min-w-0 space-y-1">
+						{message.blocks.map((block, i) => (
+							<BlockRenderer key={i} block={block} currentThreadId={message.instanceId} />
+						))}
+					</div>
+				</div>
+			</div>
+		);
+	}
+
 	return (
 		<div className={`group flex ${isUser ? "justify-end" : "justify-start"}`}>
 			<div
-				className={`max-w-[85%] min-w-0 select-text rounded-lg px-4 py-3 ${
+				className={`max-w-[85%] min-w-0 select-text rounded-md px-2.5 py-2 ${
 					isUser ? "bg-accent-muted" : isAssistant ? "bg-bg-elevated" : "bg-bg-surface"
 				}`}
 			>
-				<div className="mb-2 flex items-center justify-between gap-3">
+				<div className="mb-1 flex items-center justify-between gap-2">
 					<span className="text-[10px] uppercase tracking-wide text-text-tertiary">{label}</span>
 					<button
 						type="button"
 						onClick={handleCopy}
 						disabled={!copyText.trim()}
 						title="Copy message"
-						className="flex h-6 w-6 items-center justify-center rounded-md border border-border-subtle text-text-muted transition hover:border-border-hover hover:text-text-primary disabled:cursor-not-allowed disabled:opacity-40"
+						className="flex h-5 w-5 items-center justify-center rounded border border-border-subtle text-text-muted transition hover:border-border-hover hover:text-text-primary disabled:cursor-not-allowed disabled:opacity-40"
 					>
 						{copied ? (
 							<svg className="h-3.5 w-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -54,7 +69,7 @@ export function MessageItem({ message }: MessageItemProps) {
 						)}
 					</button>
 				</div>
-				<div className="min-w-0 space-y-2">
+				<div className="min-w-0 space-y-1">
 					{message.blocks.map((block, i) => (
 						<BlockRenderer key={i} block={block} currentThreadId={message.instanceId} />
 					))}

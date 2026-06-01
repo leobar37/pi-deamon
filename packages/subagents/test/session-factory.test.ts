@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { preserveInternalSubagentTools } from "../src/session-factory.js";
+import { filterDisallowedSubagentTools, preserveInternalSubagentTools } from "../src/session-factory.js";
 
 describe("session factory tool allowlist", () => {
 	it("preserves internal subagent tools when explicit tools are requested", () => {
@@ -22,5 +22,20 @@ describe("session factory tool allowlist", () => {
 		const tools = preserveInternalSubagentTools(["read"], ["read", "glob"]);
 
 		expect(tools).toEqual(["read"]);
+	});
+
+	it("removes lion_tasks from explicit subagent tool allowlists", () => {
+		const tools = preserveInternalSubagentTools(
+			["read", "lion_tasks"],
+			["read", "lion_tasks", "subagent_record_context"],
+		);
+
+		expect(tools).toEqual(["read", "subagent_record_context"]);
+	});
+
+	it("removes lion_tasks from default active tool lists", () => {
+		const tools = filterDisallowedSubagentTools(["read", "lion_tasks", "bash"]);
+
+		expect(tools).toEqual(["read", "bash"]);
 	});
 });

@@ -29,6 +29,8 @@ import { goalResponse, goalSummary, validateObjective } from "./utils.js";
 const STATE_TYPE = "goal-v2";
 const UI_MESSAGE_TYPE = "goal-v2-ui";
 const CONTINUATION_MESSAGE_TYPE = "goal-v2-continuation";
+const LION_STATE_TYPE = "lion-state";
+const GOAL_TOOL_NAMES = ["get_goal", "create_goal", "update_goal", "record_goal_progress"];
 
 const CreateGoalParams = Type.Object({
 	objective: Type.String({
@@ -69,6 +71,38 @@ const RecordGoalProgressParams = Type.Object({
 
 export default function goalV2Extension(pi: ExtensionAPI) {
 	const core = createCore();
+
+	function hasActiveGoalTools(): boolean {
+		return core.goal?.status === "active";
+	}
+
+	function isLionBuilding(ctx: ExtensionContext): boolean {
+		let latest: { version?: unknown; active?: unknown; phase?: unknown; updatedAt?: unknown } | undefined;
+		for (const entry of ctx.sessionManager.getBranch()) {
+			if (entry.type !== "custom" || entry.customType !== LION_STATE_TYPE) continue;
+			const data = entry.data as { version?: unknown; active?: unknown; phase?: unknown; updatedAt?: unknown };
+			if (!latest || Number(data.updatedAt ?? 0) >= Number(latest.updatedAt ?? 0)) {
+				latest = data;
+			}
+		}
+		return latest?.version === 2 && latest.active === true && latest.phase === "building";
+	}
+
+	function syncGoalTools(ctx: ExtensionContext): void {
+		const active = new Set(pi.getActiveTools());
+		for (const tool of GOAL_TOOL_NAMES) {
+			active.delete(tool);
+		}
+
+		if (hasActiveGoalTools() && !isLionBuilding(ctx)) {
+			const available = new Set(pi.getAllTools().map((tool) => tool.name));
+			for (const tool of GOAL_TOOL_NAMES) {
+				if (available.has(tool)) active.add(tool);
+			}
+		}
+
+		pi.setActiveTools([...active]);
+	}
 
 	function persist(action: PersistedGoalState["action"]): void {
 		pi.appendEntry(STATE_TYPE, buildPersistedState(core, action));
@@ -216,12 +250,19 @@ export default function goalV2Extension(pi: ExtensionAPI) {
 	// Event handlers
 	// ========================================================================
 
-	pi.on("session_start", async (_event, ctx) => reconstructState(ctx));
-	pi.on("session_tree", async (_event, ctx) => reconstructState(ctx));
+	pi.on("session_start", async (_event, ctx) => {
+		reconstructState(ctx);
+		syncGoalTools(ctx);
+	});
+	pi.on("session_tree", async (_event, ctx) => {
+		reconstructState(ctx);
+		syncGoalTools(ctx);
+	});
 
-	pi.on("before_agent_start", async (event) => {
+	pi.on("before_agent_start", async (event, ctx) => {
 		const snapshot = currentGoalSnapshot(core);
-		if (!snapshot || snapshot.status !== "active") return;
+		syncGoalTools(ctx);
+		if (!snapshot || snapshot.status !== "active" || isLionBuilding(ctx)) return;
 		return {
 			systemPrompt: `${event.systemPrompt}\n\n${activeGoalSystemPrompt(snapshot)}`,
 		};
@@ -244,10 +285,21 @@ export default function goalV2Extension(pi: ExtensionAPI) {
 			persist("account");
 		}
 		updateStatus(ctx);
+		syncGoalTools(ctx);
 
-		if (core.goal.status === "active") {
+		if (core.goal.status === "active" && !isLionBuilding(ctx)) {
 			queueContinuation(ctx);
 		}
+	});
+
+	pi.on("tool_call", async (event, ctx) => {
+		if (!GOAL_TOOL_NAMES.includes(event.toolName)) return undefined;
+		if (hasActiveGoalTools() && !isLionBuilding(ctx)) return undefined;
+		syncGoalTools(ctx);
+		return {
+			block: true,
+			reason: "goal-v2 tools are inactive until /goal starts an active goal and Lion is not building.",
+		};
 	});
 
 	pi.on("session_before_compact", async (event, ctx) => {
@@ -339,6 +391,7 @@ export default function goalV2Extension(pi: ExtensionAPI) {
 					}
 					const cleared = clearGoal(core);
 					persist("clear");
+					syncGoalTools(ctx);
 					showGoalMessage(
 						cleared ? "Goal cleared" : "No goal to clear\n\nThis thread does not currently have a goal.",
 					);
@@ -350,6 +403,7 @@ export default function goalV2Extension(pi: ExtensionAPI) {
 						setGoalStatus(core, "paused");
 						await recordGoalStatus(ctx, "Goal paused");
 						persist("status");
+						syncGoalTools(ctx);
 						showGoalMessage(`Goal paused\n\n${goalSummary(core.goal!)}`);
 						updateStatus(ctx);
 					} catch (err) {
@@ -362,9 +416,10 @@ export default function goalV2Extension(pi: ExtensionAPI) {
 						setGoalStatus(core, "active");
 						await recordGoalStatus(ctx, "Goal resumed");
 						persist("status");
+						syncGoalTools(ctx);
 						showGoalMessage(`Goal active\n\n${goalSummary(currentGoalSnapshot(core)!)}`);
 						updateStatus(ctx);
-						queueContinuation(ctx);
+						if (!isLionBuilding(ctx)) queueContinuation(ctx);
 					} catch (err) {
 						showGoalMessage(`Failed to update thread goal: ${err instanceof Error ? err.message : String(err)}`);
 					}
@@ -394,9 +449,10 @@ export default function goalV2Extension(pi: ExtensionAPI) {
 			setGoal(core, objective);
 			await initializeGoalContext(ctx);
 			persist("set");
+			syncGoalTools(ctx);
 			showGoalMessage(`Goal active\n\n${goalSummary(core.goal!)}`);
 			updateStatus(ctx);
-			queueContinuation(ctx);
+			if (!isLionBuilding(ctx)) queueContinuation(ctx);
 		},
 	});
 
@@ -440,6 +496,7 @@ export default function goalV2Extension(pi: ExtensionAPI) {
 			setGoal(core, params.objective);
 			await initializeGoalContext(ctx);
 			persist("set");
+			syncGoalTools(ctx);
 			updateStatus(ctx);
 			const response = goalResponse(currentGoalSnapshot(core), ctx.sessionManager.getSessionId());
 			return {
@@ -478,6 +535,7 @@ export default function goalV2Extension(pi: ExtensionAPI) {
 				await recordGoalCompletion(ctx);
 			}
 			persist("status");
+			syncGoalTools(ctx);
 			updateStatus(ctx);
 			const response = goalResponse(currentGoalSnapshot(core), ctx.sessionManager.getSessionId());
 			return {
@@ -512,6 +570,7 @@ export default function goalV2Extension(pi: ExtensionAPI) {
 				);
 				persist("status");
 			}
+			syncGoalTools(ctx);
 			updateStatus(ctx);
 			const response = goalResponse(currentGoalSnapshot(core), ctx.sessionManager.getSessionId());
 			return {

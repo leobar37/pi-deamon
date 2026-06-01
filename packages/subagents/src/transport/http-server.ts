@@ -1,8 +1,9 @@
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { SessionManager } from "@earendil-works/pi-coding-agent";
 import type { SubAgentController } from "../controller.js";
 import { SubAgentRunStore } from "../run-store.js";
+import type { SubAgentRunRecord, SubAgentState } from "../types.js";
 import { DashboardStateManager } from "./state-manager.js";
 import type {
 	DashboardLionState,
@@ -47,8 +48,14 @@ const encoder = new TextEncoder();
 
 function resolveStaticDir(options: HttpServerTransportOptions): string {
 	if (options.staticDir) return options.staticDir;
-	// Default: frontend/dist relative to this file's location in dist/
-	return join(import.meta.dirname ?? ".", "..", "..", "frontend", "dist");
+	const baseDir = import.meta.dirname ?? ".";
+	const candidates = [
+		// dist/index.js -> packages/subagents/frontend/dist
+		join(baseDir, "..", "frontend", "dist"),
+		// src/transport/http-server.ts -> packages/subagents/frontend/dist
+		join(baseDir, "..", "..", "frontend", "dist"),
+	];
+	return candidates.find((candidate) => existsSync(join(candidate, "index.html"))) ?? candidates[0];
 }
 
 const CORS_HEADERS = {
@@ -194,11 +201,11 @@ export class HttpServerTransport implements SubAgentTransport {
 		}
 
 		if (req.method === "GET" && pathname === "/api/instances") {
-			return this.withCors(this.serveInstances());
+			return this.withCors(await this.serveInstances());
 		}
 
 		if (req.method === "GET" && pathname === "/api/threads") {
-			return this.withCors(this.serveThreads());
+			return this.withCors(await this.serveThreads());
 		}
 
 		if (req.method === "GET" && pathname.startsWith("/api/threads/")) {
@@ -207,7 +214,7 @@ export class HttpServerTransport implements SubAgentTransport {
 			const threadId = decodeURIComponent(segments[0]);
 
 			if (segments.length === 1) {
-				return this.withCors(this.serveThread(threadId));
+				return this.withCors(await this.serveThread(threadId));
 			}
 			if (segments.length === 2 && segments[1] === "session") {
 				return this.withCors(await this.serveSession(threadId));
@@ -229,7 +236,7 @@ export class HttpServerTransport implements SubAgentTransport {
 			const instanceId = decodeURIComponent(segments[0]);
 
 			if (segments.length === 1) {
-				return this.withCors(this.serveInstance(instanceId));
+				return this.withCors(await this.serveInstance(instanceId));
 			}
 			if (segments.length === 2 && segments[1] === "session") {
 				return this.withCors(await this.serveSession(instanceId));
@@ -301,42 +308,61 @@ export class HttpServerTransport implements SubAgentTransport {
 		}
 	}
 
-	private serveInstances(): Response {
-		return Response.json(this.getSubagentThreads());
+	private async serveInstances(): Promise<Response> {
+		return Response.json(await this.getSubagentThreads());
 	}
 
 	private serveLionState(): Response {
 		return Response.json(this.options.lionState?.() ?? DEFAULT_LION_STATE);
 	}
 
-	private serveThreads(): Response {
+	private async serveThreads(): Promise<Response> {
 		const main = this.options.mainSession?.getThread();
-		const threads = main ? [main, ...this.getSubagentThreads()] : this.getSubagentThreads();
+		const subagents = await this.getSubagentThreads();
+		const threads = main ? [main, ...subagents] : subagents;
 		return Response.json(threads);
 	}
 
-	private getSubagentThreads(): DashboardThreadState[] {
+	private async getSubagentThreads(): Promise<DashboardThreadState[]> {
 		const controllerStates = this.options.controller.getInstanceStates();
 		for (const state of controllerStates) {
 			this.stateManager.registerLiveInstance(state);
 		}
-		return this.stateManager.getAllInstances();
+		const runRecords = await this.runStore.list();
+		const byInstanceId = new Map<string, DashboardThreadState>();
+		const runsByInstanceId = new Map(runRecords.map((record) => [record.instanceId, record]));
+
+		for (const record of runRecords) {
+			byInstanceId.set(record.instanceId, projectRunRecord(record));
+		}
+
+		for (const state of this.stateManager.getAllInstances()) {
+			const runRecord = runsByInstanceId.get(state.instanceId);
+			byInstanceId.set(state.instanceId, runRecord ? mergeRunRecordIntoThread(state, runRecord) : state);
+		}
+
+		return Array.from(byInstanceId.values()).sort((a, b) => b.lastActivityAt - a.lastActivityAt);
 	}
 
-	private serveInstance(instanceId: string): Response {
+	private async serveInstance(instanceId: string): Promise<Response> {
 		return this.serveThread(instanceId);
 	}
 
-	private serveThread(threadId: string): Response {
+	private async serveThread(threadId: string): Promise<Response> {
 		const main = this.options.mainSession?.getThread();
 		if (main?.instanceId === threadId) {
 			return Response.json(main);
 		}
 		const state = this.stateManager.getInstance(threadId);
 		if (!state) {
-			return new Response("Not Found", { status: 404 });
+			const record = (await this.runStore.list()).find((candidate) => candidate.instanceId === threadId);
+			if (!record) {
+				return new Response("Not Found", { status: 404 });
+			}
+			return Response.json(projectRunRecord(record));
 		}
-		return Response.json(state);
+		const record = (await this.runStore.list()).find((candidate) => candidate.instanceId === threadId);
+		return Response.json(record ? mergeRunRecordIntoThread(state, record) : state);
 	}
 
 	private async serveInstanceEvents(instanceId: string): Promise<Response> {
@@ -434,7 +460,11 @@ export class HttpServerTransport implements SubAgentTransport {
 		const live = this.options.controller.getInstanceById(threadId)?.getState();
 		const state = live ?? this.stateManager.getInstance(threadId);
 		if (!state?.sessionId) {
-			return new Response("Run record not available", { status: 404 });
+			const record = (await this.runStore.list()).find((candidate) => candidate.instanceId === threadId);
+			if (!record) {
+				return new Response("Run record not available", { status: 404 });
+			}
+			return Response.json(record);
 		}
 
 		const record = await this.runStore.read(state.sessionId, state.taskId);
@@ -482,5 +512,71 @@ export class HttpServerTransport implements SubAgentTransport {
 				this.clients.delete(client);
 			}
 		}
+	}
+}
+
+function projectRunRecord(record: SubAgentRunRecord): DashboardThreadState {
+	const endTime = record.completedAt ?? (record.status === "running" ? null : record.updatedAt);
+	return {
+		instanceId: record.instanceId,
+		taskId: record.taskId,
+		definitionName: record.definitionName,
+		parentThreadId: record.parentThreadId,
+		parentToolCallId: record.parentToolCallId,
+		runId: record.runId,
+		runIndex: record.runIndex,
+		description: record.description,
+		state: mapRunStatusToState(record.status),
+		startTime: record.startedAt,
+		endTime,
+		turnCount: record.turnCount,
+		lastActivityAt: record.updatedAt,
+		currentTool: null,
+		error: record.error ?? null,
+		toolCount: record.toolCount,
+		currentToolStartedAt: null,
+		durationMs: endTime ? endTime - record.startedAt : Date.now() - record.startedAt,
+		kind: "subagent",
+		isLive: false,
+		sessionId: record.sessionId,
+		modelProvider: record.modelProvider,
+		modelId: record.modelId,
+	};
+}
+
+function mergeRunRecordIntoThread(thread: DashboardThreadState, record: SubAgentRunRecord): DashboardThreadState {
+	const projected = projectRunRecord(record);
+	return {
+		...projected,
+		...thread,
+		parentThreadId: thread.parentThreadId ?? projected.parentThreadId,
+		parentToolCallId: thread.parentToolCallId ?? projected.parentToolCallId,
+		runId: thread.runId ?? projected.runId,
+		runIndex: thread.runIndex ?? projected.runIndex,
+		description: thread.description ?? projected.description,
+		startTime: thread.startTime ?? projected.startTime,
+		endTime: thread.endTime ?? projected.endTime,
+		lastActivityAt: Math.max(thread.lastActivityAt, projected.lastActivityAt),
+		error: thread.error ?? projected.error,
+		sessionId: thread.sessionId ?? projected.sessionId,
+		modelProvider: thread.modelProvider ?? projected.modelProvider,
+		modelId: thread.modelId ?? projected.modelId,
+	};
+}
+
+function mapRunStatusToState(status: SubAgentRunRecord["status"]): SubAgentState {
+	switch (status) {
+		case "completed":
+			return "completed";
+		case "blocked":
+			return "blocked";
+		case "running":
+			return "running";
+		case "cancelled":
+			return "cancelled";
+		case "timed_out":
+			return "timed_out";
+		default:
+			return "failed";
 	}
 }

@@ -9,6 +9,7 @@ import type { LionDashboard } from "./dashboard.js";
 import { getOrStartLionDashboard } from "./dashboard.js";
 import { LionDelegationGuard } from "./delegation-guard.js";
 import { LionRuntimeEventBus } from "./events/bus.js";
+import { classifyLionTaskResult } from "./evidence.js";
 import {
 	type LionSubagentJob,
 	type LionSubagentUiState,
@@ -438,6 +439,8 @@ export class LionRuntime {
 		taskId: string;
 		status: string;
 		summary: string;
+		structuredResult: boolean;
+		verificationStatus: string;
 	}> {
 		return Array.from(this.#jobTracker.subagentJobs.values())
 			.filter((job) => {
@@ -455,6 +458,8 @@ export class LionRuntime {
 				taskId: job.taskId,
 				status: job.status,
 				summary: job.result?.summary ?? job.error ?? "No summary available",
+				structuredResult: job.result?.structuredResult ?? false,
+				verificationStatus: job.result ? classifyLionTaskResult(job.result).verificationStatus : "unverified",
 			}));
 	}
 

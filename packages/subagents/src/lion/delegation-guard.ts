@@ -1,9 +1,10 @@
-import type { ToolCallEvent, ToolCallEventResult } from "@earendil-works/pi-coding-agent";
+import type { ToolCallEvent, ToolCallEventResult, ToolResultEvent } from "@earendil-works/pi-coding-agent";
 
 const MAX_DELEGATION_DEPTH = 3;
 
 export class LionDelegationGuard {
 	#depthMap = new Map<string, number>();
+	#activeToolCalls = new Map<string, string>();
 
 	startTurn(): void {
 		// Compatibility hook for builds that still notify the guard per turn.
@@ -27,7 +28,16 @@ export class LionDelegationGuard {
 		}
 
 		this.#depthMap.set(threadId, currentDepth + 1);
+		this.#activeToolCalls.set(event.toolCallId, threadId);
 		return undefined;
+	}
+
+	handleToolResult(event: ToolResultEvent): void {
+		if (event.toolName !== "lion_tasks") return;
+		const threadId = this.#activeToolCalls.get(event.toolCallId);
+		if (!threadId) return;
+		this.#activeToolCalls.delete(event.toolCallId);
+		this.releaseDepth(threadId);
 	}
 
 	releaseDepth(threadId: string): void {
@@ -43,5 +53,6 @@ export class LionDelegationGuard {
 
 	reset(): void {
 		this.#depthMap.clear();
+		this.#activeToolCalls.clear();
 	}
 }

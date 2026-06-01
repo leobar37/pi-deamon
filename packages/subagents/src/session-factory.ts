@@ -17,6 +17,7 @@ import type {
 } from "./types.js";
 
 const INTERNAL_SUBAGENT_TOOLS = ["subagent_record_context", "subagent_read_context", "subagent_record_result"];
+const DISALLOWED_SUBAGENT_TOOLS = ["lion_tasks"];
 
 function resolveBuilder(config: EffectiveSubAgentConfig): InstructionBuilder {
 	return config.instructionBuilder ?? DEFAULT_BUILDER;
@@ -38,7 +39,12 @@ export function buildSubAgentInstructions(options: {
 export function preserveInternalSubagentTools(requestedTools: string[], availableTools: string[]): string[] {
 	const available = new Set(availableTools);
 	const internal = INTERNAL_SUBAGENT_TOOLS.filter((tool) => available.has(tool));
-	return Array.from(new Set([...requestedTools, ...internal]));
+	return filterDisallowedSubagentTools(Array.from(new Set([...requestedTools, ...internal])));
+}
+
+export function filterDisallowedSubagentTools(tools: string[]): string[] {
+	const disallowed = new Set(DISALLOWED_SUBAGENT_TOOLS);
+	return tools.filter((tool) => !disallowed.has(tool));
 }
 
 export async function createSubAgentSession(
@@ -73,7 +79,9 @@ export async function createSubAgentSession(
 						);
 					} else if (options.config.disabledTools?.length) {
 						const all = pi.getAllTools().map((t) => t.name);
-						pi.setActiveTools(all.filter((t) => !options.config.disabledTools!.includes(t)));
+						pi.setActiveTools(
+							filterDisallowedSubagentTools(all.filter((t) => !options.config.disabledTools!.includes(t))),
+						);
 					}
 				});
 

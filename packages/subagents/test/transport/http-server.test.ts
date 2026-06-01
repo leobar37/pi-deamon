@@ -100,6 +100,113 @@ describe("HttpServerTransport", () => {
 		expect(Array.isArray(body)).toBe(true);
 	});
 
+	it("serves persisted completed runs in /api/threads without dashboard events", async () => {
+		const runStore = new SubAgentRunStore(tmpDir);
+		await runStore.start({
+			sessionId: "session-1",
+			taskId: "task-1",
+			instanceId: "instance-1",
+			definitionName: "executor",
+			cwd: tmpDir,
+			runId: "run-a",
+			runIndex: 0,
+			description: "Completed executor",
+			prompt: "Input brief",
+			startedAt: 100,
+		});
+		await runStore.complete({
+			sessionId: "session-1",
+			taskId: "task-1",
+			status: "completed",
+			summary: "Output summary",
+			completedAt: 200,
+			turnCount: 1,
+			toolCount: 2,
+		});
+
+		transport = new HttpServerTransport({
+			controller: controller as any,
+			port: 0,
+			host: "127.0.0.1",
+		});
+		await transport.start();
+		await waitForServer();
+
+		const res = await fetch(`http://127.0.0.1:${transport.port}/api/threads`);
+		expect(res.status).toBe(200);
+		const body = (await res.json()) as Array<Record<string, unknown>>;
+		expect(body).toHaveLength(1);
+		expect(body[0]).toMatchObject({
+			instanceId: "instance-1",
+			taskId: "task-1",
+			definitionName: "executor",
+			kind: "subagent",
+			state: "completed",
+			sessionId: "session-1",
+			runId: "run-a",
+			runIndex: 0,
+			description: "Completed executor",
+			turnCount: 1,
+			toolCount: 2,
+		});
+	});
+
+	it("enriches event-rehydrated threads with durable run fields", async () => {
+		const runStore = new SubAgentRunStore(tmpDir);
+		await runStore.start({
+			sessionId: "session-1",
+			taskId: "task-1",
+			instanceId: "instance-1",
+			definitionName: "executor",
+			cwd: tmpDir,
+			runId: "run-a",
+			prompt: "Input brief",
+			modelProvider: "provider",
+			modelId: "model",
+			startedAt: 100,
+		});
+		transport = new HttpServerTransport({
+			controller: controller as any,
+			port: 0,
+			host: "127.0.0.1",
+		});
+		await transport.start();
+		await waitForServer();
+		transport.emit({
+			type: "instance.state",
+			instanceId: "instance-1",
+			taskId: "task-1",
+			state: {
+				instanceId: "instance-1",
+				taskId: "task-1",
+				definitionName: "executor",
+				state: "running",
+				startTime: 100,
+				endTime: null,
+				turnCount: 0,
+				lastActivityAt: 150,
+				currentTool: null,
+				error: null,
+				toolCount: 0,
+				currentToolStartedAt: null,
+				durationMs: 50,
+			},
+			timestamp: 150,
+		} as any);
+
+		const res = await fetch(`http://127.0.0.1:${transport.port}/api/threads`);
+		expect(res.status).toBe(200);
+		const body = (await res.json()) as Array<Record<string, unknown>>;
+		expect(body[0]).toMatchObject({
+			instanceId: "instance-1",
+			state: "running",
+			sessionId: "session-1",
+			runId: "run-a",
+			modelProvider: "provider",
+			modelId: "model",
+		});
+	});
+
 	it("serves /api/lion/state endpoint", async () => {
 		transport = new HttpServerTransport({
 			controller: controller as any,
@@ -140,6 +247,46 @@ describe("HttpServerTransport", () => {
 
 		const res = await fetch(`http://127.0.0.1:${transport.port}/api/threads/nonexistent`);
 		expect(res.status).toBe(404);
+	});
+
+	it("serves /api/threads/:id for projected-only completed runs", async () => {
+		const runStore = new SubAgentRunStore(tmpDir);
+		await runStore.start({
+			sessionId: "session-1",
+			taskId: "task-1",
+			instanceId: "instance-1",
+			definitionName: "executor",
+			cwd: tmpDir,
+			description: "Completed executor",
+			prompt: "Input brief",
+			startedAt: 100,
+		});
+		await runStore.complete({
+			sessionId: "session-1",
+			taskId: "task-1",
+			status: "completed",
+			summary: "Output summary",
+			completedAt: 200,
+			turnCount: 1,
+			toolCount: 2,
+		});
+		transport = new HttpServerTransport({
+			controller: controller as any,
+			port: 0,
+			host: "127.0.0.1",
+		});
+		await transport.start();
+		await waitForServer();
+
+		const res = await fetch(`http://127.0.0.1:${transport.port}/api/threads/instance-1`);
+		expect(res.status).toBe(200);
+		const body = await res.json();
+		expect(body).toMatchObject({
+			instanceId: "instance-1",
+			state: "completed",
+			sessionId: "session-1",
+			description: "Completed executor",
+		});
 	});
 
 	it("serves /api/threads/:id/run with stored subagent input and output", async () => {
@@ -202,6 +349,45 @@ describe("HttpServerTransport", () => {
 			taskId: "task-1",
 			prompt: "Input brief",
 			systemPrompt: "Executor prompt",
+			status: "completed",
+			summary: "Output summary",
+		});
+	});
+
+	it("serves /api/threads/:id/run for projected-only completed runs", async () => {
+		const runStore = new SubAgentRunStore(tmpDir);
+		await runStore.start({
+			sessionId: "session-1",
+			taskId: "task-1",
+			instanceId: "instance-1",
+			definitionName: "executor",
+			cwd: tmpDir,
+			prompt: "Input brief",
+			startedAt: 100,
+		});
+		await runStore.complete({
+			sessionId: "session-1",
+			taskId: "task-1",
+			status: "completed",
+			summary: "Output summary",
+			completedAt: 200,
+			turnCount: 1,
+			toolCount: 2,
+		});
+		transport = new HttpServerTransport({
+			controller: controller as any,
+			port: 0,
+			host: "127.0.0.1",
+		});
+		await transport.start();
+		await waitForServer();
+
+		const res = await fetch(`http://127.0.0.1:${transport.port}/api/threads/instance-1/run`);
+		expect(res.status).toBe(200);
+		const body = await res.json();
+		expect(body).toMatchObject({
+			sessionId: "session-1",
+			taskId: "task-1",
 			status: "completed",
 			summary: "Output summary",
 		});

@@ -196,7 +196,12 @@ export class DashboardStateManager {
 		// Determine final state
 		let state: SubAgentState = "created";
 		if (taskEnd) {
-			state = taskEnd.result?.status === "completed" ? "completed" : "failed";
+			state =
+				taskEnd.result?.status === "completed"
+					? "completed"
+					: taskEnd.result?.status === "blocked"
+						? "blocked"
+						: "failed";
 		} else if (errorEvent) {
 			state = "failed";
 		} else if (lastStateEvent?.state) {
@@ -279,7 +284,8 @@ export class DashboardStateManager {
 			}
 			case "task.end": {
 				const e = event as SubAgentEvent & { result?: { status?: string; error?: string } };
-				next.state = e.result?.status === "completed" ? "completed" : "failed";
+				next.state =
+					e.result?.status === "completed" ? "completed" : e.result?.status === "blocked" ? "blocked" : "failed";
 				next.error = e.result?.error ?? null;
 				next.endTime = event.timestamp;
 				break;

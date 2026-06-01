@@ -79,6 +79,11 @@ export function lionExtension(pi: ExtensionAPI): void {
 		if (!runtime.state.active) return undefined;
 		return runtime.delegationGuard.handleToolCall(event);
 	});
+	pi.on("tool_result", async (event) => {
+		if (!runtime.state.active) return undefined;
+		runtime.delegationGuard.handleToolResult(event);
+		return undefined;
+	});
 	pi.on("session_shutdown", async () => {
 		// Mark run as interrupted only if it hasn't already completed
 		const runLogger = runtime.runLogger;

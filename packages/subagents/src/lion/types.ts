@@ -1,4 +1,4 @@
-import type { DelegationStatus, SubAgentEvent } from "../types.js";
+import type { DelegationStatus, RecordSubAgentResultInput, SubAgentEvent } from "../types.js";
 
 export type LionTaskStrategy = "parallel" | "sequential" | "chain";
 
@@ -22,6 +22,7 @@ export interface LionTaskResult {
 	verificationStatus: LionVerificationStatus;
 	evidence: LionTaskEvidence;
 	summary: string;
+	recordedResult?: RecordSubAgentResultInput;
 	duration: number;
 	turnCount: number;
 	error?: string;

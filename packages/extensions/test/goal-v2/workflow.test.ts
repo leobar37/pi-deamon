@@ -2,8 +2,10 @@ import assert from "node:assert/strict";
 import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import type { ExtensionAPI, ExtensionContext, ToolInfo } from "@earendil-works/pi-coding-agent";
 import { GoalContextTracker } from "../../src/extensions/goal-v2/context-store.js";
 import { createCore, setGoal, setGoalPhase, setGoalStatus } from "../../src/extensions/goal-v2/core.js";
+import goalV2Extension from "../../src/extensions/goal-v2/index.js";
 import type { GoalContextDocument } from "../../src/extensions/goal-v2/types.js";
 
 function testCoreTracksPhaseAndBlockedStatus(): void {
@@ -72,5 +74,160 @@ async function testContextPersistsStructuredProgress(): Promise<void> {
 	}
 }
 
+async function testGoalToolsActivateOnlyAfterGoalCommand(): Promise<void> {
+	const pi = fakePi();
+	goalV2Extension(pi.api);
+	const ctx = fakeCtx(pi);
+
+	await pi.emit("session_start", {}, ctx);
+	assert.deepEqual(pi.activeTools, ["read", "bash"]);
+
+	await pi.commands.get("goal")?.handler("ship the feature", ctx);
+	assert.deepEqual(pi.activeTools.sort(), [
+		"bash",
+		"create_goal",
+		"get_goal",
+		"read",
+		"record_goal_progress",
+		"update_goal",
+	]);
+}
+
+async function testGoalToolsStayInactiveDuringLionBuild(): Promise<void> {
+	const pi = fakePi();
+	goalV2Extension(pi.api);
+	pi.entries.push({
+		type: "custom",
+		customType: "lion-state",
+		data: {
+			version: 2,
+			active: true,
+			phase: "building",
+			updatedAt: Date.now(),
+		},
+	});
+	const ctx = fakeCtx(pi);
+
+	await pi.commands.get("goal")?.handler("ship the feature", ctx);
+
+	assert.deepEqual(pi.activeTools, ["read", "bash"]);
+	assert.equal(
+		pi.messages.some((message) => message.content.customType === "goal-v2-continuation"),
+		false,
+	);
+}
+
+async function testGoalToolCallBlockedWhenInactive(): Promise<void> {
+	const pi = fakePi();
+	goalV2Extension(pi.api);
+	const ctx = fakeCtx(pi);
+
+	const result = await pi.emit(
+		"tool_call",
+		{ type: "tool_call", toolName: "get_goal", toolCallId: "tool-1", input: {} },
+		ctx,
+	);
+
+	assert.equal(result?.block, true);
+	assert.match(String(result?.reason ?? ""), /inactive/);
+}
+
 testCoreTracksPhaseAndBlockedStatus();
 await testContextPersistsStructuredProgress();
+await testGoalToolsActivateOnlyAfterGoalCommand();
+await testGoalToolsStayInactiveDuringLionBuild();
+await testGoalToolCallBlockedWhenInactive();
+
+type Handler = (
+	event: Record<string, unknown>,
+	ctx: ExtensionContext,
+) => Promise<Record<string, unknown> | undefined> | Record<string, unknown> | undefined;
+
+interface FakeCommand {
+	handler(args: string, ctx: ExtensionContext): Promise<void>;
+}
+
+interface FakeMessage {
+	content: { customType?: string; content?: string };
+	options: Record<string, unknown>;
+}
+
+function fakePi() {
+	const handlers = new Map<string, Handler[]>();
+	const commands = new Map<string, FakeCommand>();
+	const tools = new Map<string, ToolInfo>();
+	const entries: Array<{ type: "custom"; customType: string; data: unknown }> = [];
+	const messages: FakeMessage[] = [];
+	const baseTools = ["read", "bash"];
+	const activeTools = [...baseTools, "get_goal", "create_goal", "update_goal", "record_goal_progress"];
+
+	const api = {
+		on(event: string, handler: Handler) {
+			const list = handlers.get(event) ?? [];
+			list.push(handler);
+			handlers.set(event, list);
+		},
+		registerCommand(name: string, command: FakeCommand) {
+			commands.set(name, command);
+		},
+		registerTool(tool: ToolInfo) {
+			tools.set(tool.name, tool);
+		},
+		appendEntry(customType: string, data: unknown) {
+			entries.push({ type: "custom", customType, data });
+		},
+		sendMessage(content: FakeMessage["content"], options: Record<string, unknown>) {
+			messages.push({ content, options });
+		},
+		getActiveTools() {
+			return activeTools;
+		},
+		getAllTools() {
+			return [
+				...activeTools.map((name) => ({ name })),
+				...Array.from(tools.values()).map((tool) => ({ name: tool.name })),
+			];
+		},
+		setActiveTools(toolNames: string[]) {
+			activeTools.splice(0, activeTools.length, ...toolNames);
+		},
+	} as unknown as ExtensionAPI;
+
+	return {
+		api,
+		handlers,
+		commands,
+		tools,
+		entries,
+		messages,
+		activeTools,
+		async emit(event: string, payload: Record<string, unknown>, ctx: ExtensionContext) {
+			let result: Record<string, unknown> | undefined;
+			for (const handler of handlers.get(event) ?? []) {
+				const next = await handler(payload, ctx);
+				if (next) result = next;
+			}
+			return result;
+		},
+	};
+}
+
+function fakeCtx(pi: ReturnType<typeof fakePi>): ExtensionContext {
+	return {
+		sessionManager: {
+			getBranch: () => pi.entries,
+			getCwd: () => mkdtempSync(join(tmpdir(), "goal-v2-cwd-")),
+			getSessionId: () => "session-1",
+		},
+		hasPendingMessages: () => false,
+		isIdle: () => true,
+		hasUI: false,
+		ui: {
+			setStatus: () => {},
+			theme: { fg: (_name: string, text: string) => text },
+		},
+		modelRegistry: {
+			getApiKeyAndHeaders: () => Promise.resolve({ ok: true, apiKey: "test", headers: {} }),
+		},
+	} as unknown as ExtensionContext;
+}

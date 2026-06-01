@@ -66,6 +66,14 @@ describe("SubAgentRunStore", () => {
 			taskId: "task-1",
 			status: "completed",
 			summary: "No findings.",
+			recordedResult: {
+				status: "completed",
+				summary: "No findings.",
+				files: ["packages/subagents/src/run-store.ts"],
+				evidence: ["bun x vitest --run test/run-store.test.ts passed"],
+				risks: ["No residual risk"],
+				nextStep: "Return to orchestrator",
+			},
 			completedAt: 200,
 			turnCount: 2,
 			toolCount: 3,
@@ -78,11 +86,81 @@ describe("SubAgentRunStore", () => {
 		expect(record).toMatchObject({
 			status: "completed",
 			summary: "No findings.",
+			recordedResult: {
+				status: "completed",
+				summary: "No findings.",
+				files: ["packages/subagents/src/run-store.ts"],
+				evidence: ["bun x vitest --run test/run-store.test.ts passed"],
+				risks: ["No residual risk"],
+				nextStep: "Return to orchestrator",
+			},
 			completedAt: 200,
 			turnCount: 2,
 			toolCount: 3,
 			modelProvider: "provider",
 			modelId: "model",
 		});
+	});
+
+	it("lists run records newest first", async () => {
+		await store.start({
+			sessionId: "session-1",
+			taskId: "older",
+			instanceId: "instance-older",
+			definitionName: "executor",
+			cwd: "/repo",
+			prompt: "Older task",
+			startedAt: 100,
+		});
+		await store.start({
+			sessionId: "session-2",
+			taskId: "newer",
+			instanceId: "instance-newer",
+			definitionName: "reviewer",
+			cwd: "/repo",
+			prompt: "Newer task",
+			startedAt: 200,
+		});
+
+		const records = await store.list();
+
+		expect(records.map((record) => record.taskId)).toEqual(["newer", "older"]);
+	});
+
+	it("filters listed run records", async () => {
+		await store.start({
+			sessionId: "session-1",
+			taskId: "task-1",
+			instanceId: "instance-1",
+			definitionName: "executor",
+			cwd: "/repo",
+			runId: "run-a",
+			prompt: "Implement",
+			startedAt: 100,
+		});
+		await store.complete({
+			sessionId: "session-1",
+			taskId: "task-1",
+			status: "completed",
+			summary: "Done",
+			completedAt: 300,
+			turnCount: 1,
+			toolCount: 1,
+		});
+		await store.start({
+			sessionId: "session-2",
+			taskId: "task-2",
+			instanceId: "instance-2",
+			definitionName: "reviewer",
+			cwd: "/repo",
+			runId: "run-b",
+			prompt: "Review",
+			startedAt: 200,
+		});
+
+		expect((await store.list({ status: "completed" })).map((record) => record.taskId)).toEqual(["task-1"]);
+		expect((await store.list({ runId: "run-b" })).map((record) => record.taskId)).toEqual(["task-2"]);
+		expect((await store.list({ definitionName: "executor" })).map((record) => record.taskId)).toEqual(["task-1"]);
+		expect((await store.list({ sessionId: "session-2" })).map((record) => record.taskId)).toEqual(["task-2"]);
 	});
 });

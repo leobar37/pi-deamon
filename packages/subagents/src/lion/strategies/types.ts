@@ -42,6 +42,8 @@ export interface LionCompactionContext {
 		taskId: string;
 		status: string;
 		summary: string;
+		structuredResult: boolean;
+		verificationStatus: string;
 	}>;
 	getSubagentContext(taskId: string): Promise<{ path: string; summary: string }>;
 }

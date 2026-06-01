@@ -43,7 +43,7 @@ export function ChatView({ instanceId }: ChatViewProps) {
 				</div>
 			</div>
 			<div className="relative min-h-0 flex-1">
-				<div ref={scrollRef} className="h-full space-y-4 overflow-y-auto p-4">
+				<div ref={scrollRef} className="h-full space-y-2 overflow-y-auto p-3">
 					{messages.length === 0 ? (
 						<div className="flex h-full items-center justify-center">
 							<EmptyMessageState thread={thread} />

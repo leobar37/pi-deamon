@@ -64,8 +64,13 @@ export function toPlanResult(taskId: string, results: DelegationResult[]): Deleg
 	return {
 		taskId,
 		agent: "plan",
-		status: results.some((result) => result.status === "failed") ? "failed" : "completed",
+		status: results.some((result) => result.status === "failed")
+			? "failed"
+			: results.some((result) => result.status === "blocked")
+				? "blocked"
+				: "completed",
 		summary: JSON.stringify(results, null, 2),
+		structuredResult: results.every((result) => result.structuredResult),
 		duration: Math.max(0, ...results.map((result) => result.duration)),
 		turnCount: results.reduce((sum, result) => sum + result.turnCount, 0),
 		finalState: results[results.length - 1]?.finalState,

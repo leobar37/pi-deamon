@@ -10,11 +10,20 @@ import { join } from "node:path";
 const REPO_ROOT = realpathSync("/Users/leobar37/code/opensource/piiiiiiiiiiiiiiiiiiiiiiiiii");
 const CLI_ENTRY = join(REPO_ROOT, "packages", "coding-agent", "src", "cli.ts");
 const SUBAGENTS_DIR = join(REPO_ROOT, "packages", "subagents");
+const SUBAGENTS_FRONTEND_DIR = join(SUBAGENTS_DIR, "frontend");
 const EXT_DIR = join(REPO_ROOT, "packages", "extensions");
 
 const args = process.argv.slice(2);
 
 // Build subagents first because extensions keep @local/pi-subagents external.
+const subagentsFrontendBuildProc = Bun.spawnSync(["bun", "run", "build"], {
+  cwd: SUBAGENTS_FRONTEND_DIR,
+  stdio: ["inherit", "inherit", "inherit"],
+});
+if (subagentsFrontendBuildProc.exitCode !== 0) {
+  process.exit(subagentsFrontendBuildProc.exitCode ?? 1);
+}
+
 const subagentsBuildProc = Bun.spawnSync(["bun", "run", "build"], {
   cwd: SUBAGENTS_DIR,
   stdio: ["inherit", "inherit", "inherit"],

@@ -7,6 +7,7 @@ export type SubAgentState =
 	| "paused"
 	| "completing"
 	| "completed"
+	| "blocked"
 	| "failed"
 	| "cancelled"
 	| "timed_out"

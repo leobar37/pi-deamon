@@ -18,14 +18,23 @@ export function classifyLionTaskResult(result: DelegationResult): {
 	evidence: LionTaskEvidence;
 } {
 	const summary = result.summary.trim();
+	const recorded = result.recordedResult;
 	const evidence: LionTaskEvidence = {
 		commands: extractCommands(summary),
 		checks: extractChecks(summary),
-		changedFiles: extractChangedFiles(summary),
-		warnings: extractMatchingLines(summary, RISK_PATTERN),
+		changedFiles: Array.from(new Set([...(recorded?.files ?? []), ...extractChangedFiles(summary)])),
+		warnings: Array.from(new Set([...(recorded?.risks ?? []), ...extractMatchingLines(summary, RISK_PATTERN)])),
 		externalFailures: extractExternalFailures(summary),
 		residualRisks: [],
 	};
+
+	for (const item of recorded?.evidence ?? []) {
+		evidence.checks.push({
+			name: trimSnippet(item),
+			status: lineStatus(item) === "unknown" ? "unknown" : lineStatus(item),
+			detail: trimSnippet(item),
+		});
+	}
 
 	if (result.error) {
 		evidence.warnings.push(result.error);
@@ -51,6 +60,13 @@ function classifyVerification(
 		return result.status === "blocked" || result.status === "timed_out" || result.status === "cancelled"
 			? "blocked"
 			: "failed";
+	}
+
+	if (result.recordedResult) {
+		const recordedEvidence = result.recordedResult.evidence ?? [];
+		if (recordedEvidence.some((item) => lineStatus(item) === "failed")) return "failed";
+		if (recordedEvidence.some((item) => lineStatus(item) === "blocked")) return "blocked";
+		if (recordedEvidence.some((item) => lineStatus(item) === "passed")) return "verified";
 	}
 
 	const hasFailure = FAILURE_PATTERN.test(summary) && !onlyExternalFailures(summary);
