@@ -1,3 +1,9 @@
+/**
+ * EventBubble renders a single subagent event as a styled timeline item.
+ * NOTE: This component is currently unused in the dashboard UI.
+ * It is retained for future timeline/event-log views.
+ */
+
 import type { SubAgentEvent } from "../types.ts";
 
 interface EventBubbleProps {

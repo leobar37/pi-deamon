@@ -4,7 +4,9 @@ interface ImageBlockProps {
 }
 
 export function ImageBlock({ data, mimeType }: ImageBlockProps) {
-	const src = data.startsWith("data:") ? data : `data:${mimeType};base64,${data}`;
+	const src = data.startsWith("data:") || data.startsWith("http://") || data.startsWith("https://")
+		? data
+		: `data:${mimeType};base64,${data}`;
 	return (
 		<div className="my-2">
 			<img

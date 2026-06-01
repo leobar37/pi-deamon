@@ -1,9 +1,9 @@
 import type { MessageBlock } from "../../types.ts";
-import { TextBlock } from "./TextBlock.js";
-import { ThinkingBlock } from "./ThinkingBlock.js";
-import { ToolCallBlock } from "./ToolCallBlock.js";
-import { ToolResultBlock } from "./ToolResultBlock.js";
-import { ImageBlock } from "./ImageBlock.js";
+import { TextBlock } from "./TextBlock";
+import { ThinkingBlock } from "./ThinkingBlock";
+import { ToolCallBlock } from "./ToolCallBlock";
+import { ToolResultBlock } from "./ToolResultBlock";
+import { ImageBlock } from "./ImageBlock";
 
 interface BlockRendererProps {
 	block: MessageBlock;
@@ -17,7 +17,7 @@ export function BlockRenderer({ block, currentThreadId }: BlockRendererProps) {
 		case "thinking":
 			return <ThinkingBlock thinking={block.thinking} signature={block.signature} redacted={block.redacted} />;
 		case "toolCall":
-			return <ToolCallBlock id={block.id} name={block.name} arguments={block.arguments} currentThreadId={currentThreadId} />;
+			return <ToolCallBlock id={block.id} name={block.name} args={block.arguments} currentThreadId={currentThreadId} />;
 		case "toolResult":
 			return <ToolResultBlock toolCallId={block.toolCallId} content={block.content} isError={block.isError} />;
 		case "image":

@@ -1,4 +1,4 @@
-import { MarkdownRenderer } from "./MarkdownRenderer.js";
+import { MarkdownRenderer } from "./MarkdownRenderer";
 
 interface TextBlockProps {
 	text: string;

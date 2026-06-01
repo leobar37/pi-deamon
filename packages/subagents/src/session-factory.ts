@@ -8,6 +8,7 @@ import {
 import { Type } from "typebox";
 import { resolveConfiguredModel, SubAgentConfigManager } from "./config-manager.js";
 import { DEFAULT_BUILDER } from "./instructions/defaults.js";
+import { applyInternalSkillPrecedence, getInternalSkillPaths } from "./internal-skills.js";
 import type {
 	CreateSubAgentSessionOptions,
 	CreateSubAgentSessionResult,
@@ -60,12 +61,20 @@ export async function createSubAgentSession(
 		options.config.fallbackModels,
 		options.modelRegistry,
 	);
+	const internalSkillPaths = getInternalSkillPaths();
 
 	const loader = new DefaultResourceLoader({
 		cwd: resourceCwd,
 		agentDir,
 		settingsManager: options.settingsManager,
-		additionalSkillPaths: options.config.skillPaths,
+		additionalSkillPaths: [...internalSkillPaths, ...(options.config.skillPaths ?? [])],
+		skillsOverride: (base) =>
+			applyInternalSkillPrecedence({
+				base,
+				cwd: resourceCwd,
+				agentDir,
+				skillPaths: internalSkillPaths,
+			}),
 		extensionFactories: [
 			(pi) => {
 				// Tool restrictions

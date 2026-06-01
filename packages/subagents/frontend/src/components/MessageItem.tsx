@@ -1,7 +1,7 @@
 import { useCallback, useMemo, useState } from "react";
 import type { ChatMessage } from "../types.ts";
 import { messageToText } from "../utils/message-text.ts";
-import { BlockRenderer } from "./blocks/BlockRenderer.js";
+import { BlockRenderer } from "./blocks/BlockRenderer";
 
 interface MessageItemProps {
 	message: ChatMessage;

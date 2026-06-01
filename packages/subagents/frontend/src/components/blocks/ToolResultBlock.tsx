@@ -1,4 +1,4 @@
-import { MarkdownRenderer } from "./MarkdownRenderer.js";
+import { MarkdownRenderer } from "./MarkdownRenderer";
 import { useState } from "react";
 
 interface ToolResultBlockProps {

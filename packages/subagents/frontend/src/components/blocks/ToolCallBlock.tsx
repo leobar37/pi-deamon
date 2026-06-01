@@ -5,11 +5,11 @@ import { useSubAgentStore } from "../../store/use-subagent-store.ts";
 interface ToolCallBlockProps {
 	id: string;
 	name: string;
-	arguments: Record<string, unknown>;
+	args: Record<string, unknown>;
 	currentThreadId: string;
 }
 
-export function ToolCallBlock({ id, name, arguments: args, currentThreadId }: ToolCallBlockProps) {
+export function ToolCallBlock({ id, name, args, currentThreadId }: ToolCallBlockProps) {
 	const [isExpanded, setIsExpanded] = useState(false);
 	const toggle = useCallback(() => setIsExpanded((v) => !v), []);
 	const agents = useSubAgentStore((s) => s.agents);

@@ -24,8 +24,10 @@ function parseHttp(content: string): ParsedHttp {
 		result.status = parts.slice(1).join(" ");
 	} else {
 		const parts = firstLine.split(" ");
-		result.method = parts[0];
-		result.url = parts[1];
+		if (parts.length >= 2) {
+			result.method = parts[0];
+			result.url = parts[1];
+		}
 	}
 
 	let bodyStart = -1;

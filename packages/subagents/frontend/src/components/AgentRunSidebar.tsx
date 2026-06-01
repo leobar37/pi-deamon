@@ -1,5 +1,5 @@
 import type { SubAgentInstanceState, SubAgentRunRecord } from "../types.ts";
-import { MarkdownRenderer } from "./blocks/MarkdownRenderer.js";
+import { MarkdownRenderer } from "./blocks/MarkdownRenderer";
 
 interface AgentRunSidebarProps {
 	agent?: SubAgentInstanceState;

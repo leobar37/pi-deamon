@@ -1,7 +1,7 @@
 import React from "react";
 import { renderToString } from "react-dom/server";
 import { describe, expect, it } from "vitest";
-import { CodeBlock } from "../src/components/blocks/CodeBlock.js";
+import { CodeBlock } from "../src/components/blocks/CodeBlock";
 
 describe("CodeBlock", () => {
 	it("renders unknown languages without throwing", () => {

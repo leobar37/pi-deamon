@@ -2,6 +2,10 @@
 
 ## [Unreleased]
 
+### Added
+
+- Added bundled internal `planner` and `subagent-delegation` skills for subagent sessions, with internal skills taking precedence over same-name external skills.
+
 ### Fixed
 
 - Fixed Lion plan task completion so active plan tasks require structured subagent results with verified evidence before marking checklist tasks complete.

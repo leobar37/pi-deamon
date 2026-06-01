@@ -53,9 +53,9 @@ export const useSessionMessagesStore = create<SessionMessagesState>((set, get) =
 			const next = new Map(state.messagesByInstance);
 			const existing = next.get(instanceId) ?? [];
 			const partialMessage = { ...message, partial: true, streaming: message.role === "assistant" };
-			const existingIndex = findMessageIndex(existing, partialMessage);
-			if (existingIndex >= 0) {
-				next.set(instanceId, replaceAt(existing, existingIndex, partialMessage));
+			const targetIndex = findPartialMessageIndex(existing, partialMessage);
+			if (targetIndex >= 0) {
+				next.set(instanceId, replaceAt(existing, targetIndex, partialMessage));
 			} else {
 				next.set(instanceId, [...existing, partialMessage]);
 			}
@@ -67,9 +67,12 @@ export const useSessionMessagesStore = create<SessionMessagesState>((set, get) =
 		set((state) => {
 			const next = new Map(state.messagesByInstance);
 			const existing = next.get(instanceId) ?? [];
-			const targetIndex = findPartialMessageIndex(existing, message) ?? findMessageIndex(existing, message);
+			let targetIndex = findPartialMessageIndex(existing, message);
+			if (targetIndex === -1) {
+				targetIndex = findMessageIndex(existing, message);
+			}
 			const partialMessage = { ...message, partial: true, streaming: message.role === "assistant" };
-			if (targetIndex === undefined || targetIndex < 0) {
+			if (targetIndex < 0) {
 				next.set(instanceId, [...existing, partialMessage]);
 			} else {
 				next.set(instanceId, replaceAt(existing, targetIndex, partialMessage));
@@ -82,9 +85,12 @@ export const useSessionMessagesStore = create<SessionMessagesState>((set, get) =
 		set((state) => {
 			const next = new Map(state.messagesByInstance);
 			const existing = next.get(instanceId) ?? [];
-			const targetIndex = findPartialMessageIndex(existing, message) ?? findMessageIndex(existing, message);
+			let targetIndex = findPartialMessageIndex(existing, message);
+			if (targetIndex === -1) {
+				targetIndex = findMessageIndex(existing, message);
+			}
 			const finalMessage = { ...message, partial: false, streaming: false };
-			if (targetIndex === undefined || targetIndex < 0) {
+			if (targetIndex < 0) {
 				next.set(instanceId, [...existing, finalMessage]);
 			} else {
 				next.set(instanceId, replaceAt(existing, targetIndex, finalMessage));

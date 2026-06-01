@@ -60,7 +60,8 @@ export const useSubAgentStore = create<SubAgentStore>((set) => ({
 				last.instanceId === event.instanceId &&
 				last.timestamp === event.timestamp
 			) {
-				return state;
+				// Guard against different events sharing the same ms by comparing full shape
+				if (JSON.stringify(last) === JSON.stringify(event)) return state;
 			}
 
 			// Handle new agents arriving via instance.created

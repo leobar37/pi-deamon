@@ -23,13 +23,13 @@ export function findMessageIndex(messages: ChatMessage[], message: ChatMessage):
 	return messages.findIndex((item) => messageKey(item) === key);
 }
 
-export function findPartialMessageIndex(messages: ChatMessage[], message: ChatMessage): number | undefined {
+export function findPartialMessageIndex(messages: ChatMessage[], message: ChatMessage): number {
 	for (let i = messages.length - 1; i >= 0; i--) {
 		const item = messages[i];
 		if (!item.partial) continue;
 		if (item.role === message.role) return i;
 	}
-	return undefined;
+	return -1;
 }
 
 export function messageKey(message: ChatMessage): string {

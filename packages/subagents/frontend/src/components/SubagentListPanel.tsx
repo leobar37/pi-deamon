@@ -28,14 +28,14 @@ export function SubagentListPanel({ activeThreadId, agentsOverride }: SubagentLi
 	const total = useMemo(() => agents.filter((agent) => agent.kind === "subagent").length, [agents]);
 	const visibleCount = groups.reduce((sum, group) => sum + group.threads.length, 0);
 
-	const panel = (
+	const panel = (isCollapsed: boolean) => (
 		<aside
 			className={`relative flex h-full shrink-0 flex-col border-r border-border-subtle bg-bg-elevated transition-[width] duration-200 ${
-				collapsed ? "w-14" : "w-[280px]"
+				isCollapsed ? "w-14" : "w-[280px]"
 			}`}
 		>
 			<div className="flex min-h-12 items-center justify-between gap-2 border-b border-border-subtle px-3">
-				{collapsed ? (
+				{isCollapsed ? (
 					<div className="flex w-full flex-col items-center gap-1">
 						<div className="flex h-7 w-7 items-center justify-center rounded border border-border-subtle bg-bg text-text-secondary">
 							<span className="text-sm leading-none">≡</span>
@@ -52,15 +52,15 @@ export function SubagentListPanel({ activeThreadId, agentsOverride }: SubagentLi
 					type="button"
 					onClick={() => setCollapsed((value) => !value)}
 					className={`hidden h-8 w-8 shrink-0 items-center justify-center rounded border border-border-subtle text-xs text-text-secondary transition hover:border-border-hover hover:text-text-primary md:flex ${
-						collapsed ? "absolute left-3 top-11 bg-bg-elevated" : ""
+						isCollapsed ? "absolute left-3 top-11 bg-bg-elevated" : ""
 					}`}
-					aria-label={collapsed ? "Expand subagent list" : "Collapse subagent list"}
+					aria-label={isCollapsed ? "Expand subagent list" : "Collapse subagent list"}
 				>
-					{collapsed ? ">" : "<"}
+					{isCollapsed ? ">" : "<"}
 				</button>
 			</div>
 
-			{collapsed ? null : (
+			{isCollapsed ? null : (
 				<>
 					<div className="border-b border-border-subtle p-3">
 						<div className="grid grid-cols-2 gap-1 rounded border border-border-subtle bg-bg p-1">
@@ -114,7 +114,7 @@ export function SubagentListPanel({ activeThreadId, agentsOverride }: SubagentLi
 
 	return (
 		<>
-			<div className="hidden h-full md:block">{panel}</div>
+			<div className="hidden h-full md:block">{panel(collapsed)}</div>
 			<button
 				type="button"
 				onClick={() => setMobileOpen(true)}
@@ -130,7 +130,7 @@ export function SubagentListPanel({ activeThreadId, agentsOverride }: SubagentLi
 						aria-label="Close subagent list"
 						onClick={() => setMobileOpen(false)}
 					/>
-					<div className="h-full">{panel}</div>
+					<div className="h-full">{panel(false)}</div>
 				</div>
 			) : null}
 		</>

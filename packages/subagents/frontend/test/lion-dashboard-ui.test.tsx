@@ -1,10 +1,10 @@
 import React from "react";
 import { renderToString } from "react-dom/server";
 import { describe, expect, it } from "vitest";
-import { AgentRunSidebar } from "../src/components/AgentRunSidebar.js";
-import { LionModeBadge } from "../src/components/LionModeBadge.js";
-import { groupSubagents, SubagentListPanel } from "../src/components/SubagentListPanel.js";
-import type { LionDashboardState, SubAgentInstanceState, SubAgentRunRecord } from "../src/types.js";
+import { AgentRunSidebar } from "../src/components/AgentRunSidebar";
+import { LionModeBadge } from "../src/components/LionModeBadge";
+import { groupSubagents, SubagentListPanel } from "../src/components/SubagentListPanel";
+import type { LionDashboardState, SubAgentInstanceState, SubAgentRunRecord } from "../src/types";
 
 const baseAgent: SubAgentInstanceState = {
 	instanceId: "subagent-1",

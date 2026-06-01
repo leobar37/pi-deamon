@@ -1,7 +1,7 @@
 import { Streamdown } from "streamdown";
 import remarkGfm from "remark-gfm";
-import { CodeBlock } from "./CodeBlock.js";
-import { HttpBlock } from "./HttpBlock.js";
+import { CodeBlock } from "./CodeBlock";
+import { HttpBlock } from "./HttpBlock";
 
 interface MarkdownRendererProps {
 	content: string;
