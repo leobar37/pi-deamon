@@ -7,7 +7,7 @@
 import { realpathSync } from "node:fs";
 import { join } from "node:path";
 
-const REPO_ROOT = realpathSync("/Users/leobar37/code/opensource/piiiiiiiiiiiiiiiiiiiiiiiiii");
+const REPO_ROOT = realpathSync(join(import.meta.dirname, ".."));
 const CLI_ENTRY = join(REPO_ROOT, "packages", "coding-agent", "src", "cli.ts");
 const SUBAGENTS_DIR = join(REPO_ROOT, "packages", "subagents");
 const SUBAGENTS_FRONTEND_DIR = join(SUBAGENTS_DIR, "frontend");
