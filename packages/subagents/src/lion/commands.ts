@@ -429,7 +429,7 @@ export function registerLionCommands(pi: ExtensionAPI, runtime: LionRuntime): vo
 							"Do not implement application code directly unless it is trivial.",
 						].join("\n");
 
-			const nextTools = ["lion_tasks"];
+			const nextTools = isReviewMode ? ["lion_checklist_start_next", "lion_tasks"] : ["lion_tasks"];
 
 			const message = {
 				customType: "lion-orchestrator-feedback",
@@ -442,6 +442,7 @@ export function registerLionCommands(pi: ExtensionAPI, runtime: LionRuntime): vo
 					strategy: runtime.state.strategy,
 					phase: "building",
 					nextTools,
+					nextToolsRequired: isReviewMode ? ["lion_checklist_start_next"] : undefined,
 				},
 			};
 

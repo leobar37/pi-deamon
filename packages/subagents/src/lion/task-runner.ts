@@ -337,6 +337,22 @@ export class TaskRunner {
 			if (task.definition === "executor") {
 				throw new Error("executor tasks are not allowed in Lion review mode.");
 			}
+			if (state.phase === "planning") {
+				if (!isReviewPlanningRole(task.definition)) {
+					throw new Error(`${task.definition} tasks require /lion-build in review mode.`);
+				}
+				return {
+					...task,
+					capabilities: {
+						...task.capabilities,
+						canEdit: false,
+						canWrite: false,
+						canExecute: false,
+					},
+					tools: ["read", "glob", "grep"],
+					disabledTools: ["edit", "write", "multi-edit", "bash"],
+				};
+			}
 			return {
 				...task,
 				capabilities: {
@@ -643,6 +659,10 @@ function isPlanningRole(definition: string): boolean {
 	return (
 		definition === "analyzer" || definition === "planner" || definition === "reviewer" || definition === "validator"
 	);
+}
+
+function isReviewPlanningRole(definition: string): boolean {
+	return definition === "analyzer" || definition === "planner";
 }
 
 function uniqueStrings(values: string[]): string[] {

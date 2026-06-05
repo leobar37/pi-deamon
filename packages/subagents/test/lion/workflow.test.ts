@@ -599,6 +599,33 @@ async function testTaskRunnerAllowsReviewerInPlanningPhase(): Promise<void> {
 	}
 }
 
+async function testTaskRunnerRejectsReviewerInReviewPlanningPhase(): Promise<void> {
+	const runtime = new LionRuntime(fakePi() as any);
+	runtime.activateReview(plan);
+	const runner = new TaskRunner(runtime);
+
+	await assert.rejects(
+		() =>
+			runner.run(
+				fakeCtx({}) as any,
+				{
+					strategy: "sequential",
+					tasks: [
+						{
+							definition: "reviewer",
+							title: "Review active changes",
+							prompt: "Review the code.",
+							capabilities: { canEdit: true, canWrite: true, canExecute: true },
+							tools: ["read", "glob", "grep", "bash"],
+						},
+					],
+				},
+				{ threadId: "main:test-session", toolCallId: "tool-1" },
+			),
+		/lion-build in review mode/,
+	);
+}
+
 async function testTaskRunnerRunsActivePlanNextTaskInBuildPhase(): Promise<void> {
 	const dir = createStructuredPlanDirWithChecklist();
 	try {
@@ -2376,6 +2403,10 @@ const tests = [
 	{
 		name: "testTaskRunnerAllowsReviewerInPlanningPhase",
 		fn: testTaskRunnerAllowsReviewerInPlanningPhase,
+	},
+	{
+		name: "testTaskRunnerRejectsReviewerInReviewPlanningPhase",
+		fn: testTaskRunnerRejectsReviewerInReviewPlanningPhase,
 	},
 	{
 		name: "testTaskRunnerRunsActivePlanNextTaskInBuildPhase",

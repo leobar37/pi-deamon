@@ -28,16 +28,14 @@ export interface CodeReviewTodo {
 }
 
 export async function collectCodeReviewGitContext(cwd: string): Promise<CodeReviewGitContext> {
-	const [statusShort, diffNameOnly, diffStat, recentCommitLog, recentDiffNameOnly, recentDiffStat] = await Promise.all(
-		[
-			runGit(cwd, ["status", "--short"]),
-			runGit(cwd, ["diff", "--name-only", "HEAD"]),
-			runGit(cwd, ["diff", "--stat", "HEAD"]),
-			runGit(cwd, ["log", "--oneline", "-n", "5"]),
-			runGit(cwd, ["diff", "--name-only", "HEAD~5..HEAD"]),
-			runGit(cwd, ["diff", "--stat", "HEAD~5..HEAD"]),
-		],
-	);
+	const [statusShort, diffNameOnly, diffStat, recentCommitLog, recentDiff] = await Promise.all([
+		runGit(cwd, ["status", "--short"]),
+		runGit(cwd, ["diff", "--name-only", "HEAD"]),
+		runGit(cwd, ["diff", "--stat", "HEAD"]),
+		runGit(cwd, ["log", "--oneline", "-n", "5"]),
+		collectRecentCommitDiff(cwd),
+	]);
+	const { recentDiffNameOnly, recentDiffStat } = recentDiff;
 
 	return { statusShort, diffNameOnly, diffStat, recentCommitLog, recentDiffNameOnly, recentDiffStat };
 }
@@ -352,6 +350,31 @@ async function runGit(cwd: string, args: string[]): Promise<string> {
 	} catch {
 		return "";
 	}
+}
+
+async function collectRecentCommitDiff(cwd: string): Promise<{
+	recentDiffNameOnly: string;
+	recentDiffStat: string;
+}> {
+	const commits = splitLines(await runGit(cwd, ["rev-list", "--max-count=5", "HEAD"]));
+	if (commits.length === 0) {
+		return { recentDiffNameOnly: "", recentDiffStat: "" };
+	}
+
+	const nameOutput = await Promise.all(
+		commits.map((commit) => runGit(cwd, ["diff-tree", "--root", "--no-commit-id", "--name-only", "-r", commit])),
+	);
+	const statOutput = await Promise.all(
+		commits.map((commit) => runGit(cwd, ["show", "--stat", "--format=", "--no-renames", commit])),
+	);
+
+	return {
+		recentDiffNameOnly: unique(nameOutput.flatMap(splitLines)).join("\n"),
+		recentDiffStat: statOutput
+			.map((item) => item.trim())
+			.filter(Boolean)
+			.join("\n\n"),
+	};
 }
 
 function unique(values: string[]): string[] {

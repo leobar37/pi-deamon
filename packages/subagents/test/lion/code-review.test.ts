@@ -1,3 +1,4 @@
+import { execFileSync } from "node:child_process";
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -6,6 +7,7 @@ import {
 	buildCodeReviewLionTasksParams,
 	buildCodeReviewTodo,
 	type CodeReviewGitContext,
+	collectCodeReviewGitContext,
 } from "../../src/lion/code-review.js";
 import { registerLionCommands } from "../../src/lion/commands.js";
 import { createReviewPlanFromTodo, loadReviewPlan } from "../../src/lion/review-plan.js";
@@ -193,7 +195,30 @@ describe("Lion code review orchestration", () => {
 			rmSync(cwd, { recursive: true, force: true });
 		}
 	});
+
+	it("collects recent commit files from short git histories", async () => {
+		const cwd = mkdtempSync(join(tmpdir(), "lion-code-review-short-git-"));
+
+		try {
+			runGit(cwd, ["init"]);
+			writeFileSync(join(cwd, "feature.ts"), "export const feature = true;\n");
+			runGit(cwd, ["add", "feature.ts"]);
+			runGit(cwd, ["-c", "user.name=Lion", "-c", "user.email=lion@example.com", "commit", "-m", "add feature"]);
+
+			const git = await collectCodeReviewGitContext(cwd);
+
+			expect(git.recentCommitLog).toContain("add feature");
+			expect(git.recentDiffNameOnly).toContain("feature.ts");
+			expect(git.recentDiffStat).toContain("feature.ts");
+		} finally {
+			rmSync(cwd, { recursive: true, force: true });
+		}
+	});
 });
+
+function runGit(cwd: string, args: string[]): void {
+	execFileSync("git", args, { cwd, stdio: "ignore" });
+}
 
 function fakePiWithCommands() {
 	return {
