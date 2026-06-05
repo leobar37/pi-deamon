@@ -216,6 +216,7 @@
       "version": "0.0.1",
       "dependencies": {
         "@local/pi-logger": "workspace:*",
+        "esbuild": "^0.28.0",
         "typebox": "^1.1.24",
       },
       "devDependencies": {
