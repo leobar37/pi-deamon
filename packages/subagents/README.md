@@ -228,6 +228,48 @@ controller.getEventBus().on("*", (event) => {
 
 ---
 
+## Dashboard Session Logs
+
+The dashboard writes one JSONL log per Pi session:
+
+```text
+.pi/dashboard/logs/<sessionId>.jsonl
+```
+
+Each line is a structured record:
+
+```json
+{
+  "timestamp": 1780780000000,
+  "sessionId": "019e...",
+  "threadId": "main:019e...",
+  "type": "model.select.success",
+  "source": "dashboard",
+  "level": "info",
+  "data": { "provider": "kimi-coding", "modelId": "kimi-for-coding" }
+}
+```
+
+Logs are session-scoped, not Lion-scoped, so they are available for the normal Pi dashboard even when Lion is inactive. The dashboard records model selection requests/results, prompt requests/results, and dashboard event stream records when a session id can be resolved.
+
+Dashboard logs are exposed through ORPC:
+
+```typescript
+await orpc.logs.session({
+  sessionId: "019e...",
+  threadId: "main:019e...",
+  type: "model.select.success",
+  level: "info",
+  limit: 200,
+});
+
+await orpc.logs.list();
+```
+
+Filters are optional. If `sessionId` is omitted, the active main Pi session is used when available.
+
+---
+
 ## Built-in Definitions
 
 | Name | Default capabilities | Default tools | Purpose |

@@ -4,6 +4,7 @@ import { RPCHandler } from "@orpc/server/fetch";
 import type { SubagentsApiContext } from "../api/context.js";
 import { createSubagentsRouter } from "../api/router.js";
 import { DashboardThreadSessionCache } from "../api/session-control.js";
+import { DashboardSessionLogStore } from "../api/session-log-store.js";
 import type { SubAgentController } from "../controller.js";
 import { LionChecklistService } from "../lion/checklist-service.js";
 import { SubAgentRunStore } from "../run-store.js";
@@ -78,6 +79,7 @@ export class HttpServerTransport implements SubAgentTransport {
 	private runStore: SubAgentRunStore;
 	private checklistService: LionChecklistService;
 	private sessionCache: DashboardThreadSessionCache;
+	private logStore: DashboardSessionLogStore;
 	private orpcHandler: RPCHandler<SubagentsApiContext>;
 	private orpcContext: SubagentsApiContext;
 
@@ -87,6 +89,7 @@ export class HttpServerTransport implements SubAgentTransport {
 		this.checklistService = new LionChecklistService();
 		this.stateManager = new DashboardStateManager(options.controller.getCwd(), this.runStore);
 		this.sessionCache = new DashboardThreadSessionCache((event) => this.emit(event));
+		this.logStore = new DashboardSessionLogStore(options.controller.getCwd());
 		this.orpcContext = {
 			controller: options.controller,
 			runStore: this.runStore,
@@ -95,6 +98,7 @@ export class HttpServerTransport implements SubAgentTransport {
 			lionState: options.lionState,
 			checklistService: this.checklistService,
 			sessionCache: this.sessionCache,
+			logStore: this.logStore,
 			emitEvent: (event) => this.emit(event),
 			cwd: options.controller.getCwd(),
 		};
@@ -161,7 +165,34 @@ export class HttpServerTransport implements SubAgentTransport {
 			this.stateManager.registerLiveInstance(event.state);
 		}
 
+		this.logTransportEvent(event).catch(() => {});
 		this.emitToClients(event);
+	}
+
+	private async logTransportEvent(event: SubAgentTransportEvent): Promise<void> {
+		if (!("instanceId" in event) || typeof event.instanceId !== "string") return;
+		const sessionId = await this.resolveSessionId(event.instanceId, event);
+		if (!sessionId) return;
+		this.logStore.append({
+			sessionId,
+			threadId: event.instanceId,
+			type: "dashboard.event",
+			source: "sse",
+			level: "debug",
+			data: { event },
+		});
+	}
+
+	private async resolveSessionId(instanceId: string, event?: SubAgentTransportEvent): Promise<string | null> {
+		if (event?.type === "instance.state" && "state" in event && event.state.sessionId) {
+			return event.state.sessionId;
+		}
+		const main = this.options.mainSession?.getThread();
+		if (main?.instanceId === instanceId && main.sessionId) return main.sessionId;
+		const state = this.stateManager.getInstance(instanceId);
+		if (state?.sessionId) return state.sessionId;
+		const record = (await this.runStore.list()).find((candidate) => candidate.instanceId === instanceId);
+		return record?.sessionId ?? null;
 	}
 
 	private emitToClients(event: SubAgentTransportEvent): void {

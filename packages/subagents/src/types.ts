@@ -372,6 +372,15 @@ export interface SubAgentEventMap {
 		message: AgentMessage;
 		timestamp: number;
 	};
+
+	"session.snapshot": {
+		type: "session.snapshot";
+		instanceId: string;
+		taskId: string;
+		/** Full resolved session messages, used to repair missed incremental events. */
+		messages: AgentMessage[];
+		timestamp: number;
+	};
 }
 
 export type SubAgentEventType =
@@ -390,7 +399,8 @@ export type SubAgentEventType =
 	| "instance.state"
 	| "instance.session"
 	| "session.event"
-	| "session.message.complete";
+	| "session.message.complete"
+	| "session.snapshot";
 export type SubAgentEvent = SubAgentEventMap[SubAgentEventType];
 
 // =============================================================================

@@ -10,14 +10,12 @@ interface ChatViewProps {
 }
 
 export function ChatView({ instanceId }: ChatViewProps) {
-	const isConnected = useSubAgentStore((s) => s.isConnected);
 	const thread = useSubAgentStore((s) => s.agents.find((agent) => agent.instanceId === instanceId));
 	const messagesByInstance = useSessionMessagesStore((s) => s.messagesByInstance);
 	const streamingByInstance = useSessionMessagesStore((s) => s.streamingByInstance);
 	const messages = useMemo(() => messagesByInstance.get(instanceId) ?? [], [messagesByInstance, instanceId]);
 	const streaming = useMemo(() => streamingByInstance.get(instanceId) ?? false, [streamingByInstance, instanceId]);
 	const dependencyKey = `${instanceId}:${messages.length}:${streaming ? "streaming" : "idle"}`;
-	const modelLabel = thread?.modelProvider && thread.modelId ? `${thread.modelProvider}/${thread.modelId}` : "model pending";
 	const { scrollRef, bottomRef, showJumpToLatest, scrollToBottom } = useAutoScroll<HTMLDivElement>({
 		dependencyKey,
 		threadId: instanceId,
@@ -25,23 +23,6 @@ export function ChatView({ instanceId }: ChatViewProps) {
 
 	return (
 		<div className="flex h-full flex-col">
-			<div className="flex min-h-11 items-center justify-between gap-3 border-b border-border-subtle bg-bg-elevated px-4 py-2">
-				<div className="flex min-w-0 items-center gap-3">
-					<span className="shrink-0 text-sm font-medium text-text-primary">
-						{thread?.kind === "main" ? "Main Session" : "Live Session"}
-					</span>
-					<span
-						className="min-w-0 truncate rounded border border-border-subtle bg-bg px-2 py-1 text-xs text-text-secondary"
-						title={modelLabel}
-					>
-						{modelLabel}
-					</span>
-				</div>
-				<div className="flex shrink-0 items-center gap-2">
-					<span className={`h-2 w-2 rounded-full ${isConnected ? "bg-success" : "bg-error"}`} />
-					<span className="text-xs text-text-muted">{isConnected ? "Connected" : "Disconnected"}</span>
-				</div>
-			</div>
 			<div className="relative min-h-0 flex-1">
 				<div ref={scrollRef} className="h-full space-y-2 overflow-y-auto p-3">
 					{messages.length === 0 ? (

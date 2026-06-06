@@ -6,10 +6,12 @@ interface SessionMessagesState {
 	messagesByInstance: Map<string, ChatMessage[]>;
 	streamingByInstance: Map<string, boolean>;
 
-	/** Replace all messages for an instance (initial hydration from REST) */
+	/** Hydrate messages for an instance while preserving pending optimistic sends */
 	setMessages: (instanceId: string, messages: ChatMessage[]) => void;
 	/** Append a new message or update by message.id */
 	addMessage: (instanceId: string, message: ChatMessage) => void;
+	/** Remove a message by message.id */
+	removeMessage: (instanceId: string, messageId: string) => void;
 	/** Mark a message as partial+streaming (start of SSE stream) */
 	startMessage: (instanceId: string, message: ChatMessage) => void;
 	/** Update a partial streaming message in-place */
@@ -31,8 +33,10 @@ export const useSessionMessagesStore = create<SessionMessagesState>((set, get) =
 	setMessages: (instanceId, messages) =>
 		set((state) => {
 			const next = new Map(state.messagesByInstance);
-			next.set(instanceId, messages);
-			dashboardDebugLedger.recordMessages(instanceId, messages, "hydrate");
+			const existing = next.get(instanceId) ?? [];
+			const merged = mergeHydratedMessages(existing, messages);
+			next.set(instanceId, merged);
+			dashboardDebugLedger.recordMessages(instanceId, merged, "hydrate");
 			return { messagesByInstance: next };
 		}),
 
@@ -40,15 +44,20 @@ export const useSessionMessagesStore = create<SessionMessagesState>((set, get) =
 		set((state) => {
 			const next = new Map(state.messagesByInstance);
 			const existing = next.get(instanceId) ?? [];
-			// Deduplicate by message.id
-			const idx = existing.findIndex((m) => m.id === message.id);
-			if (idx >= 0) {
-				existing[idx] = message;
-			} else {
-				existing.push(message);
-			}
-			next.set(instanceId, [...existing]);
+			next.set(instanceId, upsertMessage(existing, message));
 			dashboardDebugLedger.recordMessages(instanceId, next.get(instanceId) ?? [], "add");
+			return { messagesByInstance: next };
+		}),
+
+	removeMessage: (instanceId, messageId) =>
+		set((state) => {
+			const next = new Map(state.messagesByInstance);
+			const existing = next.get(instanceId) ?? [];
+			next.set(
+				instanceId,
+				existing.filter((message) => message.id !== messageId),
+			);
+			dashboardDebugLedger.recordMessages(instanceId, next.get(instanceId) ?? [], "remove");
 			return { messagesByInstance: next };
 		}),
 
@@ -57,13 +66,7 @@ export const useSessionMessagesStore = create<SessionMessagesState>((set, get) =
 			const next = new Map(state.messagesByInstance);
 			const existing = next.get(instanceId) ?? [];
 			const partialMessage = { ...message, partial: true, streaming: message.role === "assistant" };
-			const idx = existing.findIndex((m) => m.id === message.id);
-			if (idx >= 0) {
-				existing[idx] = partialMessage;
-			} else {
-				existing.push(partialMessage);
-			}
-			next.set(instanceId, [...existing]);
+			next.set(instanceId, upsertMessage(existing, partialMessage));
 			dashboardDebugLedger.recordMessages(instanceId, next.get(instanceId) ?? [], "start");
 			return { messagesByInstance: next };
 		}),
@@ -72,14 +75,8 @@ export const useSessionMessagesStore = create<SessionMessagesState>((set, get) =
 		set((state) => {
 			const next = new Map(state.messagesByInstance);
 			const existing = next.get(instanceId) ?? [];
-			const idx = existing.findIndex((m) => m.id === message.id);
 			const partialMessage = { ...message, partial: true, streaming: message.role === "assistant" };
-			if (idx >= 0) {
-				existing[idx] = partialMessage;
-			} else {
-				existing.push(partialMessage);
-			}
-			next.set(instanceId, [...existing]);
+			next.set(instanceId, upsertMessage(existing, partialMessage));
 			dashboardDebugLedger.recordMessages(instanceId, next.get(instanceId) ?? [], "update-partial");
 			return { messagesByInstance: next };
 		}),
@@ -88,14 +85,8 @@ export const useSessionMessagesStore = create<SessionMessagesState>((set, get) =
 		set((state) => {
 			const next = new Map(state.messagesByInstance);
 			const existing = next.get(instanceId) ?? [];
-			const idx = existing.findIndex((m) => m.id === message.id);
 			const finalMessage = { ...message, partial: false, streaming: false };
-			if (idx >= 0) {
-				existing[idx] = finalMessage;
-			} else {
-				existing.push(finalMessage);
-			}
-			next.set(instanceId, [...existing]);
+			next.set(instanceId, upsertMessage(existing, finalMessage));
 			dashboardDebugLedger.recordMessages(instanceId, next.get(instanceId) ?? [], "finish");
 			return { messagesByInstance: next };
 		}),
@@ -134,3 +125,54 @@ export const useSessionMessagesStore = create<SessionMessagesState>((set, get) =
 			return { messagesByInstance: next, streamingByInstance: streamingNext };
 		}),
 }));
+
+export function mergeHydratedMessages(existing: ChatMessage[], incoming: ChatMessage[]): ChatMessage[] {
+	const preserved = existing.filter(
+		(message) => isOptimisticUserMessage(message) && !incoming.some((candidate) => messagesMatch(candidate, message)),
+	);
+	return [...incoming, ...preserved].sort(compareMessages);
+}
+
+function upsertMessage(existing: ChatMessage[], message: ChatMessage): ChatMessage[] {
+	const byId = existing.findIndex((candidate) => candidate.id === message.id);
+	if (byId >= 0) {
+		return existing.map((candidate, index) => (index === byId ? message : candidate)).sort(compareMessages);
+	}
+
+	if (!isOptimisticUserMessage(message)) {
+		const optimisticMatch = existing.findIndex(
+			(candidate) => isOptimisticUserMessage(candidate) && messagesMatch(message, candidate),
+		);
+		if (optimisticMatch >= 0) {
+			return existing.map((candidate, index) => (index === optimisticMatch ? message : candidate)).sort(compareMessages);
+		}
+	}
+
+	return [...existing, message].sort(compareMessages);
+}
+
+function isOptimisticUserMessage(message: ChatMessage): boolean {
+	return message.role === "user" && (message.optimistic === true || message.id.startsWith("optimistic-"));
+}
+
+function messagesMatch(realMessage: ChatMessage, optimisticMessage: ChatMessage): boolean {
+	if (realMessage.id === optimisticMessage.id) return true;
+	if (realMessage.instanceId !== optimisticMessage.instanceId) return false;
+	if (realMessage.role !== optimisticMessage.role) return false;
+	if (normalizedText(realMessage) !== normalizedText(optimisticMessage)) return false;
+	return Math.abs(realMessage.timestamp - optimisticMessage.timestamp) <= 60000;
+}
+
+function normalizedText(message: ChatMessage): string {
+	return message.blocks
+		.filter((block) => block.type === "text")
+		.map((block) => block.text)
+		.join("\n")
+		.trim()
+		.replace(/\s+/g, " ");
+}
+
+function compareMessages(left: ChatMessage, right: ChatMessage): number {
+	if (left.timestamp !== right.timestamp) return left.timestamp - right.timestamp;
+	return left.id.localeCompare(right.id);
+}

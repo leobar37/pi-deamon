@@ -56,7 +56,7 @@ export default function App() {
 					<div className="flex h-full min-w-0 flex-1 items-center justify-center">
 						<div className="text-center">
 							<p className="text-lg font-medium text-text-primary">
-								Lion Dashboard
+								Pi Dashboard
 							</p>
 							<p className="text-sm text-text-muted mt-2">
 								{isLoading ? "Loading live session..." : error ? "Error loading threads" : "Waiting for a main session..."}

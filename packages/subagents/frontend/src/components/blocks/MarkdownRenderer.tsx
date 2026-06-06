@@ -27,6 +27,23 @@ export function MarkdownRenderer({ content }: MarkdownRendererProps) {
 			mode="streaming"
 			parseIncompleteMarkdown
 			remarkPlugins={[remarkGfm]}
+			controls={{
+				table: {
+					copy: true,
+					download: false,
+					fullscreen: false,
+				},
+				code: {
+					copy: true,
+					download: false,
+				},
+				mermaid: {
+					copy: true,
+					download: false,
+					fullscreen: false,
+					panZoom: false,
+				},
+			}}
 			components={{
 				p: ({ children }) => (
 					<p className="mb-2 break-words text-sm leading-6 text-text-primary last:mb-0">
@@ -85,6 +102,40 @@ export function MarkdownRenderer({ content }: MarkdownRendererProps) {
 					<blockquote className="my-2 border-l-2 border-border-default pl-3 text-text-secondary italic">
 						{children}
 					</blockquote>
+				),
+				table: ({ children }) => (
+					<div className="my-3 min-w-0 overflow-x-auto rounded-md border border-border-subtle bg-bg-base/50">
+						<table className="w-full min-w-max border-collapse text-left text-xs text-text-secondary">
+							{children}
+						</table>
+					</div>
+				),
+				thead: ({ children }) => (
+					<thead className="bg-bg-surface/70 text-text-primary">
+						{children}
+					</thead>
+				),
+				tbody: ({ children }) => (
+					<tbody className="divide-y divide-border-subtle">
+						{children}
+					</tbody>
+				),
+				tr: ({ children }) => (
+					<tr className="align-top">
+						{children}
+					</tr>
+				),
+				th: ({ children }) => (
+					<th className="whitespace-nowrap border-b border-border-default px-3 py-2 text-xs font-semibold text-text-primary">
+						{children}
+					</th>
+				),
+				td: ({ children }) => (
+					<td className="max-w-[28rem] px-3 py-2 leading-5 text-text-secondary">
+						<div className="min-w-0 whitespace-normal break-words">
+							{children}
+						</div>
+					</td>
 				),
 				hr: () => <hr className="my-3 border-border-subtle" />,
 				h1: ({ children }) => (

@@ -1,4 +1,5 @@
 import { join } from "node:path";
+import type { Api, Model } from "@earendil-works/pi-ai";
 import {
 	type AgentSession,
 	type AgentSessionEvent,
@@ -12,6 +13,14 @@ export interface DashboardCommand {
 	name: string;
 	description?: string;
 	source: "extension" | "prompt" | "skill";
+}
+
+export interface DashboardModel {
+	provider: string;
+	id: string;
+	name: string;
+	api: string;
+	reasoning: boolean;
 }
 
 export type ThreadPromptMode = "prompt" | "follow_up" | "steer";
@@ -28,6 +37,16 @@ export function formatDashboardCommands(commands: readonly SlashCommandInfo[]): 
 		name: command.name,
 		description: command.description,
 		source: command.source,
+	}));
+}
+
+export function formatDashboardModels(models: readonly Model<Api>[]): DashboardModel[] {
+	return models.map((model) => ({
+		provider: model.provider,
+		id: model.id,
+		name: model.name,
+		api: model.api,
+		reasoning: Boolean(model.reasoning),
 	}));
 }
 

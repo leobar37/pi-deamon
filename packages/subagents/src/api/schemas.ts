@@ -39,9 +39,27 @@ export const ThreadPromptInputSchema = z.object({
 	mode: ThreadPromptModeSchema,
 });
 
+export const ThreadModelInputSchema = z.object({
+	threadId: z.string(),
+	provider: z.string().trim().min(1),
+	modelId: z.string().trim().min(1),
+});
+
 export const ChecklistInputSchema = z.object({
 	kind: LionChecklistKindSchema,
 	reference: z.string().optional(),
+});
+
+export const DashboardLogLevelSchema = z.enum(["debug", "info", "warn", "error"]);
+
+export const DashboardLogQuerySchema = z.object({
+	sessionId: z.string().trim().min(1).optional(),
+	threadId: z.string().trim().min(1).optional(),
+	type: z.string().trim().min(1).optional(),
+	level: DashboardLogLevelSchema.optional(),
+	since: z.number().optional(),
+	until: z.number().optional(),
+	limit: z.number().int().min(1).max(1000).optional(),
 });
 
 // =============================================================================
@@ -163,11 +181,45 @@ export const DashboardCommandSchema = z.object({
 	source: z.enum(["extension", "prompt", "skill"]),
 });
 
+export const DashboardModelSchema = z.object({
+	provider: z.string(),
+	id: z.string(),
+	name: z.string(),
+	api: z.string(),
+	reasoning: z.boolean(),
+});
+
 export const ThreadPromptResultSchema = z.object({
 	threadId: z.string(),
 	mode: ThreadPromptModeSchema,
 	status: z.literal("sent"),
 	acceptedAt: z.number(),
+});
+
+export const ThreadModelResultSchema = z.object({
+	threadId: z.string(),
+	provider: z.string(),
+	modelId: z.string(),
+	status: z.literal("selected"),
+	selectedAt: z.number(),
+});
+
+export const DashboardLogEntrySchema = z.object({
+	timestamp: z.number(),
+	sessionId: z.string(),
+	threadId: z.string().optional(),
+	type: z.string(),
+	source: z.string(),
+	level: DashboardLogLevelSchema,
+	data: z.record(z.unknown()),
+});
+
+export const DashboardLogSessionSummarySchema = z.object({
+	sessionId: z.string(),
+	entryCount: z.number(),
+	firstTimestamp: z.number().nullable(),
+	lastTimestamp: z.number().nullable(),
+	updatedAt: z.number(),
 });
 
 // =============================================================================

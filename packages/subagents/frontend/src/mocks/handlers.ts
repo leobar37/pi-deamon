@@ -7,7 +7,9 @@ import {
 	getRunForInstance,
 	MOCK_AGENTS,
 	MOCK_LION_STATE,
+	MOCK_MODELS,
 	MOCK_PLAN_CHECKLIST,
+	updateMockAgentModel,
 } from "./data.ts";
 import { createMockSseStream } from "./sse-emitter.ts";
 
@@ -138,6 +140,33 @@ export const handlers = [
 				{ name: "lion-validate", description: "Ask the orchestrator to validate the active Lion plan", source: "extension" },
 				{ name: "skill:planner", description: "Create technical implementation plans", source: "skill" },
 			]);
+		}
+
+		// POST /rpc/threads/models
+		if (isORPCPath(url, ["threads", "models"])) {
+			return orpcJson(MOCK_MODELS);
+		}
+
+		// POST /rpc/threads/model
+		if (isORPCPath(url, ["threads", "model"])) {
+			const input = (await getORPCInput(request, url)) as
+				| { threadId: string; provider: string; modelId: string }
+				| undefined;
+			if (!input?.threadId || !input.provider || !input.modelId) {
+				return new HttpResponse("Invalid model selection", { status: 400 });
+			}
+			const model = MOCK_MODELS.find((candidate) => candidate.provider === input.provider && candidate.id === input.modelId);
+			if (!model) {
+				return new HttpResponse("Model not found", { status: 404 });
+			}
+			updateMockAgentModel(input.threadId, input.provider, input.modelId);
+			return orpcJson({
+				threadId: input.threadId,
+				provider: input.provider,
+				modelId: input.modelId,
+				status: "selected",
+				selectedAt: Date.now(),
+			});
 		}
 
 		return new HttpResponse("Not Found", { status: 404 });

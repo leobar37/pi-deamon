@@ -59,12 +59,14 @@ export function lionExtension(pi: ExtensionAPI): void {
 			}
 		}
 		restore(ctx);
+		runtime.attachMainSession(ctx);
 		if (runtime.state.active) {
 			await ensureDashboard();
 		}
 	});
 	pi.on("session_tree", async (_event, ctx) => {
 		restore(ctx);
+		runtime.attachMainSession(ctx);
 		if (runtime.state.active) {
 			await ensureDashboard();
 		}

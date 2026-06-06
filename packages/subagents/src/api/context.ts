@@ -5,6 +5,7 @@ import type { DashboardStateManager } from "../transport/state-manager.js";
 import type { DashboardLionState, DashboardSessionSource } from "../transport/types.js";
 import type { SubAgentEvent } from "../types.js";
 import type { DashboardThreadSessionCache } from "./session-control.js";
+import type { DashboardSessionLogStore } from "./session-log-store.js";
 
 export interface SubagentsApiContext {
 	controller: SubAgentController;
@@ -14,6 +15,7 @@ export interface SubagentsApiContext {
 	lionState?: () => DashboardLionState;
 	checklistService: LionChecklistService;
 	sessionCache: DashboardThreadSessionCache;
+	logStore: DashboardSessionLogStore;
 	emitEvent(event: SubAgentEvent): void;
 	cwd: string;
 }

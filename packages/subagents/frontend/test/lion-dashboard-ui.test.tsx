@@ -5,9 +5,10 @@ import { describe, expect, it } from "vitest";
 import { AgentRunSidebar } from "../src/components/AgentRunSidebar";
 import { ChatComposer } from "../src/components/ChatComposer";
 import { LionModeBadge } from "../src/components/LionModeBadge";
+import { MessageItem } from "../src/components/MessageItem";
 import { groupSubagents, SubagentListPanel } from "../src/components/SubagentListPanel";
 import { useSubAgentStore } from "../src/store/use-subagent-store";
-import type { LionDashboardState, SubAgentInstanceState, SubAgentRunRecord } from "../src/types";
+import type { ChatMessage, LionDashboardState, SubAgentInstanceState, SubAgentRunRecord } from "../src/types";
 
 const baseAgent: SubAgentInstanceState = {
 	instanceId: "subagent-1",
@@ -145,7 +146,9 @@ describe("Lion dashboard UI", () => {
 		expect(html).not.toContain("Output");
 		expect(html).not.toContain("System Prompt");
 		expect(html).toContain("Session");
-		expect(html).toContain("session-1");
+		expect(html).not.toContain("session-1");
+		expect(html).not.toContain("Status");
+		expect(html).not.toContain("paused");
 	});
 
 	it("shows run input and output for subagents", () => {
@@ -174,9 +177,32 @@ describe("Lion dashboard UI", () => {
 		expect(html).toContain("dashboard-plan");
 	});
 
+	it("hides Lion mode state when Lion is inactive", () => {
+		const html = renderToString(<LionModeBadge state={createLionState({ active: false })} />);
+
+		expect(html).not.toContain("Plan mode");
+		expect(html).not.toContain("Lion inactive");
+	});
+
+	it("hides plan mode state without an active Lion plan or run", () => {
+		const html = renderToString(
+			<LionModeBadge
+				state={createLionState({
+					active: true,
+					activePlanPath: null,
+					activePlanSlug: null,
+					activeTaskId: null,
+					lastRunId: null,
+				})}
+			/>,
+		);
+
+		expect(html).not.toContain("Plan mode");
+	});
+
 	it("renders only subagents in the persistent list", () => {
 		const html = renderToString(
-			<SubagentListPanel activeThreadId={null} agentsOverride={[mainAgent, runningAgent, completedAgent]} />,
+			<SubagentListPanel activeThreadId={null} agentsOverride={[mainAgent, runningAgent, completedAgent]} initiallyOpen />,
 		);
 
 		expect(html).toContain("Running executor");
@@ -186,11 +212,18 @@ describe("Lion dashboard UI", () => {
 
 	it("marks the active subagent in the persistent list", () => {
 		const html = renderToString(
-			<SubagentListPanel activeThreadId="subagent-running" agentsOverride={[runningAgent, completedAgent]} />,
+			<SubagentListPanel activeThreadId="subagent-running" agentsOverride={[runningAgent, completedAgent]} initiallyOpen />,
 		);
 
 		expect(html).toContain('aria-current="page"');
 		expect(html).toContain("Running executor");
+	});
+
+	it("hides the subagent widget when no subagents exist", () => {
+		const html = renderToString(<SubagentListPanel activeThreadId="main:session-1" agentsOverride={[mainAgent]} />);
+
+		expect(html).not.toContain("Subagents");
+		expect(html).not.toContain("No subagents yet");
 	});
 
 	it("groups subagents by run id", () => {
@@ -222,9 +255,39 @@ describe("Lion dashboard UI", () => {
 		const html = renderWithQueryClient(<ChatComposer instanceId="subagent-running" thread={runningAgent} />);
 
 		expect(html).toContain("Message thread");
+		expect(html).toContain("openai-codex/gpt-5.5");
 		expect(html).toContain("Prompt");
 		expect(html).toContain("Follow-up");
 		expect(html).toContain("Steer");
 		expect(html).toContain("aria-label=\"Send\"");
+	});
+
+	it("renders the main composer when only SSE is disconnected", () => {
+		useSubAgentStore.getState().setConnected(false);
+
+		const html = renderWithQueryClient(<ChatComposer instanceId="main:session-1" thread={mainAgent} />);
+
+		expect(html).not.toContain("Disconnected");
+		expect(html).toContain("aria-label=\"Send\"");
+	});
+
+	it("renders thinking outside the assistant message bubble and hides role labels", () => {
+		const message: ChatMessage = {
+			id: "assistant-1",
+			instanceId: "main:session-1",
+			role: "assistant",
+			blocks: [
+				{ type: "thinking", thinking: "Planning the response." },
+				{ type: "text", text: "Hola." },
+			],
+			timestamp: 100,
+		};
+
+		const html = renderToString(<MessageItem message={message} />);
+
+		expect(html).toContain("Thinking");
+		expect(html).toContain("Hola.");
+		expect(html).not.toContain("ASSISTANT");
+		expect(html.indexOf("Thinking")).toBeLessThan(html.indexOf("Hola."));
 	});
 });

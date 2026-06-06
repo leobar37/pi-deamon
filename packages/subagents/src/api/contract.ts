@@ -5,11 +5,17 @@ import {
 	ChecklistInputSchema,
 	DashboardCommandSchema,
 	DashboardLionStateSchema,
+	DashboardLogEntrySchema,
+	DashboardLogQuerySchema,
+	DashboardLogSessionSummarySchema,
+	DashboardModelSchema,
 	DashboardThreadStateSchema,
 	LionChecklistSnapshotSchema,
 	SubAgentEventSchema,
 	SubAgentRunRecordSchema,
 	ThreadIdInputSchema,
+	ThreadModelInputSchema,
+	ThreadModelResultSchema,
 	ThreadPromptInputSchema,
 	ThreadPromptResultSchema,
 } from "./schemas.js";
@@ -42,12 +48,22 @@ export const subagentsContract = oc.router({
 		prompt: oc.input(ThreadPromptInputSchema).output(ThreadPromptResultSchema),
 
 		commands: oc.input(ThreadIdInputSchema).output(z.array(DashboardCommandSchema)),
+
+		models: oc.input(ThreadIdInputSchema).output(z.array(DashboardModelSchema)),
+
+		model: oc.input(ThreadModelInputSchema).output(ThreadModelResultSchema),
 	},
 
 	lion: {
 		state: oc.output(DashboardLionStateSchema),
 
 		checklist: oc.input(ChecklistInputSchema).output(LionChecklistSnapshotSchema),
+	},
+
+	logs: {
+		session: oc.input(DashboardLogQuerySchema).output(z.array(DashboardLogEntrySchema)),
+
+		list: oc.output(z.array(DashboardLogSessionSummarySchema)),
 	},
 });
 

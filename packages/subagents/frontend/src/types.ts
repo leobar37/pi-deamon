@@ -129,6 +129,14 @@ export interface SubAgentRunRecord {
 	toolCount: number;
 }
 
+export interface DashboardModel {
+	provider: string;
+	id: string;
+	name: string;
+	api: string;
+	reasoning: boolean;
+}
+
 export type SubAgentEventType =
 	| "lifecycle.change"
 	| "task.start"
@@ -144,7 +152,9 @@ export type SubAgentEventType =
 	| "instance.created"
 	| "instance.state"
 	| "instance.session"
-	| "session.event";
+	| "session.event"
+	| "session.message.complete"
+	| "session.snapshot";
 
 // =============================================================================
 // Message blocks — normalized representation of message content
@@ -165,4 +175,5 @@ export interface ChatMessage {
 	timestamp: number;
 	streaming?: boolean;
 	partial?: boolean;
+	optimistic?: boolean;
 }

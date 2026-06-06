@@ -1,11 +1,11 @@
 import { AnimatePresence, motion, useReducedMotion } from "framer-motion";
-import { SendHorizontal, Terminal } from "lucide-react";
+import { Check, ChevronDown, SendHorizontal, Terminal } from "lucide-react";
 import { useMemo, useRef, useState } from "react";
 import type { KeyboardEvent } from "react";
 import { useThreadCommands } from "../hooks/use-thread-commands.ts";
+import { useSelectThreadModel, useThreadModels } from "../hooks/use-thread-models.ts";
 import { type ComposerMode, useSendThreadMessage } from "../hooks/use-send-thread-message.ts";
-import { useSubAgentStore } from "../store/use-subagent-store.ts";
-import type { SubAgentInstanceState } from "../types.ts";
+import type { DashboardModel, SubAgentInstanceState } from "../types.ts";
 
 interface ChatComposerProps {
 	instanceId: string;
@@ -30,14 +30,21 @@ export function ChatComposer({ instanceId, thread }: ChatComposerProps) {
 	const [message, setMessage] = useState("");
 	const [mode, setMode] = useState<ComposerMode>("prompt");
 	const [commandsOpen, setCommandsOpen] = useState(false);
+	const [modelsOpen, setModelsOpen] = useState(false);
 	const [isFocused, setIsFocused] = useState(false);
 	const textareaRef = useRef<HTMLTextAreaElement | null>(null);
 	const shouldReduceMotion = useReducedMotion();
-	const isConnected = useSubAgentStore((state) => state.isConnected);
 	const sendMessage = useSendThreadMessage();
+	const selectModel = useSelectThreadModel();
 	const { data: commands = [] } = useThreadCommands(instanceId);
+	const { data: models = [] } = useThreadModels(instanceId);
 	const query = extractCommandQuery(message);
 	const commandIntent = message.trimStart().startsWith("/");
+	const currentModel = useMemo(
+		() => resolveCurrentModel(models, thread?.modelProvider, thread?.modelId),
+		[models, thread?.modelId, thread?.modelProvider],
+	);
+	const actionError = sendMessage.error ?? selectModel.error;
 	const filteredCommands = useMemo(() => {
 		const normalized = query.toLowerCase();
 		if (!normalized) return commands.slice(0, 10);
@@ -50,14 +57,9 @@ export function ChatComposer({ instanceId, thread }: ChatComposerProps) {
 	}, [commands, query]);
 
 	const trimmed = message.trim();
-	const canSend = Boolean(thread && isConnected && trimmed && !sendMessage.isPending);
-	const statusText = !thread
-		? "Thread unavailable"
-		: !isConnected
-			? "Disconnected"
-			: sendMessage.isPending
-					? "Sending"
-					: null;
+	const canSend = Boolean(thread && trimmed && !sendMessage.isPending);
+	const isSelectingModel = selectModel.isPending;
+	const statusText = sendMessage.isPending ? "Sending" : isSelectingModel ? "Selecting model" : null;
 
 	function resizeTextarea(target: HTMLTextAreaElement) {
 		target.style.height = "0px";
@@ -107,6 +109,13 @@ export function ChatComposer({ instanceId, thread }: ChatComposerProps) {
 		});
 	}
 
+	function handleModelSelect(model: DashboardModel) {
+		setModelsOpen(false);
+		if (!thread) return;
+		if (thread.modelProvider === model.provider && thread.modelId === model.id) return;
+		selectModel.mutate({ threadId: instanceId, provider: model.provider, modelId: model.id });
+	}
+
 	return (
 		<div className="border-t border-border-subtle bg-bg-base px-4 py-3">
 			<motion.div
@@ -119,6 +128,16 @@ export function ChatComposer({ instanceId, thread }: ChatComposerProps) {
 				<AnimatePresence>
 					{commandsOpen && commandIntent && filteredCommands.length > 0 ? (
 						<CommandPalette commands={filteredCommands} onSelect={insertCommand} shouldReduceMotion={shouldReduceMotion} />
+					) : null}
+				</AnimatePresence>
+				<AnimatePresence>
+					{modelsOpen && models.length > 0 ? (
+						<ModelPalette
+							currentModel={currentModel}
+							models={models}
+							onSelect={handleModelSelect}
+							shouldReduceMotion={shouldReduceMotion}
+						/>
 					) : null}
 				</AnimatePresence>
 
@@ -139,6 +158,13 @@ export function ChatComposer({ instanceId, thread }: ChatComposerProps) {
 
 				<div className="flex items-center justify-between gap-3 px-3 pb-3">
 					<div className="flex min-w-0 items-center gap-2">
+						<ModelButton
+							currentModel={currentModel}
+							fallbackProvider={thread?.modelProvider}
+							fallbackModelId={thread?.modelId}
+							isOpen={modelsOpen}
+							onClick={() => setModelsOpen((open) => !open)}
+						/>
 						<ModeTabs mode={mode} onChange={setMode} shouldReduceMotion={shouldReduceMotion} />
 					</div>
 
@@ -158,16 +184,16 @@ export function ChatComposer({ instanceId, thread }: ChatComposerProps) {
 							) : null}
 						</AnimatePresence>
 						<AnimatePresence>
-							{sendMessage.error ? (
+							{actionError ? (
 								<motion.span
 									className="max-w-64 truncate text-xs text-error"
-									title={sendMessage.error.message}
+									title={actionError.message}
 									initial={shouldReduceMotion ? false : { opacity: 0, x: 6 }}
 									animate={{ opacity: 1, x: 0 }}
 									exit={shouldReduceMotion ? undefined : { opacity: 0, x: 6 }}
 									transition={{ duration: 0.16, ease: [0.22, 1, 0.36, 1] }}
 								>
-									{sendMessage.error.message}
+									{actionError.message}
 								</motion.span>
 							) : null}
 						</AnimatePresence>
@@ -187,6 +213,78 @@ export function ChatComposer({ instanceId, thread }: ChatComposerProps) {
 				</div>
 			</motion.div>
 		</div>
+	);
+}
+
+interface ModelButtonProps {
+	currentModel?: DashboardModel;
+	fallbackProvider?: string;
+	fallbackModelId?: string;
+	isOpen: boolean;
+	onClick(): void;
+}
+
+function ModelButton({ currentModel, fallbackProvider, fallbackModelId, isOpen, onClick }: ModelButtonProps) {
+	const label = currentModel?.name ?? formatModelLabel(fallbackProvider, fallbackModelId) ?? "Model";
+	const title = currentModel ? `${currentModel.provider}/${currentModel.id}` : label;
+
+	return (
+		<button
+			type="button"
+			onClick={onClick}
+			className="flex max-w-[16rem] shrink min-w-0 items-center gap-1.5 rounded border border-border-subtle bg-bg px-2.5 py-1.5 text-xs text-text-secondary transition hover:border-border-hover hover:text-text-primary"
+			title={title}
+			aria-expanded={isOpen}
+		>
+			<span className="truncate">{label}</span>
+			<ChevronDown className={`h-3.5 w-3.5 shrink-0 transition-transform ${isOpen ? "rotate-180" : ""}`} aria-hidden="true" />
+		</button>
+	);
+}
+
+interface ModelPaletteProps {
+	models: DashboardModel[];
+	currentModel?: DashboardModel;
+	onSelect(model: DashboardModel): void;
+	shouldReduceMotion: boolean | null;
+}
+
+function ModelPalette({ models, currentModel, onSelect, shouldReduceMotion }: ModelPaletteProps) {
+	return (
+		<motion.div
+			className="absolute bottom-full left-3 mb-2 max-h-80 w-[min(36rem,calc(100vw-3rem))] overflow-y-auto rounded-lg border border-border-default bg-bg-elevated p-1 shadow-md"
+			initial={shouldReduceMotion ? false : { opacity: 0, y: 8, scale: 0.98 }}
+			animate={{ opacity: 1, y: 0, scale: 1 }}
+			exit={shouldReduceMotion ? undefined : { opacity: 0, y: 4, scale: 0.99 }}
+			transition={{ duration: 0.18, ease: [0.22, 1, 0.36, 1] }}
+		>
+			{models.map((model, index) => {
+				const selected = currentModel?.provider === model.provider && currentModel.id === model.id;
+				return (
+					<motion.button
+						key={`${model.provider}:${model.id}`}
+						type="button"
+						onMouseDown={(event) => event.preventDefault()}
+						onClick={() => onSelect(model)}
+						className="flex w-full items-center gap-3 rounded-md px-3 py-2 text-left transition-colors hover:bg-bg-hover"
+						initial={shouldReduceMotion ? false : { opacity: 0, x: -4 }}
+						animate={{ opacity: 1, x: 0 }}
+						transition={{ duration: 0.14, delay: shouldReduceMotion ? 0 : Math.min(index * 0.01, 0.08) }}
+					>
+						<span className="min-w-0 flex-1">
+							<span className="block truncate text-sm font-medium text-text-primary">{model.name}</span>
+							<span className="block truncate text-xs text-text-tertiary">{model.provider}/{model.id}</span>
+						</span>
+						{model.reasoning ? (
+							<span className="shrink-0 rounded border border-border-subtle px-1.5 py-0.5 text-xs text-text-muted">
+								reasoning
+							</span>
+						) : null}
+						{selected ? <Check className="h-4 w-4 shrink-0 text-success" aria-label="Selected model" /> : null}
+					</motion.button>
+				);
+			})}
+		</motion.div>
 	);
 }
 
@@ -267,4 +365,18 @@ function extractCommandQuery(value: string): string {
 	const trimmed = value.trimStart();
 	if (!trimmed.startsWith("/")) return "";
 	return trimmed.slice(1).split(/\s/, 1)[0] ?? "";
+}
+
+function resolveCurrentModel(
+	models: DashboardModel[],
+	provider: string | undefined,
+	modelId: string | undefined,
+): DashboardModel | undefined {
+	if (!provider || !modelId) return undefined;
+	return models.find((model) => model.provider === provider && model.id === modelId);
+}
+
+function formatModelLabel(provider: string | undefined, modelId: string | undefined): string | null {
+	if (!provider || !modelId) return null;
+	return `${provider}/${modelId}`;
 }

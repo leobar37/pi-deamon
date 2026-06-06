@@ -39,7 +39,11 @@ function createMockMainSession(): DashboardSessionSource {
 
 function createControllableMainSession(
 	calls: Array<{ message: string; mode: "prompt" | "follow_up" | "steer" }>,
+	modelCalls: Array<{ provider: string; modelId: string }> = [],
+	options: { acceptModelSelection?: boolean } = {},
 ): DashboardSessionSource {
+	let modelProvider = "kimi-coding";
+	let modelId = "kimi-for-coding";
 	return {
 		getThread: () => ({
 			instanceId: "main:session-1",
@@ -57,6 +61,8 @@ function createControllableMainSession(
 			currentToolStartedAt: null,
 			durationMs: 0,
 			sessionId: "session-1",
+			modelProvider,
+			modelId,
 		}),
 		getMessages: () => [],
 		getEvents: () => [],
@@ -64,6 +70,29 @@ function createControllableMainSession(
 			calls.push({ message, mode });
 		},
 		getCommands: () => [{ name: "lion-build", description: "Activate Lion build mode", source: "extension" }],
+		getModels: () => [
+			{
+				provider: "kimi-coding",
+				id: "kimi-for-coding",
+				name: "Kimi For Coding",
+				api: "anthropic-messages",
+				reasoning: true,
+			},
+			{
+				provider: "openai-codex",
+				id: "gpt-5.5",
+				name: "GPT 5.5 Codex",
+				api: "openai-codex-responses",
+				reasoning: true,
+			},
+		],
+		setModel: async (_threadId, provider, nextModelId) => {
+			modelCalls.push({ provider, modelId: nextModelId });
+			if (options.acceptModelSelection === false) return false;
+			modelProvider = provider;
+			modelId = nextModelId;
+			return true;
+		},
 		subscribe: () => {
 			return () => {};
 		},
@@ -161,11 +190,12 @@ describe("HttpServerTransport", () => {
 
 	it("serves dashboard prompt and commands for the main thread", async () => {
 		const calls: Array<{ message: string; mode: "prompt" | "follow_up" | "steer" }> = [];
+		const modelCalls: Array<{ provider: string; modelId: string }> = [];
 		transport = new HttpServerTransport({
 			controller: controller as any,
 			port: 0,
 			host: "127.0.0.1",
-			mainSession: createControllableMainSession(calls),
+			mainSession: createControllableMainSession(calls, modelCalls),
 		});
 		await transport.start();
 		await waitForServer();
@@ -190,6 +220,105 @@ describe("HttpServerTransport", () => {
 			status: "sent",
 		});
 		expect(calls).toEqual([{ message: "Continue the run", mode: "follow_up" }]);
+
+		const modelsRes = await callRpc(transport.port, "/threads/models", { threadId: "main:session-1" });
+		expect(modelsRes.status).toBe(200);
+		const modelsBody = (await modelsRes.json()) as { json: Array<Record<string, unknown>> };
+		expect(modelsBody.json.map((model) => `${model.provider}/${model.id}`)).toEqual([
+			"kimi-coding/kimi-for-coding",
+			"openai-codex/gpt-5.5",
+		]);
+
+		const modelRes = await callRpc(transport.port, "/threads/model", {
+			threadId: "main:session-1",
+			provider: "openai-codex",
+			modelId: "gpt-5.5",
+		});
+		expect(modelRes.status).toBe(200);
+		const modelBody = (await modelRes.json()) as { json: Record<string, unknown> };
+		expect(modelBody.json).toMatchObject({
+			threadId: "main:session-1",
+			provider: "openai-codex",
+			modelId: "gpt-5.5",
+			status: "selected",
+		});
+		expect(modelCalls).toEqual([{ provider: "openai-codex", modelId: "gpt-5.5" }]);
+
+		const modelLogsRes = await callRpc(transport.port, "/logs/session", {
+			sessionId: "session-1",
+			type: "model.select.success",
+		});
+		expect(modelLogsRes.status).toBe(200);
+		const modelLogsBody = (await modelLogsRes.json()) as { json: Array<Record<string, unknown>> };
+		expect(modelLogsBody.json).toHaveLength(1);
+		expect(modelLogsBody.json[0]).toMatchObject({
+			sessionId: "session-1",
+			threadId: "main:session-1",
+			type: "model.select.success",
+			source: "dashboard",
+			level: "info",
+			data: { provider: "openai-codex", modelId: "gpt-5.5" },
+		});
+
+		const promptLogsRes = await callRpc(transport.port, "/logs/session", {
+			threadId: "main:session-1",
+			type: "thread.prompt.accepted",
+			limit: 1,
+		});
+		expect(promptLogsRes.status).toBe(200);
+		const promptLogsBody = (await promptLogsRes.json()) as { json: Array<Record<string, unknown>> };
+		expect(promptLogsBody.json).toHaveLength(1);
+		expect(promptLogsBody.json[0]).toMatchObject({
+			sessionId: "session-1",
+			threadId: "main:session-1",
+			type: "thread.prompt.accepted",
+		});
+
+		const listLogsRes = await callRpc(transport.port, "/logs/list");
+		expect(listLogsRes.status).toBe(200);
+		const listLogsBody = (await listLogsRes.json()) as { json: Array<Record<string, unknown>> };
+		expect(listLogsBody.json[0]).toMatchObject({
+			sessionId: "session-1",
+			entryCount: 4,
+		});
+	});
+
+	it("logs failed main-thread model selections without hiding the API error", async () => {
+		const calls: Array<{ message: string; mode: "prompt" | "follow_up" | "steer" }> = [];
+		transport = new HttpServerTransport({
+			controller: controller as any,
+			port: 0,
+			host: "127.0.0.1",
+			mainSession: createControllableMainSession(calls, [], { acceptModelSelection: false }),
+		});
+		await transport.start();
+		await waitForServer();
+
+		const modelRes = await callRpc(transport.port, "/threads/model", {
+			threadId: "main:session-1",
+			provider: "openai-codex",
+			modelId: "gpt-5.5",
+		});
+		expect(modelRes.status).toBe(400);
+
+		const logsRes = await callRpc(transport.port, "/logs/session", {
+			sessionId: "session-1",
+			type: "model.select.failed",
+		});
+		expect(logsRes.status).toBe(200);
+		const logsBody = (await logsRes.json()) as { json: Array<Record<string, unknown>> };
+		expect(logsBody.json).toHaveLength(1);
+		expect(logsBody.json[0]).toMatchObject({
+			sessionId: "session-1",
+			threadId: "main:session-1",
+			type: "model.select.failed",
+			level: "error",
+			data: {
+				provider: "openai-codex",
+				modelId: "gpt-5.5",
+				error: "Model is unavailable or not authenticated",
+			},
+		});
 	});
 
 	it("serves persisted completed runs in /rpc/threads.list", async () => {

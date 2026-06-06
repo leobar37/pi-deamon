@@ -1,7 +1,7 @@
 import type { AgentMessage } from "@earendil-works/pi-agent-core";
 import type { ExtensionAPI, ExtensionContext, ExtensionEvent } from "@earendil-works/pi-coding-agent";
 import { buildSessionContext } from "@earendil-works/pi-coding-agent";
-import { formatDashboardCommands, type ThreadPromptMode } from "../api/session-control.js";
+import { formatDashboardCommands, formatDashboardModels, type ThreadPromptMode } from "../api/session-control.js";
 import type { DashboardSessionSource, DashboardThreadState } from "../transport/types.js";
 import type { SubAgentEvent, SubAgentInstanceState } from "../types.js";
 import type { LionBuildResult } from "./types.js";
@@ -28,6 +28,7 @@ export class MainSessionBridge implements DashboardSessionSource {
 	private startTime: number | null = null;
 	private endTime: number | null = null;
 	private currentToolStartedAt: number | null = null;
+	private lastContext: ExtensionContext | null = null;
 	private pi: ExtensionAPI | null;
 
 	constructor(pi?: ExtensionAPI) {
@@ -39,11 +40,13 @@ export class MainSessionBridge implements DashboardSessionSource {
 	}
 
 	attach(ctx: ExtensionContext): void {
+		this.lastContext = ctx;
 		const now = Date.now();
 		const sessionId = ctx.sessionManager.getSessionId();
 		const threadId = this.threadId(sessionId);
 		const isNewThread = this.thread?.instanceId !== threadId;
-		this.messages = buildSessionContext(ctx.sessionManager.getEntries(), ctx.sessionManager.getLeafId()).messages;
+		const snapshot = buildSessionContext(ctx.sessionManager.getEntries(), ctx.sessionManager.getLeafId()).messages;
+		this.messages = isNewThread ? snapshot : mergeAgentMessages(snapshot, this.messages);
 		this.thread = {
 			instanceId: threadId,
 			taskId: "main",
@@ -102,7 +105,7 @@ export class MainSessionBridge implements DashboardSessionSource {
 				this.emitLifecycle(threadId, previousState, "running", now);
 				break;
 			case "agent_end":
-				this.messages = event.messages;
+				this.messages = mergeAgentMessages(this.messages, event.messages);
 				this.endTime = now;
 				this.currentTool = null;
 				this.currentToolStartedAt = null;
@@ -120,11 +123,12 @@ export class MainSessionBridge implements DashboardSessionSource {
 				break;
 			case "turn_end":
 				this.turnCount = Math.max(this.turnCount, event.turnIndex + 1);
-				this.messages = buildSessionContext(
-					ctx.sessionManager.getEntries(),
-					ctx.sessionManager.getLeafId(),
-				).messages;
+				this.messages = mergeAgentMessages(
+					buildSessionContext(ctx.sessionManager.getEntries(), ctx.sessionManager.getLeafId()).messages,
+					this.messages,
+				);
 				this.patchState({ turnCount: this.turnCount, lastActivityAt: now });
+				this.emitSessionSnapshot(threadId, now);
 				this.emit({
 					type: "turn.complete",
 					instanceId: threadId,
@@ -138,11 +142,17 @@ export class MainSessionBridge implements DashboardSessionSource {
 			case "message_start":
 			case "message_update":
 			case "message_end":
-				this.messages = buildSessionContext(
-					ctx.sessionManager.getEntries(),
-					ctx.sessionManager.getLeafId(),
-				).messages;
+				this.messages = upsertAgentMessage(this.messages, event.message);
 				this.emitSessionEvent(threadId, event, now);
+				if (event.type === "message_end") {
+					this.emit({
+						type: "session.message.complete",
+						instanceId: threadId,
+						taskId: "main",
+						message: event.message,
+						timestamp: now,
+					});
+				}
 				break;
 			case "tool_execution_start":
 				this.currentTool = event.toolName;
@@ -248,6 +258,29 @@ export class MainSessionBridge implements DashboardSessionSource {
 		return formatDashboardCommands(this.pi.getCommands());
 	}
 
+	async getModels(threadId: string) {
+		if (!this.thread || this.thread.instanceId !== threadId || !this.lastContext) return [];
+		return formatDashboardModels(await this.lastContext.modelRegistry.getAvailable());
+	}
+
+	async setModel(threadId: string, provider: string, modelId: string): Promise<boolean> {
+		if (!this.thread || this.thread.instanceId !== threadId || !this.lastContext || !this.pi) return false;
+		const model = this.lastContext.modelRegistry.find(provider, modelId);
+		if (!model) return false;
+		const selected = await this.pi.setModel(model);
+		if (selected) {
+			this.patchState({ modelProvider: model.provider, modelId: model.id, lastActivityAt: Date.now() });
+			this.emit({
+				type: "instance.state",
+				instanceId: threadId,
+				taskId: "main",
+				state: this.thread,
+				timestamp: Date.now(),
+			});
+		}
+		return selected;
+	}
+
 	subscribe(listener: (event: SubAgentEvent) => void): () => void {
 		this.listeners.add(listener);
 		return () => this.listeners.delete(listener);
@@ -293,10 +326,67 @@ export class MainSessionBridge implements DashboardSessionSource {
 		});
 	}
 
+	private emitSessionSnapshot(threadId: string, timestamp: number): void {
+		this.emit({
+			type: "session.snapshot",
+			instanceId: threadId,
+			taskId: "main",
+			messages: this.messages,
+			timestamp,
+		});
+	}
+
 	private emit(event: SubAgentEvent): void {
 		this.events.push(event);
 		for (const listener of this.listeners) {
 			listener(event);
 		}
 	}
+}
+
+function mergeAgentMessages(base: AgentMessage[], overlay: AgentMessage[]): AgentMessage[] {
+	let merged = base;
+	for (const message of overlay) {
+		merged = upsertAgentMessage(merged, message);
+	}
+	return merged;
+}
+
+function upsertAgentMessage(messages: AgentMessage[], message: AgentMessage): AgentMessage[] {
+	const key = agentMessageKey(message);
+	const existingIndex = messages.findIndex((candidate) => agentMessageKey(candidate) === key);
+	const next =
+		existingIndex >= 0
+			? messages.map((candidate, index) => (index === existingIndex ? message : candidate))
+			: [...messages, message];
+	return next.sort(compareAgentMessages);
+}
+
+function agentMessageKey(message: AgentMessage): string {
+	const id = readStringProperty(message, "id") ?? readStringProperty(message, "messageId");
+	if (id) return `id:${id}`;
+	const timestamp = readNumberProperty(message, "timestamp");
+	if (timestamp !== null) return `${message.role}:${timestamp}`;
+	return `${message.role}:${JSON.stringify(message)}`;
+}
+
+function compareAgentMessages(left: AgentMessage, right: AgentMessage): number {
+	const leftTimestamp = readNumberProperty(left, "timestamp");
+	const rightTimestamp = readNumberProperty(right, "timestamp");
+	if (leftTimestamp !== null && rightTimestamp !== null && leftTimestamp !== rightTimestamp) {
+		return leftTimestamp - rightTimestamp;
+	}
+	if (leftTimestamp !== null && rightTimestamp === null) return -1;
+	if (leftTimestamp === null && rightTimestamp !== null) return 1;
+	return 0;
+}
+
+function readStringProperty(message: AgentMessage, key: string): string | null {
+	const value = (message as unknown as Record<string, unknown>)[key];
+	return typeof value === "string" && value.trim() ? value : null;
+}
+
+function readNumberProperty(message: AgentMessage, key: string): number | null {
+	const value = (message as unknown as Record<string, unknown>)[key];
+	return typeof value === "number" ? value : null;
 }

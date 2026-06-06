@@ -1,5 +1,6 @@
 import { useCallback, useMemo, useState } from "react";
-import type { ChatMessage } from "../types.ts";
+import { Check, Copy } from "lucide-react";
+import type { ChatMessage, MessageBlock } from "../types.ts";
 import { messageToText } from "../utils/message-text.ts";
 import { BlockRenderer } from "./blocks/BlockRenderer";
 
@@ -13,7 +14,8 @@ export function MessageItem({ message }: MessageItemProps) {
 	const isAssistant = message.role === "assistant";
 	const isTool = message.role === "tool";
 	const copyText = useMemo(() => messageToText(message), [message]);
-	const label = message.role === "assistant" ? "assistant" : message.role;
+	const thinkingBlocks = isAssistant ? message.blocks.filter(isThinkingBlock) : [];
+	const visibleBlocks = isAssistant ? message.blocks.filter((block) => !isThinkingBlock(block)) : message.blocks;
 
 	const handleCopy = useCallback(() => {
 		if (!copyText.trim()) return;
@@ -39,44 +41,43 @@ export function MessageItem({ message }: MessageItemProps) {
 
 	return (
 		<div className={`group flex ${isUser ? "justify-end" : "justify-start"}`}>
-			<div
-				className={`max-w-[85%] min-w-0 select-text rounded-md px-2.5 py-2 ${
-					isUser ? "bg-accent-muted" : isAssistant ? "bg-bg-elevated" : "bg-bg-surface"
-				}`}
-			>
-				<div className="mb-1 flex items-center justify-between gap-2">
-					<span className="text-[10px] uppercase tracking-wide text-text-tertiary">{label}</span>
-					<button
-						type="button"
-						onClick={handleCopy}
-						disabled={!copyText.trim()}
-						title="Copy message"
-						className="flex h-5 w-5 items-center justify-center rounded border border-border-subtle text-text-muted transition hover:border-border-hover hover:text-text-primary disabled:cursor-not-allowed disabled:opacity-40"
+			<div className={`max-w-[85%] min-w-0 select-text space-y-2 ${isUser ? "items-end" : "items-start"}`}>
+				{thinkingBlocks.length > 0 ? (
+					<div className="min-w-0">
+						{thinkingBlocks.map((block, index) => (
+							<BlockRenderer key={`thinking-${index}`} block={block} currentThreadId={message.instanceId} />
+						))}
+					</div>
+				) : null}
+				{visibleBlocks.length > 0 ? (
+					<div
+						className={`relative min-w-0 rounded-md px-3 py-2 ${
+							isUser ? "bg-accent-muted" : isAssistant ? "bg-bg-elevated" : "bg-bg-surface"
+						}`}
 					>
-						{copied ? (
-							<svg className="h-3.5 w-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-								<path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
-							</svg>
-						) : (
-							<svg className="h-3.5 w-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-								<path
-									strokeLinecap="round"
-									strokeLinejoin="round"
-									strokeWidth={2}
-									d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z"
-								/>
-							</svg>
-						)}
-					</button>
-				</div>
-				<div className="min-w-0 space-y-1">
-					{message.blocks.map((block, i) => (
-						<BlockRenderer key={i} block={block} currentThreadId={message.instanceId} />
-					))}
-				</div>
+						<button
+							type="button"
+							onClick={handleCopy}
+							disabled={!copyText.trim()}
+							title="Copy message"
+							className="absolute right-1.5 top-1.5 flex h-6 w-6 items-center justify-center rounded border border-border-subtle bg-bg-elevated/80 text-text-muted opacity-0 transition hover:border-border-hover hover:text-text-primary group-hover:opacity-100 disabled:cursor-not-allowed disabled:opacity-0"
+						>
+							{copied ? <Check className="h-3.5 w-3.5" aria-hidden="true" /> : <Copy className="h-3.5 w-3.5" aria-hidden="true" />}
+						</button>
+						<div className="min-w-0 space-y-1 pr-6">
+							{visibleBlocks.map((block, index) => (
+								<BlockRenderer key={index} block={block} currentThreadId={message.instanceId} />
+							))}
+						</div>
+					</div>
+				) : null}
 			</div>
 		</div>
 	);
+}
+
+function isThinkingBlock(block: MessageBlock): block is Extract<MessageBlock, { type: "thinking" }> {
+	return block.type === "thinking";
 }
 
 async function copyToClipboard(text: string): Promise<void> {

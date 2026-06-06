@@ -4,6 +4,7 @@ import type { SubAgentInstanceState, SubAgentRunRecord } from "../types.ts";
 import { useSubAgentStore } from "../store/use-subagent-store.ts";
 import { MarkdownRenderer } from "./blocks/MarkdownRenderer";
 import { ChecklistProgressBlock } from "./ChecklistProgressBlock.tsx";
+import { isLionUiActive } from "./LionModeBadge.tsx";
 
 interface AgentRunSidebarProps {
 	agent?: SubAgentInstanceState;
@@ -54,30 +55,27 @@ export function AgentRunSidebar({ agent, run, isLoading }: AgentRunSidebarProps)
 	const input = run?.prompt ?? "";
 	const systemPrompt = run?.systemPrompt ?? "";
 	const output = run?.summary ?? run?.error ?? "";
-	const modelLabel =
-		(run?.modelProvider && run.modelId ? `${run.modelProvider}/${run.modelId}` : null) ??
-		(agent?.modelProvider && agent.modelId ? `${agent.modelProvider}/${agent.modelId}` : "n/a");
 	const isMain = agent?.kind === "main";
+	const isLionActive = isLionUiActive(lionState);
+	const showStatus = !isMain;
 	const { data: planChecklist } = useLionChecklist("plan", activePlanReference, {
-		enabled: isMain && lionState?.strategy === "plan" && Boolean(activePlanReference),
+		enabled: isMain && isLionActive && lionState?.strategy === "plan" && Boolean(activePlanReference),
 		refetchInterval: 2000,
 	});
-	const runProgress = isMain && agent && lionState?.phase === "building" ? getRunProgress(agents, agent.instanceId) : null;
+	const runProgress = isMain && isLionActive && agent && lionState?.phase === "building" ? getRunProgress(agents, agent.instanceId) : null;
 
 	return (
-			<aside className="hidden w-[340px] shrink-0 flex-col border-l border-border-subtle bg-bg-elevated lg:flex">
+		<aside className="hidden w-[340px] shrink-0 flex-col border-l border-border-subtle bg-bg-elevated lg:flex">
 			<div className="border-b border-border-subtle px-4 py-3">
-				<div className="text-xs uppercase tracking-wide text-text-tertiary">Run</div>
+				<div className="text-xs uppercase tracking-wide text-text-tertiary">{isMain ? "Session" : "Run"}</div>
 				<div className="mt-1 truncate text-sm font-medium text-text-primary">{run?.description ?? agent?.description ?? agent?.definitionName ?? "Subagent"}</div>
 				<div className="mt-2 grid grid-cols-2 gap-2 text-xs text-text-secondary">
-					<div>
-						<div className="text-text-tertiary">Model</div>
-						<div className="truncate">{modelLabel}</div>
-					</div>
-					<div>
-						<div className="text-text-tertiary">Status</div>
-						<div>{run?.status ?? agent?.state ?? (isLoading ? "loading" : "n/a")}</div>
-					</div>
+					{showStatus ? (
+						<div>
+							<div className="text-text-tertiary">Status</div>
+							<div>{run?.status ?? agent?.state ?? (isLoading ? "loading" : "n/a")}</div>
+						</div>
+					) : null}
 					<div>
 						<div className="text-text-tertiary">Turns</div>
 						<div>{run?.turnCount ?? agent?.turnCount ?? 0}</div>
@@ -104,12 +102,7 @@ export function AgentRunSidebar({ agent, run, isLoading }: AgentRunSidebarProps)
 							</section>
 						) : null}
 
-						<section className="rounded border border-border-subtle bg-bg px-3 py-2 text-xs leading-relaxed text-text-secondary">
-							<div className="text-text-tertiary">Session</div>
-							<div className="mt-1 break-all text-text-primary">{agent?.sessionId ?? "n/a"}</div>
-							<div className="mt-3 text-text-tertiary">Duration</div>
-							<div className="mt-1 text-text-primary">{formatDuration(agent?.durationMs ?? 0)}</div>
-						</section>
+						<SessionInfoWidget agent={agent} />
 					</>
 				) : (
 					<>
@@ -165,6 +158,26 @@ interface RunProgress {
 	queued: number;
 	total: number;
 	percent: number;
+}
+
+function SessionInfoWidget({ agent }: { agent?: SubAgentInstanceState }) {
+	const sessionId = agent?.sessionId ?? "";
+	return (
+		<section className="rounded border border-border-subtle bg-bg px-3 py-2 text-xs leading-relaxed text-text-secondary">
+			<div className="grid grid-cols-2 gap-3">
+				<div>
+					<div className="text-text-tertiary">Duration</div>
+					<div className="mt-1 text-text-primary">{formatDuration(agent?.durationMs ?? 0)}</div>
+				</div>
+				<div>
+					<div className="text-text-tertiary">Session ID</div>
+					<div className="mt-1">
+						<CopyButton text={sessionId} label="Copy" />
+					</div>
+				</div>
+			</div>
+		</section>
+	);
 }
 
 function getRunProgress(agents: SubAgentInstanceState[], mainThreadId: string): RunProgress | null {

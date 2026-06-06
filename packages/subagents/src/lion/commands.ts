@@ -553,11 +553,6 @@ export function registerLionCommands(pi: ExtensionAPI, runtime: LionRuntime): vo
 		description: "Open the Lion subagent dashboard in browser",
 		handler: async (_args, ctx) => {
 			try {
-				if (!runtime.state.active) {
-					runtime.activatePlanning();
-					runtime.persist();
-					runtime.ui.updateStatus(ctx, runtime.state);
-				}
 				runtime.ensureController(ctx);
 				runtime.attachMainSession(ctx);
 				const url = await runtime.startDashboard();

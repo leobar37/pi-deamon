@@ -1,4 +1,5 @@
 import { useMemo, useState } from "react";
+import { Users, X } from "lucide-react";
 import { navigateToThread } from "../navigation.ts";
 import { useSubAgentStore } from "../store/use-subagent-store.ts";
 import type { SubAgentInstanceState, SubAgentState } from "../types.ts";
@@ -9,6 +10,7 @@ type SubagentFilter = "all" | "running" | "failed" | "completed";
 interface SubagentListPanelProps {
 	activeThreadId: string | null;
 	agentsOverride?: SubAgentInstanceState[];
+	initiallyOpen?: boolean;
 }
 
 const FILTERS: Array<{ id: SubagentFilter; label: string }> = [
@@ -18,9 +20,8 @@ const FILTERS: Array<{ id: SubagentFilter; label: string }> = [
 	{ id: "completed", label: "Completed" },
 ];
 
-export function SubagentListPanel({ activeThreadId, agentsOverride }: SubagentListPanelProps) {
-	const [collapsed, setCollapsed] = useState(false);
-	const [mobileOpen, setMobileOpen] = useState(false);
+export function SubagentListPanel({ activeThreadId, agentsOverride, initiallyOpen = false }: SubagentListPanelProps) {
+	const [open, setOpen] = useState(initiallyOpen);
 	const [filter, setFilter] = useState<SubagentFilter>("all");
 	const storeAgents = useSubAgentStore((s) => s.agents);
 	const agents = agentsOverride ?? storeAgents;
@@ -28,109 +29,96 @@ export function SubagentListPanel({ activeThreadId, agentsOverride }: SubagentLi
 	const total = useMemo(() => agents.filter((agent) => agent.kind === "subagent").length, [agents]);
 	const visibleCount = groups.reduce((sum, group) => sum + group.threads.length, 0);
 
-	const panel = (isCollapsed: boolean) => (
+	if (total === 0) return null;
+
+	const panel = (
 		<aside
-			className={`relative flex h-full shrink-0 flex-col border-r border-border-subtle bg-bg-elevated transition-[width] duration-200 ${
-				isCollapsed ? "w-14" : "w-[280px]"
-			}`}
+			className="flex h-full w-[320px] max-w-[calc(100vw-2rem)] shrink-0 flex-col border-r border-border-subtle bg-bg-elevated shadow-2xl"
 		>
 			<div className="flex min-h-12 items-center justify-between gap-2 border-b border-border-subtle px-3">
-				{isCollapsed ? (
-					<div className="flex w-full flex-col items-center gap-1">
-						<div className="flex h-7 w-7 items-center justify-center rounded border border-border-subtle bg-bg text-text-secondary">
-							<span className="text-sm leading-none">≡</span>
-						</div>
-						<div className="text-[10px] leading-none text-text-tertiary">{total}</div>
-					</div>
-				) : (
-					<div className="min-w-0">
-						<div className="text-sm font-medium text-text-primary">Subagents</div>
-						<div className="text-xs text-text-tertiary">{total} total</div>
-					</div>
-				)}
+				<div className="min-w-0">
+					<div className="text-sm font-medium text-text-primary">Subagents</div>
+					<div className="text-xs text-text-tertiary">{total} total</div>
+				</div>
 				<button
 					type="button"
-					onClick={() => setCollapsed((value) => !value)}
-					className={`hidden h-8 w-8 shrink-0 items-center justify-center rounded border border-border-subtle text-xs text-text-secondary transition hover:border-border-hover hover:text-text-primary md:flex ${
-						isCollapsed ? "absolute left-3 top-11 bg-bg-elevated" : ""
-					}`}
-					aria-label={isCollapsed ? "Expand subagent list" : "Collapse subagent list"}
+					onClick={() => setOpen(false)}
+					className="flex h-8 w-8 shrink-0 items-center justify-center rounded border border-border-subtle text-text-secondary transition hover:border-border-hover hover:text-text-primary"
+					aria-label="Close subagent widget"
 				>
-					{isCollapsed ? ">" : "<"}
+					<X size={16} />
 				</button>
 			</div>
 
-			{isCollapsed ? null : (
-				<>
-					<div className="border-b border-border-subtle p-3">
-						<div className="grid grid-cols-2 gap-1 rounded border border-border-subtle bg-bg p-1">
-							{FILTERS.map((item) => (
-								<button
-									key={item.id}
-									type="button"
-									onClick={() => setFilter(item.id)}
-									className={`rounded px-2 py-1 text-xs transition ${
-										filter === item.id
-											? "bg-bg-active text-text-primary"
-											: "text-text-secondary hover:bg-bg-hover hover:text-text-primary"
-									}`}
-								>
-									{item.label}
-								</button>
-							))}
-						</div>
-					</div>
+			<div className="border-b border-border-subtle p-3">
+				<div className="grid grid-cols-2 gap-1 rounded border border-border-subtle bg-bg p-1">
+					{FILTERS.map((item) => (
+						<button
+							key={item.id}
+							type="button"
+							onClick={() => setFilter(item.id)}
+							className={`rounded px-2 py-1 text-xs transition ${
+								filter === item.id
+									? "bg-bg-active text-text-primary"
+									: "text-text-secondary hover:bg-bg-hover hover:text-text-primary"
+							}`}
+						>
+							{item.label}
+						</button>
+					))}
+				</div>
+			</div>
 
-					<div className="min-h-0 flex-1 overflow-y-auto p-2">
-						{visibleCount === 0 ? (
-							<div className="px-3 py-6 text-center text-xs text-text-muted">No subagents yet</div>
-						) : (
-							<div className="space-y-3">
-								{groups.map((group) => (
-									<section key={group.runId} className="space-y-1">
-										<div className="px-2 text-[11px] uppercase tracking-wide text-text-tertiary">
-											{group.label}
-										</div>
-										{group.threads.map((thread) => (
-											<SubagentListItem
-												key={thread.instanceId}
-												thread={thread}
-												active={thread.instanceId === activeThreadId}
-												onSelect={() => {
-													navigateToThread(thread.instanceId);
-													setMobileOpen(false);
-												}}
-											/>
-										))}
-									</section>
+			<div className="min-h-0 flex-1 overflow-y-auto p-2">
+				{visibleCount === 0 ? (
+					<div className="px-3 py-6 text-center text-xs text-text-muted">No matching subagents</div>
+				) : (
+					<div className="space-y-3">
+						{groups.map((group) => (
+							<section key={group.runId} className="space-y-1">
+								<div className="px-2 text-[11px] uppercase tracking-wide text-text-tertiary">
+									{group.label}
+								</div>
+								{group.threads.map((thread) => (
+									<SubagentListItem
+										key={thread.instanceId}
+										thread={thread}
+										active={thread.instanceId === activeThreadId}
+										onSelect={() => {
+											navigateToThread(thread.instanceId);
+											setOpen(false);
+										}}
+									/>
 								))}
-							</div>
-						)}
+							</section>
+						))}
 					</div>
-				</>
-			)}
+				)}
+			</div>
 		</aside>
 	);
 
 	return (
 		<>
-			<div className="hidden h-full md:block">{panel(collapsed)}</div>
 			<button
 				type="button"
-				onClick={() => setMobileOpen(true)}
-				className="fixed left-3 top-3 z-40 rounded border border-border-subtle bg-bg-elevated px-3 py-1.5 text-xs text-text-secondary shadow-md md:hidden"
+				onClick={() => setOpen(true)}
+				className="fixed left-4 top-4 z-40 inline-flex items-center gap-2 rounded border border-border-subtle bg-bg-elevated px-3 py-2 text-xs text-text-secondary shadow-lg transition hover:border-border-hover hover:text-text-primary"
+				aria-label="Open subagent widget"
+				aria-expanded={open}
 			>
-				Subagents
+				<Users size={15} />
+				<span>{total}</span>
 			</button>
-			{mobileOpen ? (
-				<div className="fixed inset-0 z-50 flex md:hidden">
+			{open ? (
+				<div className="fixed inset-0 z-50 flex">
+					{panel}
 					<button
 						type="button"
-						className="flex-1 bg-black/50"
-						aria-label="Close subagent list"
-						onClick={() => setMobileOpen(false)}
+						className="flex-1 bg-black/40"
+						aria-label="Close subagent widget"
+						onClick={() => setOpen(false)}
 					/>
-					<div className="h-full">{panel(false)}</div>
 				</div>
 			) : null}
 		</>

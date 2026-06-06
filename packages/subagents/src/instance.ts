@@ -821,7 +821,8 @@ export class SubAgentInstance {
 	}
 
 	async setModel(model: Model<any>): Promise<void> {
-		return this.assertSessionReady().setModel(model);
+		await this.assertSessionReady().setModel(model);
+		this.emitState();
 	}
 
 	async cycleModel(): Promise<ModelCycleResult | null> {

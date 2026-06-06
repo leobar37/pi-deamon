@@ -237,6 +237,7 @@ export class LionRuntime {
 	}
 
 	restore(ctx: ExtensionContext): void {
+		this.rememberUiContext(ctx);
 		const saved = readLionState(this.#cwd, ctx);
 		if (saved) {
 			this.#state = saved.state;
@@ -246,18 +247,16 @@ export class LionRuntime {
 			this.#core = createLionCore();
 		}
 		this.#activeRunId = this.#core.activeRun?.runId ?? null;
-		if (this.#state.active) {
-			this.ensureController(ctx);
-			this.mainSession.attach(ctx);
-		}
+		this.mainSession.attach(ctx);
+		if (this.#state.active) this.ensureController(ctx);
 		this.ui.updateStatus(ctx, this.#state);
 	}
 
 	attachMainSession(ctx: ExtensionContext): void {
-		if (this.#state.active) this.mainSession.attach(ctx);
+		this.mainSession.attach(ctx);
 	}
 	recordMainSessionEvent(event: Parameters<MainSessionBridge["record"]>[0], ctx: ExtensionContext): void {
-		if (this.#state.active) this.mainSession.record(event, ctx);
+		this.mainSession.record(event, ctx);
 	}
 	persist(): void {
 		writeLionState(this.#cwd, this.#state, this.#core);

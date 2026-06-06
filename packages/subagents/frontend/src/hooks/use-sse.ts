@@ -1,11 +1,12 @@
 import { useEffect, useRef } from "react";
 import { useSubAgentStore } from "../store/use-subagent-store.ts";
 import { useSessionMessagesStore } from "../store/session-messages.ts";
-import type { ChatMessage, SubAgentEvent, SubAgentInstanceState } from "../types.ts";
+import type { SubAgentEvent, SubAgentInstanceState } from "../types.ts";
 import { convertAgentMessages } from "../utils/message-converter.ts";
 import { generateNextEvent } from "../mocks/sse-emitter.ts";
 import { dashboardDebugLedger } from "../dev/debug-ledger.ts";
 import { queryClient } from "../lib/query-client.ts";
+import { setThreadMessagesCache } from "../lib/thread-message-cache.ts";
 
 function isDev(): boolean {
 	return (import.meta as unknown as { env?: { DEV?: boolean } }).env?.DEV ?? false;
@@ -13,7 +14,6 @@ function isDev(): boolean {
 
 export function useSseEvents(instanceId?: string) {
 	const storeRef = useRef(useSubAgentStore.getState());
-	const messagesRef = useRef(useSessionMessagesStore.getState());
 	const abortRef = useRef<AbortController | null>(null);
 
 	useEffect(() => {
@@ -118,6 +118,7 @@ export function useSseEvents(instanceId?: string) {
 						retryCount = 0;
 						lastEventTime = Date.now();
 						storeRef.current.setConnected(true);
+						void queryClient.invalidateQueries({ refetchType: "active" });
 						scheduleInactivityCheck();
 
 						const reader = res.body.getReader();
@@ -193,31 +194,52 @@ export function useSseEvents(instanceId?: string) {
 	}, [instanceId]);
 
 	function handleSessionEvent(event: SubAgentEvent): void {
-		if (event.type !== "session.event") return;
-		if (!event.instanceId) return;
-		const sessionEvent = event.sessionEvent as { type?: string; message?: Record<string, unknown> } | undefined;
-		if (!sessionEvent?.type) return;
-		if (sessionEvent.type === "message_start" && sessionEvent.message) {
-			const [message] = convertAgentMessages(event.instanceId, [sessionEvent.message]);
-			if (message) messagesRef.current.startMessage(event.instanceId, message);
-			messagesRef.current.setStreaming(event.instanceId, message?.role === "assistant");
-			syncMessageQuery(event.instanceId);
-			return;
-		}
-		if (sessionEvent.type === "message_update" && sessionEvent.message) {
-			const [message] = convertAgentMessages(event.instanceId, [sessionEvent.message]);
-			if (message) messagesRef.current.updatePartialMessage(event.instanceId, message);
-			messagesRef.current.setStreaming(event.instanceId, message?.role === "assistant");
-			syncMessageQuery(event.instanceId);
-			return;
-		}
-		if (sessionEvent.type !== "message_end" || !sessionEvent.message) return;
+		applySessionMessageEvent(event);
+	}
+}
+
+export function applySessionMessageEvent(event: SubAgentEvent): void {
+	if (event.type === "session.snapshot") {
+		if (!event.instanceId || !Array.isArray(event.messages)) return;
+		const messages = convertAgentMessages(event.instanceId, event.messages as Array<Record<string, unknown>>);
+		useSessionMessagesStore.getState().setMessages(event.instanceId, messages);
+		useSessionMessagesStore.getState().setStreaming(event.instanceId, false);
+		syncMessageQuery(event.instanceId);
+		return;
+	}
+	if (event.type === "session.message.complete") {
+		if (!event.instanceId || typeof event.message !== "object" || event.message === null) return;
+		const [message] = convertAgentMessages(event.instanceId, [event.message as Record<string, unknown>]);
+		if (!message) return;
+		useSessionMessagesStore.getState().finishMessage(event.instanceId, message);
+		useSessionMessagesStore.getState().setStreaming(event.instanceId, false);
+		syncMessageQuery(event.instanceId);
+		return;
+	}
+	if (event.type !== "session.event") return;
+	if (!event.instanceId) return;
+	const sessionEvent = event.sessionEvent as { type?: string; message?: Record<string, unknown> } | undefined;
+	if (!sessionEvent?.type) return;
+	if (sessionEvent.type === "message_start" && sessionEvent.message) {
 		const [message] = convertAgentMessages(event.instanceId, [sessionEvent.message]);
-		if (message) {
-			messagesRef.current.finishMessage(event.instanceId, message);
-			messagesRef.current.setStreaming(event.instanceId, false);
-			syncMessageQuery(event.instanceId);
-		}
+		if (message) useSessionMessagesStore.getState().startMessage(event.instanceId, message);
+		useSessionMessagesStore.getState().setStreaming(event.instanceId, message?.role === "assistant");
+		syncMessageQuery(event.instanceId);
+		return;
+	}
+	if (sessionEvent.type === "message_update" && sessionEvent.message) {
+		const [message] = convertAgentMessages(event.instanceId, [sessionEvent.message]);
+		if (message) useSessionMessagesStore.getState().updatePartialMessage(event.instanceId, message);
+		useSessionMessagesStore.getState().setStreaming(event.instanceId, message?.role === "assistant");
+		syncMessageQuery(event.instanceId);
+		return;
+	}
+	if (sessionEvent.type !== "message_end" || !sessionEvent.message) return;
+	const [message] = convertAgentMessages(event.instanceId, [sessionEvent.message]);
+	if (message) {
+		useSessionMessagesStore.getState().finishMessage(event.instanceId, message);
+		useSessionMessagesStore.getState().setStreaming(event.instanceId, false);
+		syncMessageQuery(event.instanceId);
 	}
 }
 
@@ -269,7 +291,7 @@ export function syncDashboardQueries(event: SubAgentEvent): void {
 
 export function syncMessageQuery(instanceId: string): void {
 	const messages = useSessionMessagesStore.getState().getMessages(instanceId);
-	queryClient.setQueryData<ChatMessage[]>(["agent-messages", instanceId], messages);
+	setThreadMessagesCache(queryClient, instanceId, messages);
 }
 
 function buildCreatedThread(event: SubAgentEvent): SubAgentInstanceState {

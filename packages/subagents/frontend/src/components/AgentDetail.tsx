@@ -11,7 +11,7 @@ import { useSessionMessagesStore } from "../store/session-messages.ts";
 import { navigateToThread } from "../navigation.ts";
 import { ErrorBoundary } from "./ErrorBoundary.tsx";
 import { AgentRunSidebar } from "./AgentRunSidebar.tsx";
-import { LionModeBadge } from "./LionModeBadge.tsx";
+import { isLionUiActive, LionModeBadge } from "./LionModeBadge.tsx";
 import { ChatComposer } from "./ChatComposer.tsx";
 
 interface AgentDetailProps {
@@ -42,11 +42,10 @@ export function AgentDetail({ instanceId, onBack }: AgentDetailProps) {
   const parentThread = displayAgent?.parentThreadId
     ? agents.find((agent) => agent.instanceId === displayAgent.parentThreadId)
     : null;
-  const modelLabel =
-    displayAgent?.modelProvider && displayAgent.modelId
-      ? `${displayAgent.modelProvider}/${displayAgent.modelId}`
-      : null;
-
+  const isMainThread = displayAgent?.kind === "main";
+  const isLionActive = isLionUiActive(lionState);
+  const showMainNavigation = !isMainThread || isLionActive;
+  const showStateBadge = !isMainThread;
   return (
     <div className="flex h-full min-w-0 flex-1 flex-col">
       <div className="flex items-center gap-3 px-4 py-3 border-b border-border-subtle bg-bg-elevated">
@@ -57,28 +56,20 @@ export function AgentDetail({ instanceId, onBack }: AgentDetailProps) {
           >
             ← {parentThread?.kind === "main" ? "Main session" : parentThread?.description || "Parent thread"}
           </button>
-        ) : (
+        ) : showMainNavigation ? (
           <button
             onClick={onBack}
             className="text-sm text-text-secondary hover:text-text-primary transition-colors"
           >
             Lion
           </button>
-        )}
+        ) : null}
         {displayAgent ? (
           <div className="flex items-center gap-2 min-w-0">
-            <StatusBadge state={displayAgent.state} pulse={displayAgent.state === "running"} />
+            {showStateBadge ? <StatusBadge state={displayAgent.state} pulse={displayAgent.state === "running"} /> : null}
             <span className="text-sm font-medium text-text-primary truncate">
               {displayAgent.kind === "main" ? "Main agent" : displayAgent.description || displayAgent.definitionName}
             </span>
-            <span className="text-xs text-text-muted shrink-0">
-              {displayAgent.kind === "main" ? displayAgent.sessionId ?? "main" : displayAgent.taskId}
-            </span>
-            {modelLabel ? (
-              <span className="min-w-0 truncate rounded border border-border-subtle bg-bg px-2 py-1 text-xs text-text-secondary">
-                {modelLabel}
-              </span>
-            ) : null}
             <LionModeBadge state={lionState} />
           </div>
         ) : (

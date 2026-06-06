@@ -7,7 +7,13 @@ import type { DashboardLionState, DashboardThreadState } from "../transport/type
 import type { SubAgentRunRecord, SubAgentState } from "../types.js";
 import type { SubagentsApiContext } from "./context.js";
 import { subagentsContract } from "./contract.js";
-import { getAgentSessionCommands, sendToAgentSession, type ThreadPromptMode } from "./session-control.js";
+import {
+	formatDashboardModels,
+	getAgentSessionCommands,
+	sendToAgentSession,
+	type ThreadPromptMode,
+} from "./session-control.js";
+import type { DashboardLogLevel } from "./session-log-store.js";
 import type { SubagentsOutputs } from "./types.js";
 
 const DEFAULT_LION_STATE: DashboardLionState = {
@@ -151,6 +157,54 @@ async function findRunRecord(ctx: SubagentsApiContext, threadId: string): Promis
 	return (await ctx.runStore.list()).find((candidate) => candidate.instanceId === threadId);
 }
 
+async function resolveLogSessionId(ctx: SubagentsApiContext, threadId?: string): Promise<string | null> {
+	const main = ctx.mainSession?.getThread();
+	if (!threadId) return main?.sessionId ?? null;
+	if (main?.instanceId === threadId) return main.sessionId ?? null;
+
+	const live = ctx.controller.getInstanceById(threadId)?.getState();
+	if (live?.sessionId) return live.sessionId;
+
+	const state = ctx.stateManager.getInstance(threadId);
+	if (state?.sessionId) return state.sessionId;
+
+	const record = await findRunRecord(ctx, threadId);
+	return record?.sessionId ?? null;
+}
+
+async function logDashboardControl(
+	ctx: SubagentsApiContext,
+	input: {
+		threadId: string;
+		type: string;
+		source: string;
+		level?: DashboardLogLevel;
+		data: Record<string, unknown>;
+	},
+): Promise<void> {
+	try {
+		const sessionId = await resolveLogSessionId(ctx, input.threadId);
+		if (!sessionId) return;
+		await ctx.logStore.append({
+			sessionId,
+			threadId: input.threadId,
+			type: input.type,
+			source: input.source,
+			level: input.level ?? "info",
+			data: input.data,
+		});
+	} catch (error) {
+		const message = error instanceof Error ? error.message : String(error);
+		console.error(`[subagents] dashboard log failed: ${message}`);
+	}
+}
+
+function errorData(error: unknown): Record<string, unknown> {
+	return {
+		error: error instanceof Error ? error.message : String(error),
+	};
+}
+
 async function getVirtualSessionFile(
 	ctx: SubagentsApiContext,
 	threadId: string,
@@ -234,6 +288,115 @@ async function listThreadCommands(
 		try {
 			const session = await ctx.sessionCache.getOrCreate(resumable.record, resumable.sessionFile);
 			return getAgentSessionCommands(session.session);
+		} catch (error) {
+			throw new ORPCError("SERVICE_UNAVAILABLE", {
+				message: error instanceof Error ? error.message : "Session not resumable",
+			});
+		}
+	}
+
+	throw new ORPCError("NOT_FOUND", { message: "Thread not found" });
+}
+
+async function listThreadModels(
+	ctx: SubagentsApiContext,
+	threadId: string,
+): Promise<SubagentsOutputs["threads"]["models"]> {
+	const main = ctx.mainSession?.getThread();
+	if (main?.instanceId === threadId) {
+		return (await ctx.mainSession?.getModels?.(threadId)) ?? [];
+	}
+
+	const instance = ctx.controller.getInstanceById(threadId);
+	if (instance) {
+		const state = instance.getState();
+		if (state.state === "created" || state.state === "starting") {
+			throw new ORPCError("SERVICE_UNAVAILABLE", { message: "Session not ready" });
+		}
+		return formatDashboardModels(await instance.getAvailableModels());
+	}
+
+	const cached = ctx.sessionCache.get(threadId);
+	if (cached) return formatDashboardModels(await cached.session.modelRegistry.getAvailable());
+
+	const resumable = await getVirtualSessionFile(ctx, threadId);
+	if (resumable) {
+		try {
+			const session = await ctx.sessionCache.getOrCreate(resumable.record, resumable.sessionFile);
+			return formatDashboardModels(await session.session.modelRegistry.getAvailable());
+		} catch (error) {
+			throw new ORPCError("SERVICE_UNAVAILABLE", {
+				message: error instanceof Error ? error.message : "Session not resumable",
+			});
+		}
+	}
+
+	throw new ORPCError("NOT_FOUND", { message: "Thread not found" });
+}
+
+async function selectThreadModel(
+	ctx: SubagentsApiContext,
+	threadId: string,
+	provider: string,
+	modelId: string,
+): Promise<SubagentsOutputs["threads"]["model"]> {
+	const main = ctx.mainSession?.getThread();
+	if (main?.instanceId === threadId) {
+		const selected = await ctx.mainSession?.setModel?.(threadId, provider, modelId);
+		if (!selected) {
+			throw new ORPCError("BAD_REQUEST", { message: "Model is unavailable or not authenticated" });
+		}
+		return { threadId, provider, modelId, status: "selected" as const, selectedAt: Date.now() };
+	}
+
+	const instance = ctx.controller.getInstanceById(threadId);
+	if (instance) {
+		const state = instance.getState();
+		if (state.state === "created" || state.state === "starting") {
+			throw new ORPCError("SERVICE_UNAVAILABLE", { message: "Session not ready" });
+		}
+		const model = (await instance.getAvailableModels()).find(
+			(candidate) => candidate.provider === provider && candidate.id === modelId,
+		);
+		if (!model) {
+			throw new ORPCError("BAD_REQUEST", { message: "Model is unavailable or not authenticated" });
+		}
+		await instance.setModel(model);
+		return { threadId, provider, modelId, status: "selected" as const, selectedAt: Date.now() };
+	}
+
+	const cached = ctx.sessionCache.get(threadId);
+	if (cached) {
+		const model = cached.session.modelRegistry
+			.getAvailable()
+			.find((candidate) => candidate.provider === provider && candidate.id === modelId);
+		if (!model) {
+			throw new ORPCError("BAD_REQUEST", { message: "Model is unavailable or not authenticated" });
+		}
+		await cached.session.setModel(model);
+		const state = ctx.stateManager.getInstance(cached.instanceId);
+		if (state) {
+			ctx.emitEvent({
+				type: "instance.state",
+				instanceId: cached.instanceId,
+				taskId: cached.taskId,
+				state: {
+					...state,
+					modelProvider: model.provider,
+					modelId: model.id,
+					lastActivityAt: Date.now(),
+				},
+				timestamp: Date.now(),
+			});
+		}
+		return { threadId, provider, modelId, status: "selected" as const, selectedAt: Date.now() };
+	}
+
+	const resumable = await getVirtualSessionFile(ctx, threadId);
+	if (resumable) {
+		try {
+			const session = await ctx.sessionCache.getOrCreate(resumable.record, resumable.sessionFile);
+			return selectThreadModel(ctx, session.instanceId, provider, modelId);
 		} catch (error) {
 			throw new ORPCError("SERVICE_UNAVAILABLE", {
 				message: error instanceof Error ? error.message : "Session not resumable",
@@ -377,17 +540,73 @@ export function createSubagentsRouter(ctx: SubagentsApiContext) {
 			}),
 
 			prompt: impl.threads.prompt.handler(async ({ input }) => {
-				await sendThreadMessage(ctx, input.threadId, input.message, input.mode);
-				return {
+				await logDashboardControl(ctx, {
 					threadId: input.threadId,
-					mode: input.mode,
-					status: "sent" as const,
-					acceptedAt: Date.now(),
-				};
+					type: "thread.prompt.request",
+					source: "dashboard",
+					data: { mode: input.mode, messageLength: input.message.length },
+				});
+				try {
+					await sendThreadMessage(ctx, input.threadId, input.message, input.mode);
+					const acceptedAt = Date.now();
+					await logDashboardControl(ctx, {
+						threadId: input.threadId,
+						type: "thread.prompt.accepted",
+						source: "dashboard",
+						data: { mode: input.mode, acceptedAt },
+					});
+					return {
+						threadId: input.threadId,
+						mode: input.mode,
+						status: "sent" as const,
+						acceptedAt,
+					};
+				} catch (error) {
+					await logDashboardControl(ctx, {
+						threadId: input.threadId,
+						type: "thread.prompt.failed",
+						source: "dashboard",
+						level: "error",
+						data: { mode: input.mode, ...errorData(error) },
+					});
+					throw error;
+				}
 			}),
 
 			commands: impl.threads.commands.handler(async ({ input }) => {
 				return listThreadCommands(ctx, input.threadId);
+			}),
+
+			models: impl.threads.models.handler(async ({ input }) => {
+				return listThreadModels(ctx, input.threadId);
+			}),
+
+			model: impl.threads.model.handler(async ({ input }) => {
+				await logDashboardControl(ctx, {
+					threadId: input.threadId,
+					type: "model.select.request",
+					source: "dashboard",
+					data: { provider: input.provider, modelId: input.modelId },
+				});
+				try {
+					const result = await selectThreadModel(ctx, input.threadId, input.provider, input.modelId);
+					await logDashboardControl(ctx, {
+						threadId: input.threadId,
+						type: "model.select.success",
+						source: "dashboard",
+						data: { provider: input.provider, modelId: input.modelId, selectedAt: result.selectedAt },
+					});
+					return result;
+				} catch (error) {
+					await logDashboardControl(ctx, {
+						threadId: input.threadId,
+						type: "model.select.failed",
+						source: "dashboard",
+						level: "error",
+						data: { provider: input.provider, modelId: input.modelId, ...errorData(error) },
+					});
+					throw error;
+				}
 			}),
 		},
 
@@ -413,6 +632,29 @@ export function createSubagentsRouter(ctx: SubagentsApiContext) {
 				} catch (error) {
 					throw new ORPCError("NOT_FOUND", {
 						message: error instanceof Error ? error.message : String(error),
+					});
+				}
+			}),
+		},
+
+		logs: {
+			session: impl.logs.session.handler(async ({ input }) => {
+				try {
+					const sessionId = input.sessionId ?? (await resolveLogSessionId(ctx)) ?? undefined;
+					return await ctx.logStore.query({ ...input, sessionId });
+				} catch (error) {
+					throw new ORPCError("SERVICE_UNAVAILABLE", {
+						message: error instanceof Error ? error.message : "Dashboard logs are unavailable",
+					});
+				}
+			}),
+
+			list: impl.logs.list.handler(async () => {
+				try {
+					return await ctx.logStore.list();
+				} catch (error) {
+					throw new ORPCError("SERVICE_UNAVAILABLE", {
+						message: error instanceof Error ? error.message : "Dashboard logs are unavailable",
 					});
 				}
 			}),

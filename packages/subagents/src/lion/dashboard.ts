@@ -36,10 +36,9 @@ class LionDashboardServer implements LionDashboard {
 			return new URL("http://disabled");
 		}
 
-		const controller = this.runtime.activeController;
-		if (!controller) {
-			throw new Error("Lion is not active. Use /lion-activate to start Lion first.");
-		}
+		const ctx = this.runtime.lastUiContext;
+		const controller = this.runtime.activeController ?? (ctx ? this.runtime.ensureController(ctx) : null);
+		if (!controller) throw new Error("Dashboard is not attached to a Pi session yet.");
 
 		this.transport = new HttpServerTransport({
 			port: 0,

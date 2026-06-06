@@ -1,8 +1,10 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { syncDashboardQueries, syncMessageQuery } from "../src/hooks/use-sse.ts";
+import { applySessionMessageEvent, syncDashboardQueries, syncMessageQuery } from "../src/hooks/use-sse.ts";
 import { queryClient } from "../src/lib/query-client.ts";
+import { threadMessagesQueryKey } from "../src/lib/thread-message-cache.ts";
 import { useSessionMessagesStore } from "../src/store/session-messages.ts";
 import type { ChatMessage, SubAgentInstanceState } from "../src/types.ts";
+import { convertAgentMessages } from "../src/utils/message-converter.ts";
 
 describe("useSseEvents query synchronization", () => {
 	beforeEach(() => {
@@ -109,6 +111,39 @@ describe("useSseEvents query synchronization", () => {
 		useSessionMessagesStore.getState().setMessages("main:session-1", [message]);
 		syncMessageQuery("main:session-1");
 
-		expect(queryClient.getQueryData(["agent-messages", "main:session-1"])).toEqual([message]);
+		const cached = queryClient.getQueryData<Record<string, unknown>[]>(threadMessagesQueryKey("main:session-1"));
+		expect(convertAgentMessages("main:session-1", cached ?? [])).toEqual([message]);
+	});
+
+	it("repairs missed user messages from a session snapshot", () => {
+		const assistantOnly: ChatMessage = {
+			id: "assistant-1",
+			instanceId: "main:session-1",
+			role: "assistant",
+			blocks: [{ type: "text", text: "Nada." }],
+			timestamp: 20,
+		};
+		useSessionMessagesStore.getState().setMessages("main:session-1", [assistantOnly]);
+
+		applySessionMessageEvent({
+			type: "session.snapshot",
+			instanceId: "main:session-1",
+			taskId: "main",
+			messages: [
+				{ role: "user", content: [{ type: "text", text: "que paso" }], timestamp: 10 },
+				{ role: "assistant", content: [{ type: "text", text: "Nada." }], timestamp: 20 },
+			],
+			timestamp: 30,
+		});
+
+		expect(useSessionMessagesStore.getState().getMessages("main:session-1").map((message) => message.role)).toEqual([
+			"user",
+			"assistant",
+		]);
+		const cached = queryClient.getQueryData<Record<string, unknown>[]>(threadMessagesQueryKey("main:session-1"));
+		expect(convertAgentMessages("main:session-1", cached ?? []).map((message) => message.role)).toEqual([
+			"user",
+			"assistant",
+		]);
 	});
 });

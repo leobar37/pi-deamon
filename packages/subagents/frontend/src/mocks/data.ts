@@ -1,6 +1,7 @@
 import type {
 	LionChecklistSnapshot,
 	LionDashboardState,
+	DashboardModel,
 	SubAgentEvent,
 	SubAgentInstanceState,
 	SubAgentRunRecord,
@@ -91,6 +92,37 @@ export const MOCK_PLAN_CHECKLIST: LionChecklistSnapshot = {
 	},
 	updatedAt: new Date(now - 12000).toISOString(),
 };
+
+export const MOCK_MODELS: DashboardModel[] = [
+	{
+		provider: "kimi-coding",
+		id: "kimi-for-coding",
+		name: "Kimi For Coding",
+		api: "anthropic-messages",
+		reasoning: true,
+	},
+	{
+		provider: "openai-codex",
+		id: "gpt-5.5",
+		name: "GPT 5.5 Codex",
+		api: "openai-codex-responses",
+		reasoning: true,
+	},
+	{
+		provider: "deepseek",
+		id: "deepseek-v4-flash",
+		name: "DeepSeek V4 Flash",
+		api: "openai-completions",
+		reasoning: false,
+	},
+	{
+		provider: "deepseek",
+		id: "deepseek-v4-pro",
+		name: "DeepSeek V4 Pro",
+		api: "openai-completions",
+		reasoning: true,
+	},
+];
 
 export const MOCK_AGENTS: SubAgentInstanceState[] = [
 	{
@@ -860,4 +892,11 @@ export function getAgentById(instanceId: string): SubAgentInstanceState | undefi
 
 export function getRunForInstance(instanceId: string): SubAgentRunRecord | undefined {
 	return MOCK_RUNS.find((run) => run.instanceId === instanceId);
+}
+
+export function updateMockAgentModel(instanceId: string, provider: string, modelId: string): void {
+	const agent = getAgentById(instanceId);
+	if (!agent) return;
+	agent.modelProvider = provider;
+	agent.modelId = modelId;
 }
