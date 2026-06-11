@@ -174,6 +174,9 @@ export function serializeAgentSessionEvent(event: AgentSessionEvent, sessionId: 
 			};
 		// Catch-all for unknown event types
 		default: {
+			if ((event as Record<string, unknown>).type === "extension_ui_request") {
+				return { ...base, type: "ping" as const };
+			}
 			// Unknown event type — log and return a safe generic event
 			console.warn(
 				`[serializeAgentSessionEvent] Unknown event type: ${(event as Record<string, unknown>).type ?? "undefined"}`,

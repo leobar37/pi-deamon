@@ -31,16 +31,16 @@ ipcMain.handle("project:choose-directory", async () => {
 });
 
 /**
- * Determine the path to the compiled backend binary.
- * In dev: uses the binary built by `bun run build:binary`.
+ * Determine how to start the backend.
+ * In dev: runs the compiled CLI through Bun.
  * In packaged: uses `process.resourcesPath` where electron-builder places extraResources.
  */
-function getBackendBinaryPath(): string {
+function getBackendCommand(): { command: string; args: string[] } {
 	const isPackaged = app.isPackaged;
 	if (isPackaged) {
-		return join(process.resourcesPath, "pi-web-binary");
+		return { command: join(process.resourcesPath, "pi-web-binary"), args: [] };
 	}
-	return join(__dirname, "..", "dist", "pi-web-binary");
+	return { command: "bun", args: [join(__dirname, "..", "..", "dist", "cli.js")] };
 }
 
 /**
@@ -70,10 +70,10 @@ function normalizeUrl(url: string): string {
 }
 
 async function startBackend(): Promise<string> {
-	const binaryPath = getBackendBinaryPath();
+	const backendCommand = getBackendCommand();
 
 	return new Promise((resolve, reject) => {
-		const proc = spawn(binaryPath, ["--port", "0", "--host", "127.0.0.1"], {
+		const proc = spawn(backendCommand.command, [...backendCommand.args, "--port", "0", "--host", "127.0.0.1"], {
 			stdio: ["ignore", "pipe", "pipe"],
 		});
 
@@ -138,7 +138,7 @@ function killBackend(): void {
  * Create the main BrowserWindow.
  */
 function createWindow(backendUrl: string): void {
-	const indexPath = join(__dirname, "..", "frontend", "dist", "index.html");
+	const indexPath = join(__dirname, "..", "..", "frontend", "dist", "index.html");
 	const loadUrl = `file://${indexPath}?backendUrl=${encodeURIComponent(backendUrl)}`;
 
 	mainWindow = new BrowserWindow({
@@ -147,12 +147,11 @@ function createWindow(backendUrl: string): void {
 		minWidth: 800,
 		minHeight: 600,
 		webPreferences: {
-			preload: join(__dirname, "preload.js"),
+			preload: join(__dirname, "preload.cjs"),
 			contextIsolation: true,
 			nodeIntegration: false,
 		},
 		show: false,
-		titleBarStyle: "hiddenInset",
 	});
 
 	mainWindow.loadURL(loadUrl);

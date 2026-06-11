@@ -37,7 +37,7 @@ export interface DashboardSessionSource {
 	getMessages(threadId: string): AgentMessage[] | null;
 	getEvents(threadId: string): SubAgentEvent[];
 	sendMessage?(threadId: string, message: string, mode: ThreadPromptMode): Promise<void>;
-	getCommands?(threadId: string): DashboardCommand[];
+	getCommands?(threadId: string): Promise<DashboardCommand[]> | DashboardCommand[];
 	getModels?(threadId: string): Promise<DashboardModel[]> | DashboardModel[];
 	setModel?(threadId: string, provider: string, modelId: string): Promise<boolean>;
 	subscribe(listener: (event: SubAgentEvent) => void): () => void;

@@ -19,6 +19,10 @@ export interface LiveSessionInfo {
 	messageCount: number;
 	/** Session kind — agent (default) or lion */
 	sessionType?: "agent" | "lion";
+	/** Operating system process id for subprocess-backed active sessions */
+	processId?: number;
+	/** URL for the embedded subagents frontend for this session */
+	uiUrl?: string;
 }
 
 export interface SessionHostConfig {

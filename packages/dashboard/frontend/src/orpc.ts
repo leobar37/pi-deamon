@@ -28,4 +28,4 @@ export const orpc = client;
 
 // Re-export types for convenience
 export type { ServerEvent } from "@local/pi-dashboard";
-export type { SessionInfo, SessionStatus } from "@local/pi-dashboard";
+export type { LiveSessionInfo, SessionStatus } from "@local/pi-dashboard";

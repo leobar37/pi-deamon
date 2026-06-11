@@ -113,8 +113,10 @@ async function main() {
 		console.log(`Starting pi-web on http://${host}:${port}`);
 	}
 
-	// Kill any process using the target port
-	await killPort(port);
+	// Kill any process using the target port. Port 0 asks the OS to choose a free port.
+	if (port !== 0) {
+		await killPort(port);
+	}
 
 	const daemon = new DashboardDaemon({ port, host, dev });
 	const url = await daemon.start();

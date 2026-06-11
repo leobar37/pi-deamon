@@ -15,6 +15,7 @@
 		"clean": "bun run clean --workspaces",
 		"build": "cd packages/tui && bun run build && cd ../ai && bun run build && cd ../agent && bun run build && cd ../coding-agent && bun run build && cd ../web-ui && bun run build",
 		"pi-dev": "bun run scripts/pi-dev.ts",
+		"pi-desktop": "cd packages/dashboard && bun run electron:dev",
 		"pi-web": "cd packages/dashboard && bun run build:all && ./dist/cli.js",
 		"pi-web:dev": "cd packages/dashboard && bun run src/cli.ts",
 		"dev": "concurrently --names \"ai,agent,coding-agent,web-ui,tui\" --prefix-colors \"cyan,yellow,red,green,magenta\" \"cd packages/ai && bun run dev\" \"cd packages/agent && bun run dev\" \"cd packages/coding-agent && bun run dev\" \"cd packages/web-ui && bun run dev\" \"cd packages/tui && bun run dev\"",

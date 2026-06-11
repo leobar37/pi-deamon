@@ -6,8 +6,12 @@
   "private": true,
   "keywords": ["pi-package"],
   "main": "./dist/index.js",
+  "types": "./src/index.ts",
   "exports": {
-    ".": "./dist/index.js",
+    ".": {
+      "types": "./src/index.ts",
+      "default": "./dist/index.js"
+    },
     "./sdk": "./dist/sdk/index.js"
   },
   "scripts": {

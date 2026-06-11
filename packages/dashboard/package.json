@@ -3,7 +3,7 @@
   "version": "0.74.0",
   "description": "Web dashboard for Pi sessions",
   "type": "module",
-  "main": "electron/dist/main.js",
+  "main": "electron/dist/main.cjs",
   "bin": {
     "pi-web": "dist/cli.js"
   },
@@ -20,13 +20,14 @@
     "build:all": "bun run build && bun run build:frontend",
     "build:binary": "bun run build.ts --binary",
     "build:electron": "vite build -c electron/vite.config.ts",
-    "electron:dev": "bun run build:frontend && bun run build:binary && bun run build:electron && electron electron/dist/main.js",
+    "electron:dev": "bun run build:frontend && bun run build && bun run build:electron && electron electron/dist/main.cjs",
     "electron:build": "bun run build:all && bun run build:binary && bun run build:electron",
     "electron:pack": "bun run electron:build && electron-builder",
     "test": "vitest --run"
   },
   "dependencies": {
     "@earendil-works/pi-coding-agent": "workspace:*",
+    "@local/pi-subagents": "workspace:*",
     "@orpc/server": "^1.14.3",
     "drizzle-orm": "^0.45.2",
     "uuid": "^14.0.0",

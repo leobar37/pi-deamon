@@ -7,14 +7,65 @@
  *                         +-> error
  */
 
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
 import type { AgentMessage } from "@earendil-works/pi-agent-core";
-import type { AgentSession, AgentSessionEvent, CreateAgentSessionOptions } from "@earendil-works/pi-coding-agent";
-import { createAgentSession, type ModelRegistry, type SessionManager } from "@earendil-works/pi-coding-agent";
+import type {
+	AgentSession,
+	AgentSessionEvent,
+	CreateAgentSessionOptions,
+	ModelRegistry,
+	RpcClientOptions,
+	RpcSessionState,
+	SessionManager,
+	SlashCommandInfo,
+} from "@earendil-works/pi-coding-agent";
+import { createAgentSession, RpcClient } from "@earendil-works/pi-coding-agent";
 import { EventPublisher } from "@orpc/server";
 import type { EventStreamProvider } from "../events/provider.js";
 import { serializeAgentSessionEvent, serializeLionEvent } from "../events/serialize.js";
 import { logger } from "../logging.js";
+import { EmbeddedSubagentsUi } from "./embedded-subagents-ui.js";
 import type { LiveSessionInfo, SessionStatus } from "./types.js";
+
+export interface DashboardSessionCommand {
+	name: string;
+	description?: string;
+	source: "extension" | "prompt" | "skill";
+}
+
+export interface DashboardSessionModel {
+	provider: string;
+	id: string;
+	name: string;
+	api: string;
+	reasoning: boolean;
+}
+
+interface RpcModelPayload {
+	provider: string;
+	id: string;
+	name?: string;
+	api?: string;
+	reasoning: boolean;
+}
+
+function shouldUseRpcProcessRuntime(): boolean {
+	return process.env.PI_DASHBOARD_SESSION_RUNTIME !== "in-process" && process.env.VITEST !== "true";
+}
+
+function shouldStartEmbeddedSubagentsUi(): boolean {
+	return process.env.PI_DASHBOARD_EMBEDDED_SUBAGENTS_UI !== "false" && process.env.VITEST !== "true";
+}
+
+function resolveCodingAgentCliPath(): string {
+	const resolved = fileURLToPath(import.meta.resolve("@earendil-works/pi-coding-agent"));
+	const dir = dirname(resolved);
+	if (resolved.endsWith("/src/index.ts")) {
+		return join(dir, "..", "dist", "cli.js");
+	}
+	return join(dir, "cli.js");
+}
 
 export class LiveSession {
 	readonly id: string;
@@ -24,6 +75,10 @@ export class LiveSession {
 
 	private _status: SessionStatus = "created";
 	private _agentSession: AgentSession | null = null;
+	private _rpcClient: RpcClient | null = null;
+	private _rpcState: RpcSessionState | null = null;
+	private _embeddedUi: EmbeddedSubagentsUi | null = null;
+	private _embeddedUiUrl: URL | null = null;
 	private _eventUnsubscribe?: () => void;
 	private _lastActivityAt: number;
 	private readonly _createdAt: number;
@@ -85,8 +140,10 @@ export class LiveSession {
 			cwd: this.cwd,
 			createdAt: this._createdAt,
 			lastActivityAt: this._lastActivityAt,
-			messageCount: entries.filter((e) => e.type === "message").length,
+			messageCount: this._rpcState?.messageCount ?? entries.filter((e) => e.type === "message").length,
 			sessionType: this.sessionType,
+			processId: this._rpcClient?.getPid(),
+			uiUrl: this._embeddedUiUrl?.href,
 		};
 	}
 
@@ -155,9 +212,17 @@ export class LiveSession {
 		}
 
 		this._status = "starting";
-		logger.info("Starting agent session", { sessionId: this.id, cwd: this.cwd });
+		logger.info("Starting agent session", {
+			sessionId: this.id,
+			cwd: this.cwd,
+			runtime: shouldUseRpcProcessRuntime() ? "rpc-process" : "in-process",
+		});
 
 		try {
+			if (shouldUseRpcProcessRuntime()) {
+				await this._startRpcProcess(options);
+				return;
+			}
 			const result = await createAgentSession({
 				cwd: this.cwd,
 				sessionManager: this.sessionManager,
@@ -188,6 +253,7 @@ export class LiveSession {
 					this._status = "idle";
 				}
 			});
+			await this._startEmbeddedUi();
 		} catch (err) {
 			const message = err instanceof Error ? err.message : String(err);
 			logger.error("Agent session start failed", { sessionId: this.id, error: message });
@@ -199,6 +265,16 @@ export class LiveSession {
 	async stop(): Promise<void> {
 		this._eventUnsubscribe?.();
 		this._eventUnsubscribe = undefined;
+		if (this._rpcClient) {
+			await this._rpcClient.stop();
+			this._rpcClient = null;
+			this._rpcState = null;
+		}
+		if (this._embeddedUi) {
+			await this._embeddedUi.stop();
+			this._embeddedUi = null;
+			this._embeddedUiUrl = null;
+		}
 		if (this._agentSession) {
 			this._agentSession.dispose();
 			this._agentSession = null;
@@ -236,10 +312,15 @@ export class LiveSession {
 		this._requireRuntime();
 		this._touch();
 		try {
-			await this._agentSession!.prompt(message, {
-				streamingBehavior: opts?.streamingBehavior,
-				source: "rpc",
-			});
+			if (this._rpcClient) {
+				await this._rpcClient.prompt(message, { streamingBehavior: opts?.streamingBehavior });
+				void this._refreshRpcState();
+			} else {
+				await this._agentSession!.prompt(message, {
+					streamingBehavior: opts?.streamingBehavior,
+					source: "rpc",
+				});
+			}
 			logger.info("Prompt sent to agent", { sessionId: this.id });
 		} catch (err) {
 			const errorMessage = err instanceof Error ? err.message : String(err);
@@ -253,7 +334,12 @@ export class LiveSession {
 		this._requireRuntime();
 		this._touch();
 		try {
-			await this._agentSession!.steer(message);
+			if (this._rpcClient) {
+				await this._rpcClient.steer(message);
+				void this._refreshRpcState();
+			} else {
+				await this._agentSession!.steer(message);
+			}
 			logger.info("Steer sent to agent", { sessionId: this.id });
 		} catch (err) {
 			const errorMessage = err instanceof Error ? err.message : String(err);
@@ -267,7 +353,12 @@ export class LiveSession {
 		this._requireRuntime();
 		this._touch();
 		try {
-			await this._agentSession!.followUp(message);
+			if (this._rpcClient) {
+				await this._rpcClient.followUp(message);
+				void this._refreshRpcState();
+			} else {
+				await this._agentSession!.followUp(message);
+			}
 			logger.info("FollowUp sent to agent", { sessionId: this.id });
 		} catch (err) {
 			const errorMessage = err instanceof Error ? err.message : String(err);
@@ -281,7 +372,12 @@ export class LiveSession {
 		this._requireRuntime();
 		this._touch();
 		try {
-			await this._agentSession!.abort();
+			if (this._rpcClient) {
+				await this._rpcClient.abort();
+				void this._refreshRpcState();
+			} else {
+				await this._agentSession!.abort();
+			}
 			logger.info("Abort sent to agent", { sessionId: this.id });
 		} catch (err) {
 			const errorMessage = err instanceof Error ? err.message : String(err);
@@ -301,7 +397,18 @@ export class LiveSession {
 		return this._agentSession.messages;
 	}
 
+	async getMessagesAsync(): Promise<AgentMessage[]> {
+		if (this._rpcClient) {
+			return this._rpcClient.getMessages();
+		}
+		return this.getMessages();
+	}
+
 	getModel(): { provider: string; id: string; name: string } | undefined {
+		if (this._rpcState?.model) {
+			const model = this._rpcState.model;
+			return { provider: model.provider, id: model.id, name: model.name };
+		}
 		if (!this._agentSession) return undefined;
 		const model = this._agentSession.model;
 		if (!model) return undefined;
@@ -310,6 +417,11 @@ export class LiveSession {
 
 	async setModel(modelRegistry: ModelRegistry, provider: string, modelId: string): Promise<void> {
 		this._requireRuntime();
+		if (this._rpcClient) {
+			await this._rpcClient.setModel(provider, modelId);
+			await this._refreshRpcState();
+			return;
+		}
 		const model = modelRegistry.find(provider, modelId);
 		if (!model) {
 			throw new Error(`Model ${provider}/${modelId} not found`);
@@ -318,6 +430,68 @@ export class LiveSession {
 			throw new Error(`Model ${provider}/${modelId} has no configured authentication`);
 		}
 		await this._agentSession!.setModel(model);
+	}
+
+	async setModelById(provider: string, modelId: string): Promise<void> {
+		this._requireRuntime();
+		if (this._rpcClient) {
+			await this._rpcClient.setModel(provider, modelId);
+			await this._refreshRpcState();
+			return;
+		}
+		if (!this._modelRegistry) {
+			throw new Error("Session has no model registry");
+		}
+		await this.setModel(this._modelRegistry, provider, modelId);
+	}
+
+	async getAvailableModels(): Promise<DashboardSessionModel[]> {
+		this._requireRuntime();
+		if (this._rpcClient) {
+			return (await this._rpcClient.getAvailableModels()).map((model) => this._formatRpcModel(model));
+		}
+		if (!this._modelRegistry) return [];
+		return this._modelRegistry.getAvailable().map((model) => ({
+			provider: model.provider,
+			id: model.id,
+			name: model.name,
+			api: model.api,
+			reasoning: Boolean(model.reasoning),
+		}));
+	}
+
+	async getCommands(): Promise<DashboardSessionCommand[]> {
+		this._requireRuntime();
+		if (this._rpcClient) {
+			return (await this._rpcClient.getCommands()).map((command) => this._formatCommand(command));
+		}
+		const session = this._agentSession!;
+		return [
+			...session.extensionRunner.getRegisteredCommands().map((command) =>
+				this._formatCommand({
+					name: command.invocationName,
+					description: command.description,
+					source: "extension" as const,
+					sourceInfo: command.sourceInfo,
+				}),
+			),
+			...session.promptTemplates.map((template) =>
+				this._formatCommand({
+					name: template.name,
+					description: template.description,
+					source: "prompt" as const,
+					sourceInfo: template.sourceInfo,
+				}),
+			),
+			...session.resourceLoader.getSkills().skills.map((skill) =>
+				this._formatCommand({
+					name: `skill:${skill.name}`,
+					description: skill.description,
+					source: "skill" as const,
+					sourceInfo: skill.sourceInfo,
+				}),
+			),
+		];
 	}
 
 	getState(): {
@@ -333,7 +507,7 @@ export class LiveSession {
 				isStreaming: false,
 				isCompacting: false,
 				pendingMessageCount: 0,
-				messageCount: this.getMessages().length,
+				messageCount: this._rpcState?.messageCount ?? this.sessionManager.buildSessionContext().messages.length,
 			};
 		}
 		return {
@@ -350,7 +524,7 @@ export class LiveSession {
 	// -------------------------------------------------------------------------
 
 	private _requireRuntime(): void {
-		if (!this._agentSession) {
+		if (!this._agentSession && !this._rpcClient) {
 			logger.warn("Runtime required but not available", { sessionId: this.id, status: this._status });
 			throw new Error(`Session ${this.id} has no active runtime. Call start() first.`);
 		}
@@ -362,5 +536,86 @@ export class LiveSession {
 
 	private _touch(): void {
 		this._lastActivityAt = Date.now();
+	}
+
+	private async _startRpcProcess(options?: Omit<CreateAgentSessionOptions, "cwd" | "sessionManager">): Promise<void> {
+		const sessionFile = this.sessionManager.getSessionFile();
+		const args = sessionFile ? ["--session", sessionFile] : [];
+		const rpcOptions: RpcClientOptions = {
+			cliPath: resolveCodingAgentCliPath(),
+			cwd: this.cwd,
+			env: {
+				LION_DASHBOARD_MODE: "true",
+				PI_DASHBOARD_SESSION_ID: this.id,
+			},
+			args,
+			provider: options?.model?.provider,
+			model: options?.model?.id,
+		};
+		const client = new RpcClient(rpcOptions);
+		await client.start();
+		this._rpcClient = client;
+		this._eventUnsubscribe = client.onEvent((event) => {
+			this.eventPublisher.publish("*", event as AgentSessionEvent);
+			if (this._eventProvider) {
+				const serverEvent = serializeAgentSessionEvent(event as AgentSessionEvent, this.id);
+				this._eventProvider.publish(serverEvent);
+			}
+			this._touch();
+			if (event.type === "agent_start") {
+				this._status = "streaming";
+			} else if (event.type === "agent_end") {
+				this._status = "idle";
+				void this._refreshRpcState();
+			}
+		});
+		await this._refreshRpcState();
+		this._status = "idle";
+		this._touch();
+		await this._startEmbeddedUi();
+		logger.info("Agent session process started", {
+			sessionId: this.id,
+			pid: client.getPid(),
+			cwd: this.cwd,
+		});
+	}
+
+	private async _refreshRpcState(): Promise<void> {
+		if (!this._rpcClient) return;
+		try {
+			this._rpcState = await this._rpcClient.getState();
+		} catch (err) {
+			const message = err instanceof Error ? err.message : String(err);
+			logger.warn("Failed to refresh RPC session state", { sessionId: this.id, error: message });
+		}
+	}
+
+	private async _startEmbeddedUi(): Promise<void> {
+		if (!shouldStartEmbeddedSubagentsUi()) return;
+		if (this._embeddedUiUrl) return;
+		this._embeddedUi = new EmbeddedSubagentsUi(this);
+		this._embeddedUiUrl = await this._embeddedUi.start();
+		logger.info("Embedded subagents UI started", {
+			sessionId: this.id,
+			url: this._embeddedUiUrl.href,
+		});
+	}
+
+	private _formatCommand(command: SlashCommandInfo): DashboardSessionCommand {
+		return {
+			name: command.name,
+			description: command.description,
+			source: command.source,
+		};
+	}
+
+	private _formatRpcModel(model: RpcModelPayload): DashboardSessionModel {
+		return {
+			provider: model.provider,
+			id: model.id,
+			name: model.name ?? model.id,
+			api: model.api ?? model.provider,
+			reasoning: model.reasoning,
+		};
 	}
 }

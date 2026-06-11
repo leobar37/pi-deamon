@@ -5,7 +5,7 @@
  * the client-side API calls without relying on `any` casts.
  */
 
-import type { SessionInfo, SessionStatus, ServerEvent } from "./orpc.js";
+import type { LiveSessionInfo, SessionStatus, ServerEvent } from "./orpc.js";
 
 // ============================================================================
 // Dashboard procedures
@@ -88,7 +88,7 @@ export interface ListSessionsInput {
 }
 
 export interface ListSessionsOutput {
-	sessions: SessionInfo[];
+	sessions: LiveSessionInfo[];
 }
 
 export interface CreateSessionInput {
@@ -97,7 +97,7 @@ export interface CreateSessionInput {
 }
 
 export interface CreateSessionOutput {
-	session: SessionInfo;
+	session: LiveSessionInfo;
 }
 
 export interface GetSessionInput {
@@ -105,7 +105,7 @@ export interface GetSessionInput {
 }
 
 export interface GetSessionOutput {
-	session: SessionInfo;
+	session: LiveSessionInfo;
 }
 
 export interface RemoveSessionInput {

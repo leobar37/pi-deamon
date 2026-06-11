@@ -268,7 +268,7 @@ async function listThreadCommands(
 ): Promise<SubagentsOutputs["threads"]["commands"]> {
 	const main = ctx.mainSession?.getThread();
 	if (main?.instanceId === threadId) {
-		return ctx.mainSession?.getCommands?.(threadId) ?? [];
+		return (await ctx.mainSession?.getCommands?.(threadId)) ?? [];
 	}
 
 	const instance = ctx.controller.getInstanceById(threadId);

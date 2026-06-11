@@ -21,6 +21,7 @@ export interface HttpServerTransportOptions {
 	 * Defaults to the bundled frontend/dist relative to this file.
 	 */
 	staticDir?: string;
+	serveFrontend?: boolean;
 	mainSession?: DashboardSessionSource;
 	lionState?: () => DashboardLionState;
 	setLionStrategy?(strategy: LionStrategyName): Promise<void> | void;
@@ -223,15 +224,17 @@ export class HttpServerTransport implements SubAgentTransport {
 			return new Response(null, { status: 204, headers: CORS_HEADERS });
 		}
 
+		const frontendDisabled = isDashboardMode() && this.options.serveFrontend !== true;
+
 		if (req.method === "GET" && pathname === "/") {
-			if (isDashboardMode()) {
+			if (frontendDisabled) {
 				return new Response("Not Found", { status: 404 });
 			}
 			return this.serveStaticFile("index.html", "text/html; charset=utf-8");
 		}
 
 		if (req.method === "GET" && pathname.startsWith("/assets/")) {
-			if (isDashboardMode()) {
+			if (frontendDisabled) {
 				return new Response("Not Found", { status: 404 });
 			}
 			return this.serveAsset(pathname);
@@ -249,7 +252,7 @@ export class HttpServerTransport implements SubAgentTransport {
 
 		// Fallback to index.html for SPA routing
 		if (req.method === "GET") {
-			if (isDashboardMode()) {
+			if (frontendDisabled) {
 				return new Response("Not Found", { status: 404 });
 			}
 			return this.serveStaticFile("index.html", "text/html; charset=utf-8");

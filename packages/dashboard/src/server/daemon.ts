@@ -44,8 +44,8 @@ async function fileExists(path: string): Promise<boolean> {
 	}
 }
 
-function resolveDefaultFrontendDir(baseDir: string): string {
-	const candidates = [join(baseDir, "..", "..", "frontend", "dist"), join(baseDir, "..", "frontend", "dist")];
+function resolveDefaultFrontendDir(moduleDir: string): string {
+	const candidates = [join(moduleDir, "..", "..", "frontend", "dist"), join(moduleDir, "..", "frontend", "dist")];
 	return candidates.find((candidate) => existsSync(join(candidate, "index.html"))) ?? candidates[0];
 }
 

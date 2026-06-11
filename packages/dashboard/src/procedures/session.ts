@@ -278,7 +278,7 @@ export function createSessionProcedures(
 				.handler(async ({ input }) => {
 					const session = await sessionHost.resolve(input.sessionId);
 					if (!session) throw new Error(`Session ${input.sessionId} not found`);
-					return { messages: session.getMessages() };
+					return { messages: await session.getMessagesAsync() };
 				}),
 		},
 

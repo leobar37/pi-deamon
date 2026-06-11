@@ -1,19 +1,10 @@
-/**
- * Main App — sidebar + chat view layout.
- *
- * Hash is the single source of truth for routing.
- */
-
-import { useState, useEffect } from "react";
-import "react-grab";
-import { Sidebar } from "./components/Sidebar.js";
-import { ChatView } from "./components/ChatView.js";
-import { ProjectRuntimeProvider, SessionRuntimeProvider } from "./store/index.js";
-
-const isDev = (import.meta as unknown as { env?: { DEV?: boolean } }).env?.DEV;
-const GrabProvider = isDev
-	? ({ children }: { children: React.ReactNode }) => <>{children}</>
-	: ({ children }: { children: React.ReactNode }) => <>{children}</>;
+import { useCallback, useEffect, useMemo, useState } from "react";
+import { AgentCanvas } from "./canvas/AgentCanvas.js";
+import { SessionInspector } from "./sessions/SessionInspector.js";
+import { SessionSidebar } from "./sessions/SessionSidebar.js";
+import { createActions } from "./store/actions.js";
+import { createOptimisticManager } from "./store/optimistic.js";
+import { SessionRuntimeProvider, useSessionList, useSessionRuntime } from "./store/index.js";
 
 function getHashSessionId(): string | null {
 	const hash = window.location.hash;
@@ -37,14 +28,67 @@ export function navigateToSession(id: string | null) {
 }
 
 function AppContent() {
-	const sessionId = useHashSessionId();
+	const activeSessionId = useHashSessionId();
+	const [focusedSessionId, setFocusedSessionId] = useState<string | null>(activeSessionId);
+	const runtime = useSessionRuntime();
+	const sessions = useSessionList();
+	const actions = useMemo(() => {
+		const optimistic = createOptimisticManager(runtime);
+		return createActions(runtime, optimistic);
+	}, [runtime]);
+
+	useEffect(() => {
+		actions.loadSessions().catch(() => {});
+		const unsubscribe = runtime.subscribeGlobal();
+		return unsubscribe;
+	}, [actions, runtime]);
+
+	useEffect(() => {
+		if (activeSessionId) {
+			setFocusedSessionId(activeSessionId);
+		}
+	}, [activeSessionId]);
+
+	const focusedSession = useMemo(
+		() => sessions.find((session) => session.info.id === focusedSessionId),
+		[sessions, focusedSessionId],
+	);
+
+	const focusSession = useCallback((sessionId: string) => {
+		setFocusedSessionId(sessionId);
+		navigateToSession(sessionId);
+	}, []);
+
+	const createSession = useCallback(async () => {
+		const session = await actions.createSession();
+		if (session) {
+			await actions.startSession(session.id);
+			await actions.loadSessions();
+			setFocusedSessionId(session.id);
+			navigateToSession(session.id);
+		}
+	}, [actions]);
 
 	return (
-		<div className="h-screen flex bg-bg-base text-text-primary overflow-hidden">
-			<Sidebar activeSessionId={sessionId} />
-			<main className="flex-1 flex flex-col min-w-0">
-				<ChatView sessionId={sessionId} />
+		<div className="flex h-screen overflow-hidden bg-bg-base text-text-primary">
+			<SessionSidebar
+				sessions={sessions}
+				activeSessionId={activeSessionId}
+				focusedSessionId={focusedSessionId}
+				onFocusSession={focusSession}
+				onCreateSession={createSession}
+			/>
+			<main className="min-w-0 flex-1">
+				<AgentCanvas
+					sessions={sessions}
+					activeSessionId={activeSessionId}
+					focusedSessionId={focusedSessionId}
+					onFocusSession={focusSession}
+					onOpenSession={focusSession}
+					onCreateSession={createSession}
+				/>
 			</main>
+			<SessionInspector session={focusedSession} onClose={() => setFocusedSessionId(null)} />
 		</div>
 	);
 }
@@ -52,11 +96,7 @@ function AppContent() {
 export default function App() {
 	return (
 		<SessionRuntimeProvider>
-			<ProjectRuntimeProvider>
-				<GrabProvider>
-					<AppContent />
-				</GrabProvider>
-			</ProjectRuntimeProvider>
+			<AppContent />
 		</SessionRuntimeProvider>
 	);
 }
