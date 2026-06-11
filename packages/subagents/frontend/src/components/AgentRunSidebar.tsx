@@ -58,11 +58,12 @@ export function AgentRunSidebar({ agent, run, isLoading }: AgentRunSidebarProps)
 	const isMain = agent?.kind === "main";
 	const isLionActive = isLionUiActive(lionState);
 	const showStatus = !isMain;
+	const isPlanStrategy = lionState?.strategy === "plan";
 	const { data: planChecklist } = useLionChecklist("plan", activePlanReference, {
-		enabled: isMain && isLionActive && lionState?.strategy === "plan" && Boolean(activePlanReference),
+		enabled: isMain && isLionActive && isPlanStrategy && Boolean(activePlanReference),
 		refetchInterval: 2000,
 	});
-	const runProgress = isMain && isLionActive && agent && lionState?.phase === "building" ? getRunProgress(agents, agent.instanceId) : null;
+	const runProgress = isMain && isLionActive && isPlanStrategy && agent && lionState?.phase === "building" ? getRunProgress(agents, agent.instanceId) : null;
 
 	return (
 		<aside className="hidden w-[340px] shrink-0 flex-col border-l border-border-subtle bg-bg-elevated lg:flex">

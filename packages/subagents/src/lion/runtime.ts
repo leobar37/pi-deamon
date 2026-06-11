@@ -25,6 +25,7 @@ import { getLionStrategy } from "./strategies/index.js";
 import { createLionSubAgentController } from "./subagents/index.js";
 import type { LionBuildResult, LionEvent, LionPhase, LionPlan, LionState } from "./types.js";
 import { LionUI } from "./ui.js";
+import { normalizeInactiveStrategy } from "./utils.js";
 
 export const LION_ORCHESTRATOR_FEEDBACK_TYPE = "lion-orchestrator-feedback";
 
@@ -51,6 +52,7 @@ export class LionRuntime {
 	#widgetTimer: ReturnType<typeof setInterval> | null;
 	#configManager: SubAgentRuntimeConfigManager | null;
 	#cwd: string;
+	#sessionId: string | null;
 	dashboard: LionDashboard | null;
 
 	constructor(pi: ExtensionAPI, cwd: string) {
@@ -74,6 +76,7 @@ export class LionRuntime {
 		this.#runLogger = null;
 		this.#unsubscribeRunLogger = null;
 		this.#configManager = null;
+		this.#sessionId = null;
 	}
 
 	get pi(): ExtensionAPI {
@@ -238,9 +241,10 @@ export class LionRuntime {
 
 	restore(ctx: ExtensionContext): void {
 		this.rememberUiContext(ctx);
+		this.#sessionId = ctx.sessionManager.getSessionId();
 		const saved = readLionState(this.#cwd, ctx);
 		if (saved) {
-			this.#state = saved.state;
+			this.#state = normalizeInactiveStrategy(saved.state);
 			this.#core = saved.core;
 		} else {
 			this.#state = createInitialLionState();
@@ -259,7 +263,7 @@ export class LionRuntime {
 		this.mainSession.record(event, ctx);
 	}
 	persist(): void {
-		writeLionState(this.#cwd, this.#state, this.#core);
+		writeLionState(this.#cwd, this.#state, this.#core, this.#sessionId);
 	}
 
 	queueFeedback(ctx: ExtensionContext, content: string, details: Record<string, unknown>): void {

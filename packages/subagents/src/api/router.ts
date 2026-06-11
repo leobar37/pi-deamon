@@ -18,7 +18,7 @@ import type { SubagentsOutputs } from "./types.js";
 
 const DEFAULT_LION_STATE: DashboardLionState = {
 	active: false,
-	strategy: "plan",
+	strategy: "none",
 	phase: "planning",
 	activePlanPath: null,
 	activePlanSlug: null,

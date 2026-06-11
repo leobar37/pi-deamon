@@ -19,6 +19,7 @@
 - Do not preserve backward compatibility unless the user explicitly asks for it
 - Never hardcode key checks with, eg. `matchesKey(keyData, "ctrl+x")`. All keybindings must be configurable. Add default to matching object (`DEFAULT_EDITOR_KEYBINDINGS` or `DEFAULT_APP_KEYBINDINGS`)
 - NEVER modify `packages/ai/src/models.generated.ts` directly. Update `packages/ai/scripts/generate-models.ts` instead.
+- **Use `ts-pattern` for strategy/phase branching** in Lion code. Prefer `matchStrategy`, `matchStrategyOnly`, and `matchPhase` from `packages/subagents/src/lion/strategy-match.ts` over nested ternaries or long if-chains. Use lookup tables (`Record<K, V>`) for simple label mappings in frontend code.
 
 ## Commands
 
@@ -121,6 +122,48 @@ Use these sections under `## [Unreleased]`:
 
 - **Internal changes (from issues)**: `Fixed foo bar ([#123](https://github.com/earendil-works/pi-mono/issues/123))`
 - **External contributions**: `Added feature X ([#456](https://github.com/earendil-works/pi-mono/pull/456) by [@username](https://github.com/username))`
+
+## Adding a New Lion Strategy (packages/subagents)
+
+Adding a new strategy requires changes across multiple files:
+
+### 1. Core Types (`packages/subagents/src/lion/types.ts`)
+
+- Add strategy name to `LionStrategyName` type union (e.g., `"spec"`)
+- Update `LionState` if the new strategy requires new state fields
+
+### 2. Strategy Implementation (`packages/subagents/src/lion/strategies/`)
+
+Create strategy file exporting:
+
+- `NewLionStrategy` class implementing `LionStrategy`
+- `buildMainPrompt(state)` — system prompt for the orchestrator
+- `decorateTaskPrompt(task, context)` — context injection for subagents
+- `buildCompactionInstructions(state, context)` — state summary for compaction
+
+### 3. Strategy Registration
+
+- Add to `packages/subagents/src/lion/strategies/index.ts` via `getLionStrategy()`
+- Add to `packages/subagents/src/lion/strategy-match.ts` pattern helpers
+- Add schema support in `packages/subagents/src/api/schemas.ts` (`DashboardLionStateSchema`)
+- Add transport type support in `packages/subagents/src/transport/types.ts`
+
+### 4. State and Runtime
+
+- Update `createInitialLionState()` if the default behavior changes
+- Add activation method in `packages/subagents/src/lion/runtime.ts` (e.g., `activateSpec()`)
+- Register command in `packages/subagents/src/lion/commands.ts`
+
+### 5. Frontend
+
+- Update `packages/subagents/frontend/src/types.ts` (`LionDashboardState.strategy`)
+- Update `LionModeBadge.tsx` for new strategy label
+- Update conditional UI in `AgentRunSidebar.tsx` if the strategy affects sidebar content
+
+### 6. Documentation
+
+- Update `docs/lion.md` strategies table
+- Update `packages/subagents/CHANGELOG.md`
 
 ## Adding a New LLM Provider (packages/ai)
 

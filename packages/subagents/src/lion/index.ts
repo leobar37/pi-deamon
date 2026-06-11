@@ -9,6 +9,10 @@ import { registerLionTools } from "./tools.js";
 import { stopLionSubagentWidget } from "./ui/subagents-widget.js";
 import { createRunId } from "./utils.js";
 
+function shouldAutoActivate(): boolean {
+	return process.env.LION_AUTO_ACTIVATE === "true";
+}
+
 export function lionExtension(pi: ExtensionAPI): void {
 	const runtime = new LionRuntime(pi, process.cwd());
 
@@ -60,7 +64,14 @@ export function lionExtension(pi: ExtensionAPI): void {
 		}
 		restore(ctx);
 		runtime.attachMainSession(ctx);
-		if (runtime.state.active) {
+
+		// Auto-activate Lion in web mode
+		if (shouldAutoActivate() && !runtime.state.active) {
+			runtime.activateSimple();
+			runtime.ensureController(ctx);
+			runtime.attachMainSession(ctx);
+			await ensureDashboard();
+		} else if (runtime.state.active) {
 			await ensureDashboard();
 		}
 	});

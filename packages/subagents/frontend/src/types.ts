@@ -42,14 +42,14 @@ export interface SubAgentInstanceState {
 }
 
 export interface SubAgentOrchestrationContext {
-	strategy: "plan" | "simple" | "review";
+	strategy: "plan" | "simple" | "review" | "none";
 	planSlug?: string;
 	planPath?: string;
 }
 
 export interface LionDashboardState {
 	active: boolean;
-	strategy: "plan" | "simple" | "review";
+	strategy: "plan" | "simple" | "review" | "none";
 	phase: "planning" | "building";
 	activePlanPath: string | null;
 	activePlanSlug: string | null;

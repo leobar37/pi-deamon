@@ -7,7 +7,7 @@ export type DashboardThreadKind = "main" | "subagent";
 
 export interface DashboardLionState {
 	active: boolean;
-	strategy: "plan" | "simple" | "review";
+	strategy: "plan" | "simple" | "review" | "none";
 	phase: "planning" | "building";
 	activePlanPath: string | null;
 	activePlanSlug: string | null;
@@ -23,7 +23,7 @@ export interface DashboardThreadState extends SubAgentInstanceState {
 	runId?: string;
 	runIndex?: number;
 	orchestration?: {
-		strategy: "plan" | "simple" | "review";
+		strategy: "plan" | "simple" | "review" | "none";
 		planSlug?: string;
 		planPath?: string;
 	};

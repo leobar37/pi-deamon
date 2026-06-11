@@ -57,7 +57,8 @@
 	},
 	"version": "0.0.3",
 	"dependencies": {
-		"@earendil-works/pi-coding-agent": "workspace:*"
+		"@earendil-works/pi-coding-agent": "workspace:*",
+		"ts-pattern": "^5.9.0"
 	},
 	"overrides": {
 		"rimraf": "6.1.2",

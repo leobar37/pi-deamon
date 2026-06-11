@@ -68,7 +68,7 @@ export const DashboardLogQuerySchema = z.object({
 
 export const DashboardLionStateSchema = z.object({
 	active: z.boolean(),
-	strategy: z.enum(["plan", "simple", "review"]),
+	strategy: z.enum(["plan", "simple", "review", "none"]),
 	phase: z.enum(["planning", "building"]),
 	activePlanPath: z.string().nullable(),
 	activePlanSlug: z.string().nullable(),
@@ -142,7 +142,7 @@ export const DashboardThreadStateSchema = z.object({
 	modelId: z.string().optional(),
 	orchestration: z
 		.object({
-			strategy: z.enum(["plan", "simple", "review"]),
+			strategy: z.enum(["plan", "simple", "review", "none"]),
 			planSlug: z.string().optional(),
 			planPath: z.string().optional(),
 		})
