@@ -13,15 +13,140 @@ import { fileURLToPath } from "node:url";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
-const DASHBOARD_URL_REGEX = /\[lion\] dashboard at (http:\/\/[^\s]+)/;
+const DASHBOARD_URL_REGEX = /\[lion\] dashboard at (https?:\/\/[^\s]+)/;
 const HEALTHCHECK_TIMEOUT_MS = 30000;
 const HEALTHCHECK_INTERVAL_MS = 200;
 const KILL_TIMEOUT_MS = 3000;
-const BACKEND_URL_WAIT_MS = 30000;
+const MAX_STDOUT_BUFFER_SIZE = 8192;
 
-let backendProcess: ChildProcessWithoutNullStreams | null = null;
 let mainWindow: BrowserWindow | null = null;
-let backendUrl: string | null = null;
+
+class BackendManager {
+	private process: ChildProcessWithoutNullStreams | null = null;
+	private urlPromise: Promise<string> | null = null;
+	private urlResolve: ((url: string) => void) | null = null;
+	private urlReject: ((err: Error) => void) | null = null;
+	private resolvedUrl: string | null = null;
+	private stdoutBuffer = "";
+
+	getUrl(): Promise<string> {
+		if (this.resolvedUrl) {
+			return Promise.resolve(this.resolvedUrl);
+		}
+		if (this.urlPromise) {
+			return this.urlPromise;
+		}
+		this.urlPromise = new Promise<string>((resolve, reject) => {
+			this.urlResolve = resolve;
+			this.urlReject = reject;
+		});
+		return this.urlPromise;
+	}
+
+	private resolveUrl(url: string): void {
+		if (this.resolvedUrl) return;
+		this.resolvedUrl = url;
+		this.urlResolve?.(url);
+		this.urlResolve = null;
+		this.urlReject = null;
+	}
+
+	private rejectUrl(err: Error): void {
+		if (this.resolvedUrl) return;
+		this.urlReject?.(err);
+		this.urlResolve = null;
+		this.urlReject = null;
+		this.urlPromise = null;
+	}
+
+	private appendStdout(text: string): void {
+		this.stdoutBuffer += text;
+		if (this.stdoutBuffer.length > MAX_STDOUT_BUFFER_SIZE) {
+			this.stdoutBuffer = this.stdoutBuffer.slice(-MAX_STDOUT_BUFFER_SIZE);
+		}
+	}
+
+	private parseUrl(): string | null {
+		const match = DASHBOARD_URL_REGEX.exec(this.stdoutBuffer);
+		return match ? match[1].replace(/\/$/, "") : null;
+	}
+
+	start(): void {
+		if (this.process) {
+			return;
+		}
+
+		const backendCommand = getBackendCommand();
+		const proc = spawn(backendCommand.command, backendCommand.args, {
+			stdio: ["ignore", "pipe", "pipe"],
+			env: {
+				...process.env,
+				LION_AUTO_ACTIVATE: "true",
+			},
+		});
+
+		this.process = proc;
+
+		proc.stdout.on("data", (data: Buffer) => {
+			const text = data.toString("utf-8");
+			this.appendStdout(text);
+			process.stdout.write(`[backend] ${text}`);
+
+			const url = this.parseUrl();
+			if (url) {
+				this.resolveUrl(url);
+			}
+		});
+
+		proc.stderr.on("data", (data: Buffer) => {
+			process.stderr.write(`[backend] ${data.toString("utf-8")}`);
+		});
+
+		proc.on("error", (err) => {
+			this.rejectUrl(new Error(`Failed to start backend: ${err.message}`));
+		});
+
+		proc.on("exit", (code) => {
+			if (!this.resolvedUrl) {
+				this.rejectUrl(new Error(`Backend exited with code ${code} before becoming ready`));
+			} else {
+				console.error(`[backend] Backend exited unexpectedly with code ${code}`);
+				this.handleUnexpectedExit();
+			}
+		});
+	}
+
+	kill(): void {
+		const proc = this.process;
+		if (!proc) return;
+
+		try {
+			proc.kill("SIGTERM");
+		} catch {
+			// ignore
+		}
+
+		setTimeout(() => {
+			try {
+				proc.kill("SIGKILL");
+			} catch {
+				// ignore
+			}
+		}, KILL_TIMEOUT_MS);
+
+		this.process = null;
+	}
+
+	private handleUnexpectedExit(): void {
+		// In a future iteration we could restart the backend. For now, log and
+		// let the user know that the agent backend is gone.
+		this.process = null;
+		this.resolvedUrl = null;
+		this.urlPromise = null;
+	}
+}
+
+const backendManager = new BackendManager();
 
 /**
  * Determine how to start the backend.
@@ -33,7 +158,7 @@ function getBackendCommand(): { command: string; args: string[] } {
 	const extensionsDir = isPackaged
 		? join(process.resourcesPath, "extensions")
 		: join(__dirname, "..", "..", "..", "extensions");
-	const args = ["--web", "-e", extensionsDir];
+	const args = ["--web", "--no-extensions", "-e", extensionsDir];
 
 	if (isPackaged) {
 		return { command: join(process.resourcesPath, "pi"), args };
@@ -42,10 +167,6 @@ function getBackendCommand(): { command: string; args: string[] } {
 		command: "bun",
 		args: [join(__dirname, "..", "..", "..", "coding-agent", "src", "cli.ts"), ...args],
 	};
-}
-
-function normalizeUrl(url: string): string {
-	return url.replace(/\/$/, "");
 }
 
 /**
@@ -65,78 +186,6 @@ async function waitForBackend(url: string, timeoutMs: number, intervalMs: number
 		await new Promise((r) => setTimeout(r, intervalMs));
 	}
 	throw new Error(`Backend at ${url} did not become ready within ${timeoutMs}ms`);
-}
-
-/**
- * Start the backend binary and resolve with its URL once ready.
- */
-async function startBackend(): Promise<string> {
-	const backendCommand = getBackendCommand();
-
-	return new Promise((resolve, reject) => {
-		const proc = spawn(backendCommand.command, backendCommand.args, {
-			stdio: ["ignore", "pipe", "pipe"],
-			env: {
-				...process.env,
-				LION_AUTO_ACTIVATE: "true",
-			},
-		});
-
-		backendProcess = proc;
-
-		let localBackendUrl: string | null = null;
-		let stdoutBuffer = "";
-
-		proc.stdout.on("data", (data: Buffer) => {
-			const text = data.toString("utf-8");
-			stdoutBuffer += text;
-			process.stdout.write(`[backend] ${text}`);
-
-			const match = DASHBOARD_URL_REGEX.exec(stdoutBuffer);
-			if (match && !localBackendUrl) {
-				localBackendUrl = normalizeUrl(match[1]);
-				backendUrl = localBackendUrl;
-				resolve(localBackendUrl);
-			}
-		});
-
-		proc.stderr.on("data", (data: Buffer) => {
-			process.stderr.write(`[backend] ${data.toString("utf-8")}`);
-		});
-
-		proc.on("error", (err) => {
-			reject(new Error(`Failed to start backend: ${err.message}`));
-		});
-
-		proc.on("exit", (code) => {
-			if (!localBackendUrl) {
-				reject(new Error(`Backend exited with code ${code} before becoming ready`));
-			}
-		});
-	});
-}
-
-/**
- * Kill the backend process gracefully, then forcefully.
- */
-function killBackend(): void {
-	if (!backendProcess) return;
-
-	try {
-		backendProcess.kill("SIGTERM");
-	} catch {
-		// ignore
-	}
-
-	setTimeout(() => {
-		try {
-			backendProcess?.kill("SIGKILL");
-		} catch {
-			// ignore
-		}
-	}, KILL_TIMEOUT_MS);
-
-	backendProcess = null;
 }
 
 /**
@@ -169,20 +218,7 @@ function createWindow(): void {
 	});
 }
 
-ipcMain.handle("get-backend-url", async () => {
-	if (backendUrl) return backendUrl;
-
-	const start = Date.now();
-	while (!backendUrl && Date.now() - start < BACKEND_URL_WAIT_MS) {
-		await new Promise((r) => setTimeout(r, 100));
-	}
-
-	if (!backendUrl) {
-		throw new Error("Backend URL is not available");
-	}
-
-	return backendUrl;
-});
+ipcMain.handle("get-backend-url", () => backendManager.getUrl());
 
 // Single instance lock
 const gotLock = app.requestSingleInstanceLock();
@@ -203,7 +239,8 @@ app.on("second-instance", () => {
 // App lifecycle
 app.whenReady().then(async () => {
 	try {
-		const url = await startBackend();
+		backendManager.start();
+		const url = await backendManager.getUrl();
 		await waitForBackend(url, HEALTHCHECK_TIMEOUT_MS, HEALTHCHECK_INTERVAL_MS);
 		createWindow();
 	} catch (err) {
@@ -213,7 +250,7 @@ app.whenReady().then(async () => {
 });
 
 app.on("before-quit", () => {
-	killBackend();
+	backendManager.kill();
 });
 
 app.on("window-all-closed", () => {
@@ -223,7 +260,7 @@ app.on("window-all-closed", () => {
 });
 
 app.on("activate", () => {
-	if (mainWindow === null && backendProcess !== null && backendUrl !== null) {
+	if (mainWindow === null) {
 		createWindow();
 	}
 });

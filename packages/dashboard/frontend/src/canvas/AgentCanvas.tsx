@@ -4,6 +4,7 @@ import {
 	Controls,
 	MiniMap,
 	ReactFlow,
+	ReactFlowProvider,
 	type NodeMouseHandler,
 	type NodeChange,
 	useEdgesState,
@@ -54,15 +55,21 @@ function savePositions(nodes: AgentCanvasNode[]): void {
 	window.localStorage.setItem(CANVAS_POSITIONS_KEY, JSON.stringify(positions));
 }
 
-export function AgentCanvas({
+interface FlowCanvasProps {
+	sessions: CanvasSession[];
+	backendUrl: string;
+	focusedSessionId: string | null;
+	onFocusSession: (sessionId: string) => void;
+	onCreateSession: () => void;
+}
+
+function FlowCanvas({
 	sessions,
 	backendUrl,
 	focusedSessionId,
 	onFocusSession,
 	onCreateSession,
-	onRemoveSession,
-}: AgentCanvasProps) {
-	const [creating, setCreating] = useState(false);
+}: FlowCanvasProps) {
 	const { fitView } = useReactFlow<AgentCanvasNode>();
 
 	const handleOpenNode = useCallback(
@@ -129,6 +136,38 @@ export function AgentCanvas({
 		[handleOpenNode],
 	);
 
+	return (
+		<ReactFlow
+			nodes={nodes}
+			edges={edges}
+			nodeTypes={nodeTypes}
+			onNodesChange={handleNodesChange}
+			onEdgesChange={onEdgesChange}
+			onNodeClick={handleNodeClick}
+			onNodeDoubleClick={handleNodeDoubleClick}
+			fitView
+			fitViewOptions={{ padding: 0.24 }}
+			minZoom={0.35}
+			maxZoom={1.5}
+			className="agent-canvas"
+		>
+			<Background color="rgba(255,255,255,0.08)" gap={24} />
+			<MiniMap pannable zoomable nodeStrokeWidth={2} className="!bg-bg-elevated !border !border-border-default" />
+			<Controls className="!border !border-border-default !bg-bg-elevated !shadow-md" />
+		</ReactFlow>
+	);
+}
+
+export function AgentCanvas({
+	sessions,
+	backendUrl,
+	focusedSessionId,
+	onFocusSession,
+	onCreateSession,
+	onRemoveSession,
+}: AgentCanvasProps) {
+	const [creating, setCreating] = useState(false);
+
 	const handleCreateSession = () => {
 		setCreating(true);
 		try {
@@ -170,24 +209,15 @@ export function AgentCanvas({
 				</div>
 			) : null}
 
-			<ReactFlow
-				nodes={nodes}
-				edges={edges}
-				nodeTypes={nodeTypes}
-				onNodesChange={handleNodesChange}
-				onEdgesChange={onEdgesChange}
-				onNodeClick={handleNodeClick}
-				onNodeDoubleClick={handleNodeDoubleClick}
-				fitView
-				fitViewOptions={{ padding: 0.24 }}
-				minZoom={0.35}
-				maxZoom={1.5}
-				className="agent-canvas"
-			>
-				<Background color="rgba(255,255,255,0.08)" gap={24} />
-				<MiniMap pannable zoomable nodeStrokeWidth={2} className="!bg-bg-elevated !border !border-border-default" />
-				<Controls className="!border !border-border-default !bg-bg-elevated !shadow-md" />
-			</ReactFlow>
+			<ReactFlowProvider>
+				<FlowCanvas
+					sessions={sessions}
+					backendUrl={backendUrl}
+					focusedSessionId={focusedSessionId}
+					onFocusSession={onFocusSession}
+					onCreateSession={onCreateSession}
+				/>
+			</ReactFlowProvider>
 		</div>
 	);
 }

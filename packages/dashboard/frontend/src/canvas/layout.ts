@@ -1,5 +1,4 @@
-import type { AgentCanvasNode } from "./types.js";
-import type { CanvasSession } from "./types.js";
+import type { AgentCanvasNode, CanvasSession } from "./types.js";
 
 const NODE_WIDTH = 760;
 const NODE_HEIGHT = 560;

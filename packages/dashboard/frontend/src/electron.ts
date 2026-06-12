@@ -2,12 +2,6 @@
  * Helpers for interacting with the Electron preload API.
  */
 
-export interface CanvasSession {
-	id: string;
-	name: string;
-	createdAt: number;
-}
-
 export interface ElectronApi {
 	readonly platform: string;
 	readonly versions: {
@@ -15,6 +9,9 @@ export interface ElectronApi {
 		readonly chrome: string;
 		readonly node: string;
 	};
+	/**
+	 * Resolves with the subagents backend URL once it is available.
+	 */
 	getBackendUrl(): Promise<string>;
 }
 
@@ -32,5 +29,21 @@ export async function getElectronBackendUrl(): Promise<string | null> {
 			console.error("Failed to get backend URL from Electron:", err);
 		}
 	}
+	return null;
+}
+
+/**
+ * Resolve a backend URL for a canvas session. In Electron this comes from the
+ * preload API. Outside Electron it can be provided via the ?backendUrl= query
+ * param for local development.
+ */
+export async function resolveBackendUrl(): Promise<string | null> {
+	const electronUrl = await getElectronBackendUrl();
+	if (electronUrl) return electronUrl;
+
+	const params = new URLSearchParams(window.location.search);
+	const queryUrl = params.get("backendUrl");
+	if (queryUrl) return queryUrl;
+
 	return null;
 }

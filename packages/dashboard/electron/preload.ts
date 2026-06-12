@@ -35,6 +35,6 @@ contextBridge.exposeInMainWorld("__PI_ELECTRON__", api);
 // Augment the global Window interface for TypeScript in the renderer
 declare global {
 	interface Window {
-		readonly __PI_ELECTRON__: ElectronApi;
+		readonly __PI_ELECTRON__?: ElectronApi;
 	}
 }

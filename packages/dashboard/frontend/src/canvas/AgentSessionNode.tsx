@@ -6,6 +6,8 @@ import type { AgentCanvasNode } from "./types.js";
 export const AgentSessionNode = memo(function AgentSessionNode({ data }: NodeProps<AgentCanvasNode>) {
 	const { session, backendUrl, focused, onFocus, onOpen } = data;
 	const title = session.name || `Session ${session.id.slice(0, 8)}`;
+	const threadId = session.threadId ?? session.id;
+	const iframeUrl = `${backendUrl}/thread/${encodeURIComponent(threadId)}`;
 
 	return (
 		<div
@@ -28,7 +30,7 @@ export const AgentSessionNode = memo(function AgentSessionNode({ data }: NodePro
 					</div>
 				</button>
 				<a
-					href={backendUrl}
+					href={iframeUrl}
 					target="_blank"
 					rel="noreferrer"
 					title="Open in standalone tab"
@@ -40,7 +42,7 @@ export const AgentSessionNode = memo(function AgentSessionNode({ data }: NodePro
 
 			<div className="h-[500px] bg-bg-base">
 				<iframe
-					src={backendUrl}
+					src={iframeUrl}
 					title={`Agent session ${session.id}`}
 					className="h-full w-full border-0"
 					allow="clipboard-read; clipboard-write"
