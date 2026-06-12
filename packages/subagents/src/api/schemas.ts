@@ -33,11 +33,24 @@ export const ThreadIdInputSchema = z.object({
 
 export const ThreadPromptModeSchema = z.enum(["prompt", "follow_up", "steer"]);
 
-export const ThreadPromptInputSchema = z.object({
-	threadId: z.string(),
-	message: z.string().trim().min(1),
-	mode: ThreadPromptModeSchema,
+const ThreadPromptImageSchema = z.object({
+	type: z.literal("image"),
+	data: z.string().trim().min(1),
+	mimeType: z.string().trim().min(1),
+	name: z.string().optional(),
 });
+
+export const ThreadPromptInputSchema = z
+	.object({
+		threadId: z.string(),
+		message: z.string(),
+		mode: ThreadPromptModeSchema,
+		images: z.array(ThreadPromptImageSchema).optional(),
+	})
+	.refine((input) => input.message.trim().length > 0 || (input.images?.length ?? 0) > 0, {
+		message: "Message or image is required",
+		path: ["message"],
+	});
 
 export const ThreadModelInputSchema = z.object({
 	threadId: z.string(),

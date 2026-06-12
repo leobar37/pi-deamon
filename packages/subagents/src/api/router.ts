@@ -11,6 +11,7 @@ import {
 	formatDashboardModels,
 	getAgentSessionCommands,
 	sendToAgentSession,
+	type ThreadPromptImage,
 	type ThreadPromptMode,
 } from "./session-control.js";
 import type { DashboardLogLevel } from "./session-log-store.js";
@@ -220,13 +221,14 @@ async function sendThreadMessage(
 	threadId: string,
 	message: string,
 	mode: ThreadPromptMode,
+	images?: ThreadPromptImage[],
 ): Promise<void> {
 	const main = ctx.mainSession?.getThread();
 	if (main?.instanceId === threadId) {
 		if (!ctx.mainSession?.sendMessage) {
 			throw new ORPCError("SERVICE_UNAVAILABLE", { message: "Main session is not controllable" });
 		}
-		await ctx.mainSession.sendMessage(threadId, message, mode);
+		await ctx.mainSession.sendMessage(threadId, message, mode, images);
 		return;
 	}
 
@@ -237,11 +239,11 @@ async function sendThreadMessage(
 			throw new ORPCError("SERVICE_UNAVAILABLE", { message: "Session not ready" });
 		}
 		if (mode === "follow_up") {
-			await ctx.controller.instanceFollowUp(state.taskId, message);
+			await ctx.controller.instanceFollowUp(state.taskId, message, images);
 		} else if (mode === "steer") {
-			await ctx.controller.steerInstance(state.taskId, message);
+			await ctx.controller.steerInstance(state.taskId, message, images);
 		} else {
-			await ctx.controller.promptInstance(state.taskId, message);
+			await ctx.controller.promptInstance(state.taskId, message, { images });
 		}
 		return;
 	}
@@ -250,7 +252,7 @@ async function sendThreadMessage(
 	if (resumable) {
 		try {
 			const cached = await ctx.sessionCache.getOrCreate(resumable.record, resumable.sessionFile);
-			await sendToAgentSession(cached.session, message, mode);
+			await sendToAgentSession(cached.session, message, mode, images);
 			return;
 		} catch (error) {
 			throw new ORPCError("SERVICE_UNAVAILABLE", {
@@ -544,10 +546,10 @@ export function createSubagentsRouter(ctx: SubagentsApiContext) {
 					threadId: input.threadId,
 					type: "thread.prompt.request",
 					source: "dashboard",
-					data: { mode: input.mode, messageLength: input.message.length },
+					data: { mode: input.mode, messageLength: input.message.length, imageCount: input.images?.length ?? 0 },
 				});
 				try {
-					await sendThreadMessage(ctx, input.threadId, input.message, input.mode);
+					await sendThreadMessage(ctx, input.threadId, input.message.trim(), input.mode, input.images);
 					const acceptedAt = Date.now();
 					await logDashboardControl(ctx, {
 						threadId: input.threadId,

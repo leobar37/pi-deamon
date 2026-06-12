@@ -13,16 +13,16 @@ import "@xyflow/react/dist/style.css";
 import { Plus, ScanSearch } from "lucide-react";
 import { AgentSessionNode } from "./AgentSessionNode.js";
 import { createSessionNodes } from "./layout.js";
-import type { AgentCanvasNode } from "./types.js";
-import type { SessionEntry } from "../store/index.js";
+import type { AgentCanvasNode, CanvasSession } from "./types.js";
 
 interface AgentCanvasProps {
-	sessions: SessionEntry[];
+	sessions: CanvasSession[];
+	backendUrl: string;
 	activeSessionId: string | null;
 	focusedSessionId: string | null;
 	onFocusSession: (sessionId: string) => void;
 	onOpenSession: (sessionId: string) => void;
-	onCreateSession: () => Promise<void>;
+	onCreateSession: () => void;
 }
 
 const nodeTypes = {
@@ -55,6 +55,7 @@ function savePositions(nodes: AgentCanvasNode[]): void {
 
 export function AgentCanvas({
 	sessions,
+	backendUrl,
 	activeSessionId,
 	focusedSessionId,
 	onFocusSession,
@@ -63,8 +64,8 @@ export function AgentCanvas({
 }: AgentCanvasProps) {
 	const [creating, setCreating] = useState(false);
 	const initialNodes = useMemo(
-		() => createSessionNodes(sessions, activeSessionId, focusedSessionId, onFocusSession, onOpenSession),
-		[sessions, activeSessionId, focusedSessionId, onFocusSession, onOpenSession],
+		() => createSessionNodes(sessions, activeSessionId, focusedSessionId, backendUrl, onFocusSession, onOpenSession),
+		[sessions, activeSessionId, focusedSessionId, backendUrl, onFocusSession, onOpenSession],
 	);
 	const positionedInitialNodes = useMemo(() => {
 		const savedPositions = loadSavedPositions();
@@ -106,10 +107,10 @@ export function AgentCanvas({
 		[onFocusSession],
 	);
 
-	const handleCreateSession = async () => {
+	const handleCreateSession = () => {
 		setCreating(true);
 		try {
-			await onCreateSession();
+			onCreateSession();
 		} finally {
 			setCreating(false);
 		}
@@ -142,7 +143,7 @@ export function AgentCanvas({
 							<Plus size={20} aria-hidden="true" />
 						</div>
 						<div className="mt-4 text-base font-semibold text-text-primary">No sessions yet</div>
-						<div className="mt-2 text-sm leading-normal text-text-secondary">Create a session to place a new agent process on the canvas.</div>
+						<div className="mt-2 text-sm leading-normal text-text-secondary">Create a session to place a new agent view on the canvas.</div>
 					</div>
 				</div>
 			) : null}

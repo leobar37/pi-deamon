@@ -1,5 +1,5 @@
 import type { AgentMessage } from "@earendil-works/pi-agent-core";
-import type { DashboardCommand, DashboardModel, ThreadPromptMode } from "../api/session-control.js";
+import type { DashboardCommand, DashboardModel, ThreadPromptImage, ThreadPromptMode } from "../api/session-control.js";
 import type { LionEvent } from "../lion/types.js";
 import type { SubAgentEvent, SubAgentInstanceState } from "../types.js";
 
@@ -36,7 +36,7 @@ export interface DashboardSessionSource {
 	getThread(): DashboardThreadState | null;
 	getMessages(threadId: string): AgentMessage[] | null;
 	getEvents(threadId: string): SubAgentEvent[];
-	sendMessage?(threadId: string, message: string, mode: ThreadPromptMode): Promise<void>;
+	sendMessage?(threadId: string, message: string, mode: ThreadPromptMode, images?: ThreadPromptImage[]): Promise<void>;
 	getCommands?(threadId: string): Promise<DashboardCommand[]> | DashboardCommand[];
 	getModels?(threadId: string): Promise<DashboardModel[]> | DashboardModel[];
 	setModel?(threadId: string, provider: string, modelId: string): Promise<boolean>;

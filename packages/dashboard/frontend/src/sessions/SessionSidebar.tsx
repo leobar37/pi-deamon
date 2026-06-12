@@ -1,17 +1,12 @@
-import { Bot, Folder, Plus, Search } from "lucide-react";
-import type { SessionEntry } from "../store/index.js";
+import { Bot, Plus, Search } from "lucide-react";
+import type { CanvasSession } from "../electron.js";
 
 interface SessionSidebarProps {
-	sessions: SessionEntry[];
+	sessions: CanvasSession[];
 	activeSessionId: string | null;
 	focusedSessionId: string | null;
 	onFocusSession: (sessionId: string) => void;
-	onCreateSession: () => Promise<void>;
-}
-
-function formatCwd(cwd: string): string {
-	const parts = cwd.split("/").filter(Boolean);
-	return parts.at(-1) ?? cwd;
+	onCreateSession: () => void;
 }
 
 export function SessionSidebar({
@@ -52,14 +47,13 @@ export function SessionSidebar({
 					<div className="px-3 py-8 text-center text-sm text-text-muted">No sessions created.</div>
 				) : (
 					<div className="space-y-1">
-						{sessions.map((entry) => {
-							const info = entry.info;
-							const selected = info.id === focusedSessionId || info.id === activeSessionId;
+						{sessions.map((session) => {
+							const selected = session.id === focusedSessionId || session.id === activeSessionId;
 							return (
 								<button
-									key={info.id}
+									key={session.id}
 									type="button"
-									onClick={() => onFocusSession(info.id)}
+									onClick={() => onFocusSession(session.id)}
 									className={`w-full rounded-md border px-3 py-2.5 text-left transition ${
 										selected
 											? "border-accent/60 bg-accent-muted"
@@ -71,14 +65,9 @@ export function SessionSidebar({
 											<Bot size={14} aria-hidden="true" />
 										</div>
 										<div className="min-w-0 flex-1">
-											<div className="truncate text-sm font-medium text-text-primary">{info.name || `Session ${info.id.slice(0, 8)}`}</div>
-											<div className="mt-1 flex items-center gap-1.5 text-xs text-text-tertiary">
-												<Folder size={12} className="shrink-0" aria-hidden="true" />
-												<span className="truncate">{formatCwd(info.cwd)}</span>
-											</div>
-											<div className="mt-2 flex items-center justify-between gap-3 text-[11px] text-text-tertiary">
-												<span>{info.status}</span>
-												<span>{info.messageCount} messages</span>
+											<div className="truncate text-sm font-medium text-text-primary">{session.name || `Session ${session.id.slice(0, 8)}`}</div>
+											<div className="mt-2 text-[11px] text-text-tertiary">
+												{new Date(session.createdAt).toLocaleTimeString()}
 											</div>
 										</div>
 									</div>
@@ -91,4 +80,3 @@ export function SessionSidebar({
 		</aside>
 	);
 }
-

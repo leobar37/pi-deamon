@@ -1,3 +1,13 @@
+/**
+ * Helpers for interacting with the Electron preload API.
+ */
+
+export interface CanvasSession {
+	id: string;
+	name: string;
+	createdAt: number;
+}
+
 export interface ElectronApi {
 	readonly platform: string;
 	readonly versions: {
@@ -5,7 +15,7 @@ export interface ElectronApi {
 		readonly chrome: string;
 		readonly node: string;
 	};
-	chooseProjectDirectory(): Promise<string | null>;
+	getBackendUrl(): Promise<string>;
 }
 
 declare global {
@@ -14,6 +24,13 @@ declare global {
 	}
 }
 
-export function getElectronApi(): ElectronApi | undefined {
-	return window.__PI_ELECTRON__;
+export async function getElectronBackendUrl(): Promise<string | null> {
+	if (typeof window !== "undefined" && window.__PI_ELECTRON__) {
+		try {
+			return await window.__PI_ELECTRON__.getBackendUrl();
+		} catch (err) {
+			console.error("Failed to get backend URL from Electron:", err);
+		}
+	}
+	return null;
 }

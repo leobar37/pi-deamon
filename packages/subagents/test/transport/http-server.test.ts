@@ -4,6 +4,7 @@ import { connect } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import type { ThreadPromptImage } from "../../src/api/session-control.js";
 import { SubAgentEventBus } from "../../src/event-bus.js";
 import { SubAgentRunStore } from "../../src/run-store.js";
 import { HttpServerTransport } from "../../src/transport/http-server.js";
@@ -38,7 +39,7 @@ function createMockMainSession(): DashboardSessionSource {
 }
 
 function createControllableMainSession(
-	calls: Array<{ message: string; mode: "prompt" | "follow_up" | "steer" }>,
+	calls: Array<{ message: string; mode: "prompt" | "follow_up" | "steer"; images?: ThreadPromptImage[] }>,
 	modelCalls: Array<{ provider: string; modelId: string }> = [],
 	options: { acceptModelSelection?: boolean } = {},
 ): DashboardSessionSource {
@@ -66,8 +67,8 @@ function createControllableMainSession(
 		}),
 		getMessages: () => [],
 		getEvents: () => [],
-		sendMessage: async (_threadId, message, mode) => {
-			calls.push({ message, mode });
+		sendMessage: async (_threadId, message, mode, images) => {
+			calls.push({ message, mode, images });
 		},
 		getCommands: () => [{ name: "lion-build", description: "Activate Lion build mode", source: "extension" }],
 		getModels: () => [
@@ -189,7 +190,8 @@ describe("HttpServerTransport", () => {
 	});
 
 	it("serves dashboard prompt and commands for the main thread", async () => {
-		const calls: Array<{ message: string; mode: "prompt" | "follow_up" | "steer" }> = [];
+		const calls: Array<{ message: string; mode: "prompt" | "follow_up" | "steer"; images?: ThreadPromptImage[] }> =
+			[];
 		const modelCalls: Array<{ provider: string; modelId: string }> = [];
 		transport = new HttpServerTransport({
 			controller: controller as any,
@@ -220,6 +222,19 @@ describe("HttpServerTransport", () => {
 			status: "sent",
 		});
 		expect(calls).toEqual([{ message: "Continue the run", mode: "follow_up" }]);
+
+		const imagePromptRes = await callRpc(transport.port, "/threads/prompt", {
+			threadId: "main:session-1",
+			message: "",
+			mode: "prompt",
+			images: [{ type: "image", data: "abc", mimeType: "image/png", name: "clip.png" }],
+		});
+		expect(imagePromptRes.status).toBe(200);
+		expect(calls[1]).toEqual({
+			message: "",
+			mode: "prompt",
+			images: [{ type: "image", data: "abc", mimeType: "image/png", name: "clip.png" }],
+		});
 
 		const modelsRes = await callRpc(transport.port, "/threads/models", { threadId: "main:session-1" });
 		expect(modelsRes.status).toBe(200);
@@ -279,12 +294,13 @@ describe("HttpServerTransport", () => {
 		const listLogsBody = (await listLogsRes.json()) as { json: Array<Record<string, unknown>> };
 		expect(listLogsBody.json[0]).toMatchObject({
 			sessionId: "session-1",
-			entryCount: 4,
+			entryCount: 6,
 		});
 	});
 
 	it("logs failed main-thread model selections without hiding the API error", async () => {
-		const calls: Array<{ message: string; mode: "prompt" | "follow_up" | "steer" }> = [];
+		const calls: Array<{ message: string; mode: "prompt" | "follow_up" | "steer"; images?: ThreadPromptImage[] }> =
+			[];
 		transport = new HttpServerTransport({
 			controller: controller as any,
 			port: 0,
@@ -417,7 +433,8 @@ describe("HttpServerTransport", () => {
 			toolCount: 4,
 		});
 
-		const calls: Array<{ message: string; mode: "prompt" | "follow_up" | "steer" }> = [];
+		const calls: Array<{ message: string; mode: "prompt" | "follow_up" | "steer"; images?: ThreadPromptImage[] }> =
+			[];
 		transport = new HttpServerTransport({
 			controller: controller as any,
 			port: 0,

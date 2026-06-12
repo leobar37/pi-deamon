@@ -1,5 +1,5 @@
 import type { AgentCanvasNode } from "./types.js";
-import type { SessionEntry } from "../store/index.js";
+import type { CanvasSession } from "./types.js";
 
 const NODE_WIDTH = 760;
 const NODE_HEIGHT = 560;
@@ -8,16 +8,17 @@ const GAP_Y = 90;
 const COLUMNS = 2;
 
 export function createSessionNodes(
-	sessions: SessionEntry[],
+	sessions: CanvasSession[],
 	activeSessionId: string | null,
 	focusedSessionId: string | null,
+	backendUrl: string,
 	onFocus: (sessionId: string) => void,
 	onOpen: (sessionId: string) => void,
 ): AgentCanvasNode[] {
 	return sessions.map((session, index) => {
 		const column = index % COLUMNS;
 		const row = Math.floor(index / COLUMNS);
-		const id = session.info.id;
+		const id = session.id;
 
 		return {
 			id,
@@ -28,6 +29,7 @@ export function createSessionNodes(
 			},
 			data: {
 				session,
+				backendUrl,
 				focused: id === focusedSessionId || id === activeSessionId,
 				onFocus,
 				onOpen,

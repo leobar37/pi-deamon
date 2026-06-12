@@ -1,8 +1,14 @@
 import type { Node } from "@xyflow/react";
-import type { SessionEntry } from "../store/index.js";
+
+export interface CanvasSession {
+	id: string;
+	name: string;
+	createdAt: number;
+}
 
 export interface AgentCanvasNodeData {
-	session: SessionEntry;
+	session: CanvasSession;
+	backendUrl: string;
 	focused: boolean;
 	onFocus: (sessionId: string) => void;
 	onOpen: (sessionId: string) => void;

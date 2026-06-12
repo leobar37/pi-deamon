@@ -14,7 +14,10 @@ export interface ElectronApi {
 		readonly chrome: string;
 		readonly node: string;
 	};
-	chooseProjectDirectory(): Promise<string | null>;
+	/**
+	 * Resolves with the subagents backend URL once it is available.
+	 */
+	getBackendUrl(): Promise<string>;
 }
 
 const api: ElectronApi = {
@@ -24,9 +27,7 @@ const api: ElectronApi = {
 		chrome: process.versions.chrome,
 		node: process.versions.node,
 	},
-	chooseProjectDirectory() {
-		return ipcRenderer.invoke("project:choose-directory") as Promise<string | null>;
-	},
+	getBackendUrl: () => ipcRenderer.invoke("get-backend-url"),
 };
 
 contextBridge.exposeInMainWorld("__PI_ELECTRON__", api);

@@ -137,6 +137,13 @@ export interface DashboardModel {
 	reasoning: boolean;
 }
 
+export interface DashboardImageAttachment {
+	type: "image";
+	data: string;
+	mimeType: string;
+	name?: string;
+}
+
 export type SubAgentEventType =
 	| "lifecycle.change"
 	| "task.start"

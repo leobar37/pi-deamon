@@ -1,46 +1,51 @@
 /**
  * Electron main process.
  *
- * Spawns the Bun-compiled pi-web backend, waits for it to be ready,
- * then loads the React frontend with the backend URL injected via query param.
+ * Spawns the Pi coding-agent in web mode, waits for the Lion dashboard URL,
+ * then loads the React frontend. The renderer obtains the backend URL through
+ * the preload script via IPC.
  */
 
-import { app, BrowserWindow, dialog, ipcMain } from "electron";
+import { app, BrowserWindow, ipcMain } from "electron";
 import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
-const BACKEND_READY_REGEX = /pi-web running at (http:\/\/[^\s]+)/;
+const DASHBOARD_URL_REGEX = /\[lion\] dashboard at (http:\/\/[^\s]+)/;
 const HEALTHCHECK_TIMEOUT_MS = 30000;
 const HEALTHCHECK_INTERVAL_MS = 200;
 const KILL_TIMEOUT_MS = 3000;
+const BACKEND_URL_WAIT_MS = 30000;
 
 let backendProcess: ChildProcessWithoutNullStreams | null = null;
 let mainWindow: BrowserWindow | null = null;
 let backendUrl: string | null = null;
 
-ipcMain.handle("project:choose-directory", async () => {
-	const result = await dialog.showOpenDialog(mainWindow ?? undefined, {
-		properties: ["openDirectory", "createDirectory"],
-		title: "Choose project folder",
-	});
-	if (result.canceled) return null;
-	return result.filePaths[0] ?? null;
-});
-
 /**
  * Determine how to start the backend.
- * In dev: runs the compiled CLI through Bun.
+ * In dev: runs the coding-agent CLI through Bun with the local extensions dir.
  * In packaged: uses `process.resourcesPath` where electron-builder places extraResources.
  */
 function getBackendCommand(): { command: string; args: string[] } {
 	const isPackaged = app.isPackaged;
+	const extensionsDir = isPackaged
+		? join(process.resourcesPath, "extensions")
+		: join(__dirname, "..", "..", "..", "extensions");
+	const args = ["--web", "-e", extensionsDir];
+
 	if (isPackaged) {
-		return { command: join(process.resourcesPath, "pi-web-binary"), args: [] };
+		return { command: join(process.resourcesPath, "pi"), args };
 	}
-	return { command: "bun", args: [join(__dirname, "..", "..", "dist", "cli.js")] };
+	return {
+		command: "bun",
+		args: [join(__dirname, "..", "..", "..", "coding-agent", "src", "cli.ts"), ...args],
+	};
+}
+
+function normalizeUrl(url: string): string {
+	return url.replace(/\/$/, "");
 }
 
 /**
@@ -50,7 +55,7 @@ async function waitForBackend(url: string, timeoutMs: number, intervalMs: number
 	const start = Date.now();
 	while (Date.now() - start < timeoutMs) {
 		try {
-			const res = await fetch(`${url}/api`, { method: "HEAD" });
+			const res = await fetch(`${url}/rpc`, { method: "HEAD" });
 			if (res.ok || res.status === 404) {
 				return;
 			}
@@ -65,16 +70,16 @@ async function waitForBackend(url: string, timeoutMs: number, intervalMs: number
 /**
  * Start the backend binary and resolve with its URL once ready.
  */
-function normalizeUrl(url: string): string {
-	return url.replace(/\/$/, "");
-}
-
 async function startBackend(): Promise<string> {
 	const backendCommand = getBackendCommand();
 
 	return new Promise((resolve, reject) => {
-		const proc = spawn(backendCommand.command, [...backendCommand.args, "--port", "0", "--host", "127.0.0.1"], {
+		const proc = spawn(backendCommand.command, backendCommand.args, {
 			stdio: ["ignore", "pipe", "pipe"],
+			env: {
+				...process.env,
+				LION_AUTO_ACTIVATE: "true",
+			},
 		});
 
 		backendProcess = proc;
@@ -87,7 +92,7 @@ async function startBackend(): Promise<string> {
 			stdoutBuffer += text;
 			process.stdout.write(`[backend] ${text}`);
 
-			const match = BACKEND_READY_REGEX.exec(stdoutBuffer);
+			const match = DASHBOARD_URL_REGEX.exec(stdoutBuffer);
 			if (match && !localBackendUrl) {
 				localBackendUrl = normalizeUrl(match[1]);
 				backendUrl = localBackendUrl;
@@ -137,9 +142,8 @@ function killBackend(): void {
 /**
  * Create the main BrowserWindow.
  */
-function createWindow(backendUrl: string): void {
+function createWindow(): void {
 	const indexPath = join(__dirname, "..", "..", "frontend", "dist", "index.html");
-	const loadUrl = `file://${indexPath}?backendUrl=${encodeURIComponent(backendUrl)}`;
 
 	mainWindow = new BrowserWindow({
 		width: 1400,
@@ -154,7 +158,7 @@ function createWindow(backendUrl: string): void {
 		show: false,
 	});
 
-	mainWindow.loadURL(loadUrl);
+	mainWindow.loadURL(`file://${indexPath}`);
 
 	mainWindow.once("ready-to-show", () => {
 		mainWindow?.show();
@@ -164,6 +168,21 @@ function createWindow(backendUrl: string): void {
 		mainWindow = null;
 	});
 }
+
+ipcMain.handle("get-backend-url", async () => {
+	if (backendUrl) return backendUrl;
+
+	const start = Date.now();
+	while (!backendUrl && Date.now() - start < BACKEND_URL_WAIT_MS) {
+		await new Promise((r) => setTimeout(r, 100));
+	}
+
+	if (!backendUrl) {
+		throw new Error("Backend URL is not available");
+	}
+
+	return backendUrl;
+});
 
 // Single instance lock
 const gotLock = app.requestSingleInstanceLock();
@@ -184,9 +203,9 @@ app.on("second-instance", () => {
 // App lifecycle
 app.whenReady().then(async () => {
 	try {
-		const backendUrl = await startBackend();
-		await waitForBackend(backendUrl, HEALTHCHECK_TIMEOUT_MS, HEALTHCHECK_INTERVAL_MS);
-		createWindow(backendUrl);
+		const url = await startBackend();
+		await waitForBackend(url, HEALTHCHECK_TIMEOUT_MS, HEALTHCHECK_INTERVAL_MS);
+		createWindow();
 	} catch (err) {
 		console.error("Failed to start dashboard:", err);
 		app.quit();
@@ -205,6 +224,6 @@ app.on("window-all-closed", () => {
 
 app.on("activate", () => {
 	if (mainWindow === null && backendProcess !== null && backendUrl !== null) {
-		createWindow(backendUrl);
+		createWindow();
 	}
 });

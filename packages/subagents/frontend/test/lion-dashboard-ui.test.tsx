@@ -306,7 +306,7 @@ describe("Lion dashboard UI", () => {
 		expect(html.indexOf("Thinking")).toBeLessThan(html.indexOf("Hola."));
 	});
 
-	it("renders assistant tools outside the text bubble", () => {
+	it("renders assistant tools grouped outside the text bubble", () => {
 		const message: ChatMessage = {
 			id: "assistant-tools",
 			instanceId: "main:session-1",
@@ -325,6 +325,8 @@ describe("Lion dashboard UI", () => {
 		expect(html).toContain("bash");
 		expect(html).toContain("Result");
 		expect(html.indexOf("Running checks.")).toBeLessThan(html.indexOf("bash"));
-		expect(html).toContain("pl-2");
+		expect(html.indexOf("bash")).toBeLessThan(html.indexOf("Result"));
+		expect(html).not.toContain("pl-2");
+		expect(html).not.toContain("border-success");
 	});
 });
