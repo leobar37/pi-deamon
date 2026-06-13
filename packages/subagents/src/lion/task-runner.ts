@@ -194,6 +194,7 @@ export class TaskRunner {
 						instanceId: `subagent-${runId}-task-${i}-failed`,
 						taskId: `${runId}-task-${i}`,
 						definitionName: t.definition,
+						cwd,
 						state: "failed" as const,
 						startTime: null,
 						endTime: Date.now(),

@@ -32,6 +32,7 @@ export interface SubAgentInstanceState {
 	instanceId: string;
 	taskId: string;
 	definitionName: string;
+	cwd: string;
 	parentThreadId?: string;
 	parentToolCallId?: string;
 	runId?: string;

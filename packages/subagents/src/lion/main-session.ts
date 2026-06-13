@@ -56,6 +56,7 @@ export class MainSessionBridge implements DashboardSessionSource {
 			instanceId: threadId,
 			taskId: "main",
 			definitionName: "main-agent",
+			cwd: ctx.sessionManager.getCwd(),
 			description: ctx.sessionManager.getSessionName() ?? "Main agent",
 			state: ctx.isIdle() ? "paused" : "running",
 			startTime: this.startTime,

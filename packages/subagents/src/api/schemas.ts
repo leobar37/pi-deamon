@@ -63,6 +63,7 @@ export const ThreadCreateResultSchema = z.object({
 	threadId: z.string(),
 	name: z.string(),
 	createdAt: z.number(),
+	cwd: z.string(),
 });
 
 export const ThreadModelInputSchema = z.object({
@@ -213,6 +214,7 @@ export const DashboardThreadStateSchema = z.object({
 	instanceId: z.string(),
 	taskId: z.string(),
 	definitionName: z.string(),
+	cwd: z.string(),
 	parentThreadId: z.string().optional(),
 	parentToolCallId: z.string().optional(),
 	runId: z.string().optional(),

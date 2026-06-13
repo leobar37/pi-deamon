@@ -224,10 +224,12 @@ export class StandaloneSessionManager {
 
 	private buildState(info: StandaloneSessionInfo, state: SubAgentState): DashboardThreadState {
 		const model = info.session.model;
+		const cwd = info.session.sessionManager.getCwd();
 		return {
 			instanceId: info.instanceId,
 			taskId: info.instanceId,
 			definitionName: "standalone",
+			cwd,
 			description: info.name,
 			state,
 			startTime: info.createdAt,

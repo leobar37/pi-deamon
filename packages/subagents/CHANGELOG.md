@@ -28,6 +28,7 @@
 
 ### Fixed
 
+- Fixed dashboard-created sessions reporting under the selected project while running from the backend process working directory by exposing and validating each thread's effective cwd.
 - Fixed main-thread dashboard prompts so slash commands such as `/lion-build` execute instead of being sent as plain user text.
 - Fixed file-backed Lion state leaking active plan mode into newly opened sessions in the same working directory.
 - Fixed Lion plan task completion so active plan tasks require structured subagent results with verified evidence before marking checklist tasks complete.

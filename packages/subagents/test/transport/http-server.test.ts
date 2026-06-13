@@ -44,7 +44,7 @@ function createMockMainSession(): DashboardSessionSource {
 function createControllableMainSession(
 	calls: Array<{ message: string; mode: "prompt" | "follow_up" | "steer"; images?: ThreadPromptImage[] }>,
 	modelCalls: Array<{ provider: string; modelId: string }> = [],
-	options: { acceptModelSelection?: boolean } = {},
+	options: { acceptModelSelection?: boolean; cwd?: string } = {},
 ): DashboardSessionSource {
 	let modelProvider = "kimi-coding";
 	let modelId = "kimi-for-coding";
@@ -53,6 +53,7 @@ function createControllableMainSession(
 			instanceId: "main:session-1",
 			taskId: "main",
 			definitionName: "main-agent",
+			cwd: options.cwd ?? "/tmp/main-session",
 			kind: "main",
 			state: "paused",
 			startTime: null,
@@ -190,6 +191,37 @@ describe("HttpServerTransport", () => {
 		expect(res.status).toBe(200);
 		const body = await res.json();
 		expect(Array.isArray(body.json)).toBe(true);
+	});
+
+	it("creates standalone threads in the requested cwd", async () => {
+		const selectedCwd = join(tmpDir, "selected-project");
+		mkdirSync(selectedCwd, { recursive: true });
+		transport = new HttpServerTransport({
+			controller: controller as any,
+			port: 0,
+			host: "127.0.0.1",
+			mainSession: createMockMainSession(),
+		});
+		await transport.start();
+		await waitForServer();
+
+		const createRes = await callRpc(transport.port, "/threads/create", {
+			name: "Selected project",
+			cwd: selectedCwd,
+		});
+		expect(createRes.status).toBe(200);
+		const createBody = (await createRes.json()) as { json: { threadId: string; cwd: string } };
+		expect(createBody.json.cwd).toBe(selectedCwd);
+
+		const getRes = await callRpc(transport.port, "/threads/get", { threadId: createBody.json.threadId });
+		expect(getRes.status).toBe(200);
+		const getBody = (await getRes.json()) as { json: Record<string, unknown> };
+		expect(getBody.json).toMatchObject({
+			instanceId: createBody.json.threadId,
+			definitionName: "standalone",
+			cwd: selectedCwd,
+			kind: "main",
+		});
 	});
 
 	it("serves dashboard prompt and commands for the main thread", async () => {
@@ -370,6 +402,7 @@ describe("HttpServerTransport", () => {
 			instanceId: "instance-1",
 			taskId: "task-1",
 			definitionName: "executor",
+			cwd: tmpDir,
 			state: "running",
 			startTime: 100,
 			endTime: null,
@@ -550,6 +583,7 @@ describe("HttpServerTransport", () => {
 				instanceId: "instance-1",
 				taskId: "task-1",
 				definitionName: "executor",
+				cwd: tmpDir,
 				state: "running",
 				startTime: 100,
 				endTime: null,
@@ -730,6 +764,7 @@ describe("HttpServerTransport", () => {
 				instanceId: "instance-1",
 				taskId: "task-1",
 				definitionName: "executor",
+				cwd: tmpDir,
 				state: "completed",
 				startTime: 100,
 				endTime: 200,

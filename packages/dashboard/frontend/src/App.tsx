@@ -114,6 +114,10 @@ function directoryName(path: string): string {
 	return parts.at(-1) || normalized || "Project";
 }
 
+function normalizeCwd(path: string): string {
+	return path.replace(/\/+$/, "");
+}
+
 function AppContent({ backendUrl }: { backendUrl: string }) {
 	const [focusedSessionId, setFocusedSessionId] = useState<string | null>(null);
 	const [sessions, setSessions] = useState<CanvasSession[]>(() => loadSavedSessions());
@@ -261,16 +265,22 @@ function AppContent({ backendUrl }: { backendUrl: string }) {
 
 		try {
 			const result = await client.threads.create({ name: provisionalName, cwd: selectedProject.defaultCwd });
+			const thread = await client.threads.get({ threadId: result.threadId });
+			const backendCwd = thread.cwd ?? result.cwd;
+			if (normalizeCwd(backendCwd) !== normalizeCwd(selectedProject.defaultCwd)) {
+				throw new Error(`Backend created the session in ${backendCwd}, expected ${selectedProject.defaultCwd}`);
+			}
 			setSessions((prev) => {
 				const next = prev.map((s) =>
 					s.id === localId
 						? {
-								...s,
-								threadId: result.threadId,
-								name: result.name,
-								createdAt: result.createdAt,
-								...projectSessionFields,
-							}
+							...s,
+							threadId: result.threadId,
+							name: result.name,
+							createdAt: result.createdAt,
+							...projectSessionFields,
+							cwd: backendCwd,
+						}
 						: s,
 				);
 				saveSessions(next);

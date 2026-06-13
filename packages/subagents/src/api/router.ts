@@ -36,6 +36,7 @@ function projectRunRecord(record: SubAgentRunRecord): DashboardThreadState {
 		instanceId: record.instanceId,
 		taskId: record.taskId,
 		definitionName: record.definitionName,
+		cwd: record.cwd,
 		parentThreadId: record.parentThreadId,
 		parentToolCallId: record.parentToolCallId,
 		runId: record.runId,
@@ -538,6 +539,7 @@ export function createSubagentsRouter(ctx: SubagentsApiContext) {
 					threadId: info.instanceId,
 					name: info.name,
 					createdAt: info.createdAt,
+					cwd: info.state.cwd,
 				};
 			}),
 

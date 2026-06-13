@@ -17,6 +17,7 @@ export interface SubAgentInstanceState {
 	instanceId: string;
 	taskId: string;
 	definitionName: string;
+	cwd: string;
 	kind?: "main" | "subagent";
 	parentThreadId?: string;
 	parentToolCallId?: string;
