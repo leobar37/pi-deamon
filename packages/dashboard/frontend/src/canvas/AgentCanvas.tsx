@@ -12,7 +12,7 @@ import {
 	useReactFlow,
 } from "@xyflow/react";
 import "@xyflow/react/dist/style.css";
-import { Plus, ScanSearch } from "lucide-react";
+import { Plus } from "lucide-react";
 import { AgentSessionNode } from "./AgentSessionNode.js";
 import { createSessionNodes } from "./layout.js";
 import type { AgentCanvasNode, CanvasSession } from "./types.js";
@@ -24,6 +24,7 @@ interface AgentCanvasProps {
 	onFocusSession: (sessionId: string) => void;
 	onOpenSession: (sessionId: string) => void;
 	onCreateSession: () => void;
+	canCreateSession: boolean;
 	onRemoveSession: (sessionId: string) => void;
 }
 
@@ -60,7 +61,6 @@ interface FlowCanvasProps {
 	backendUrl: string;
 	focusedSessionId: string | null;
 	onFocusSession: (sessionId: string) => void;
-	onCreateSession: () => void;
 }
 
 function FlowCanvas({
@@ -68,7 +68,6 @@ function FlowCanvas({
 	backendUrl,
 	focusedSessionId,
 	onFocusSession,
-	onCreateSession,
 }: FlowCanvasProps) {
 	const { fitView } = useReactFlow<AgentCanvasNode>();
 
@@ -164,11 +163,13 @@ export function AgentCanvas({
 	focusedSessionId,
 	onFocusSession,
 	onCreateSession,
+	canCreateSession,
 	onRemoveSession,
 }: AgentCanvasProps) {
 	const [creating, setCreating] = useState(false);
 
 	const handleCreateSession = () => {
+		if (!canCreateSession) return;
 		setCreating(true);
 		try {
 			onCreateSession();
@@ -179,33 +180,25 @@ export function AgentCanvas({
 
 	return (
 		<div className="relative h-full min-w-0 flex-1 bg-bg-base">
-			<div className="absolute left-4 top-4 z-10 flex items-center gap-2 rounded-lg border border-border-default bg-bg-elevated/95 px-3 py-2 shadow-md">
-				<ScanSearch size={16} className="text-accent" aria-hidden="true" />
-				<div>
-					<div className="text-sm font-semibold text-text-primary">Agent canvas</div>
-					<div className="text-xs text-text-tertiary">{sessions.length} managed session{sessions.length === 1 ? "" : "s"}</div>
-				</div>
-			</div>
-
-			<button
-				type="button"
-				onClick={handleCreateSession}
-				disabled={creating}
-				className="absolute left-1/2 top-4 z-10 flex -translate-x-1/2 items-center gap-2 rounded-lg border border-accent/45 bg-accent-muted px-3 py-2 text-sm font-medium text-text-primary shadow-md transition hover:border-accent/80 hover:bg-accent-muted disabled:cursor-not-allowed disabled:opacity-60"
-			>
-				<Plus size={16} aria-hidden="true" />
-				<span>{creating ? "Creating..." : "Add session"}</span>
-			</button>
-
 			{sessions.length === 0 ? (
-				<div className="absolute inset-0 z-0 flex items-center justify-center">
-					<div className="max-w-sm text-center">
-						<div className="mx-auto flex h-12 w-12 items-center justify-center rounded-lg border border-border-default bg-bg-elevated text-accent">
+				<div className="absolute inset-0 z-10 flex items-center justify-center">
+					<button
+						type="button"
+						onClick={handleCreateSession}
+						disabled={creating || !canCreateSession}
+						title={canCreateSession ? "Add session" : "Select a project first"}
+						className="group max-w-sm text-center disabled:cursor-not-allowed disabled:opacity-60"
+					>
+						<div className="mx-auto flex h-12 w-12 items-center justify-center rounded-lg border border-border-default bg-bg-elevated text-accent transition group-hover:border-accent/70 group-hover:bg-bg-hover">
 							<Plus size={20} aria-hidden="true" />
 						</div>
-						<div className="mt-4 text-base font-semibold text-text-primary">No sessions yet</div>
-						<div className="mt-2 text-sm leading-normal text-text-secondary">Create a session to place a new agent view on the canvas.</div>
-					</div>
+						<div className="mt-4 text-base font-semibold text-text-primary">
+							{creating ? "Creating session..." : "No sessions yet"}
+						</div>
+						<div className="mt-2 text-sm leading-normal text-text-secondary">
+							{canCreateSession ? "Create a session to place a new agent view on the canvas." : "Select a project before creating sessions."}
+						</div>
+					</button>
 				</div>
 			) : null}
 
@@ -215,7 +208,6 @@ export function AgentCanvas({
 					backendUrl={backendUrl}
 					focusedSessionId={focusedSessionId}
 					onFocusSession={onFocusSession}
-					onCreateSession={onCreateSession}
 				/>
 			</ReactFlowProvider>
 		</div>

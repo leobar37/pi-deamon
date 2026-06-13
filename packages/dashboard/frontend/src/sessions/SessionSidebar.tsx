@@ -15,6 +15,7 @@ interface SessionSidebarProps {
 	onCreateProject: () => void;
 	onFocusSession: (sessionId: string) => void;
 	onCreateSession: () => void;
+	canCreateSession: boolean;
 	onRemoveSession: (sessionId: string) => void;
 }
 
@@ -38,6 +39,7 @@ export function SessionSidebar({
 	onCreateProject,
 	onFocusSession,
 	onCreateSession,
+	canCreateSession,
 	onRemoveSession,
 }: SessionSidebarProps) {
 	if (!isOpen) {
@@ -68,8 +70,9 @@ export function SessionSidebar({
 						<button
 							type="button"
 							onClick={onCreateSession}
-							className="flex h-8 w-8 items-center justify-center rounded-md border border-border-subtle text-text-secondary transition hover:border-border-hover hover:bg-bg-hover hover:text-text-primary"
-							title="Add session"
+							disabled={!canCreateSession}
+							className="flex h-8 w-8 items-center justify-center rounded-md border border-border-subtle text-text-secondary transition hover:border-border-hover hover:bg-bg-hover hover:text-text-primary disabled:cursor-not-allowed disabled:opacity-45 disabled:hover:border-border-subtle disabled:hover:bg-transparent disabled:hover:text-text-secondary"
+							title={canCreateSession ? "Add session" : "Select a project first"}
 						>
 							<Plus size={15} aria-hidden="true" />
 						</button>
@@ -114,8 +117,8 @@ export function SessionSidebar({
 							<Sparkles size={14} aria-hidden="true" />
 						</div>
 						<div className="min-w-0 flex-1">
-							<div className="truncate text-sm font-medium text-text-primary">Global</div>
-							<div className="text-[11px] text-text-tertiary">{sessions.length} session{sessions.length === 1 ? "" : "s"}</div>
+							<div className="truncate text-sm font-medium text-text-primary">All projects</div>
+							<div className="text-[11px] text-text-tertiary">{sessions.length} project session{sessions.length === 1 ? "" : "s"}</div>
 						</div>
 					</button>
 

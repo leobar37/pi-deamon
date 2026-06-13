@@ -48,51 +48,52 @@ export function AgentDetail({ instanceId, onBack }: AgentDetailProps) {
   const isLionActive = isLionUiActive(lionState);
   const showMainNavigation = !isMainThread || isLionActive;
   const showStateBadge = !isMainThread;
+  const showHeader = Boolean(displayAgent && (!isMainThread || showMainNavigation));
 
   const toggleSidebar = () => setSidebarOpen((prev) => !prev);
 
   return (
     <div className="flex h-full min-w-0 flex-1 flex-col">
-      <div className="flex items-center gap-3 px-4 py-3 border-b border-border-subtle bg-bg-elevated">
-        {displayAgent?.parentThreadId ? (
-          <button
-            onClick={() => navigateToThread(displayAgent.parentThreadId ?? null)}
-            className="text-sm text-text-secondary hover:text-text-primary transition-colors"
-          >
-            ← {parentThread?.kind === "main" ? "Main session" : parentThread?.description || "Parent thread"}
-          </button>
-        ) : showMainNavigation ? (
-          <button
-            onClick={onBack}
-            className="text-sm text-text-secondary hover:text-text-primary transition-colors"
-          >
-            Lion
-          </button>
-        ) : null}
-        {displayAgent ? (
-          <div className="flex items-center gap-2 min-w-0 flex-1">
+      {showHeader && displayAgent ? (
+        <div className="flex items-center gap-3 border-b border-border-subtle bg-bg-elevated/70 px-4 py-2">
+          {displayAgent?.parentThreadId ? (
+            <button
+              onClick={() => navigateToThread(displayAgent.parentThreadId ?? null)}
+              className="text-sm text-text-secondary transition-colors hover:text-text-primary"
+            >
+              ← {parentThread?.kind === "main" ? "Main session" : parentThread?.description || "Parent thread"}
+            </button>
+          ) : showMainNavigation ? (
+            <button
+              onClick={onBack}
+              className="text-sm text-text-secondary transition-colors hover:text-text-primary"
+            >
+              Lion
+            </button>
+          ) : null}
+          <div className="flex min-w-0 flex-1 items-center gap-2">
             {showStateBadge ? <StatusBadge state={displayAgent.state} pulse={displayAgent.state === "running"} /> : null}
-            <span className="text-sm font-medium text-text-primary truncate">
-              {displayAgent.kind === "main" ? "Main agent" : displayAgent.description || displayAgent.definitionName}
-            </span>
+            {!isMainThread ? (
+              <span className="truncate text-sm font-medium text-text-primary">
+                {displayAgent.description || displayAgent.definitionName}
+              </span>
+            ) : null}
             <LionModeBadge state={lionState} />
           </div>
-        ) : (
-          <span className="text-sm text-text-muted">Loading...</span>
-        )}
-        <button
-          type="button"
-          onClick={toggleSidebar}
-          className="hidden lg:flex ml-auto h-8 w-8 items-center justify-center rounded-md text-text-secondary hover:bg-bg-hover hover:text-text-primary transition-colors"
-          title={sidebarOpen ? "Close sidebar" : "Open sidebar"}
-        >
-          {sidebarOpen ? (
-            <PanelRightClose className="h-4 w-4" aria-hidden="true" />
-          ) : (
-            <PanelRight className="h-4 w-4" aria-hidden="true" />
-          )}
-        </button>
-      </div>
+          <button
+            type="button"
+            onClick={toggleSidebar}
+            className="ml-auto hidden h-8 w-8 items-center justify-center rounded-md text-text-secondary transition-colors hover:bg-bg-hover hover:text-text-primary lg:flex"
+            title={sidebarOpen ? "Close sidebar" : "Open sidebar"}
+          >
+            {sidebarOpen ? (
+              <PanelRightClose className="h-4 w-4" aria-hidden="true" />
+            ) : (
+              <PanelRight className="h-4 w-4" aria-hidden="true" />
+            )}
+          </button>
+        </div>
+      ) : null}
 
       <div className="flex min-h-0 flex-1 overflow-hidden">
         <div className="min-w-0 flex-1 overflow-hidden">

@@ -21,7 +21,16 @@ function loadSavedSessions(): CanvasSession[] {
 		if (!Array.isArray(parsed)) return [];
 		return parsed.filter(
 			(s): s is CanvasSession =>
-				s && typeof s === "object" && "id" in s && typeof s.id === "string" && "name" in s && typeof s.name === "string",
+				s &&
+				typeof s === "object" &&
+				"id" in s &&
+				typeof s.id === "string" &&
+				"name" in s &&
+				typeof s.name === "string" &&
+				"projectId" in s &&
+				typeof s.projectId === "string" &&
+				"cwd" in s &&
+				typeof s.cwd === "string",
 		);
 	} catch {
 		return [];
@@ -222,16 +231,19 @@ function AppContent({ backendUrl }: { backendUrl: string }) {
 
 	const createSession = useCallback(async () => {
 		setCreateError(null);
-		const localId = crypto.randomUUID();
 		const selectedProject = projects.find((project) => project.id === selectedProjectId);
-		const visibleSessionCount = selectedProjectId ? sessions.filter((session) => session.projectId === selectedProjectId).length : sessions.length;
+		if (!selectedProject) {
+			setCreateError("Select or create a project before adding a session.");
+			return;
+		}
+
+		const localId = crypto.randomUUID();
+		const visibleSessionCount = sessions.filter((session) => session.projectId === selectedProject.id).length;
 		const provisionalName = `Session ${visibleSessionCount + 1}`;
-		const projectSessionFields = selectedProject
-			? {
-					projectId: selectedProject.id,
-					cwd: selectedProject.defaultCwd,
-				}
-			: {};
+		const projectSessionFields = {
+			projectId: selectedProject.id,
+			cwd: selectedProject.defaultCwd,
+		};
 		setSessions((prev) => {
 			const next = [
 				...prev,
@@ -248,7 +260,7 @@ function AppContent({ backendUrl }: { backendUrl: string }) {
 		setFocusedSessionId(localId);
 
 		try {
-			const result = await client.threads.create(selectedProject ? { name: provisionalName, cwd: selectedProject.defaultCwd } : { name: provisionalName });
+			const result = await client.threads.create({ name: provisionalName, cwd: selectedProject.defaultCwd });
 			setSessions((prev) => {
 				const next = prev.map((s) =>
 					s.id === localId
@@ -287,6 +299,7 @@ function AppContent({ backendUrl }: { backendUrl: string }) {
 
 	const focusedSession = sessions.find((session) => session.id === focusedSessionId);
 	const visibleSessions = selectedProjectId ? sessions.filter((session) => session.projectId === selectedProjectId) : sessions;
+	const canCreateSession = selectedProjectId ? projects.some((project) => project.id === selectedProjectId) : false;
 
 	return (
 		<div className="flex h-screen overflow-hidden bg-bg-base text-text-primary">
@@ -303,6 +316,7 @@ function AppContent({ backendUrl }: { backendUrl: string }) {
 				onCreateProject={createProject}
 				onFocusSession={focusSession}
 				onCreateSession={createSession}
+				canCreateSession={canCreateSession}
 				onRemoveSession={removeSession}
 			/>
 			<main className="relative min-w-0 flex-1">
@@ -313,6 +327,7 @@ function AppContent({ backendUrl }: { backendUrl: string }) {
 					onFocusSession={focusSession}
 					onOpenSession={focusSession}
 					onCreateSession={createSession}
+					canCreateSession={canCreateSession}
 					onRemoveSession={removeSession}
 				/>
 				{createError ? (

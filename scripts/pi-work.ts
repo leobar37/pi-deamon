@@ -14,6 +14,7 @@ const CLI_ENTRY = join(REPO_ROOT, "packages", "coding-agent", "src", "cli.ts");
 const SUBAGENTS_DIR = join(REPO_ROOT, "packages", "subagents");
 const SUBAGENTS_ENTRY = join(SUBAGENTS_DIR, "src", "index.ts");
 const SUBAGENTS_OUT_DIR = join(SUBAGENTS_DIR, "dist");
+const GOAL_EXT_ENTRY = join(REPO_ROOT, "packages", "extensions", "src", "extensions", "goal-v2", "index.ts");
 
 const args = process.argv.slice(2);
 
@@ -53,10 +54,10 @@ console.log("[pi-work] Starting Pi TUI (local packages, global extensions)");
 // Build only the subagents backend (no frontend, since TUI mode doesn't need it).
 await buildSubagentsBackend();
 
-// No -e EXT_DIR here, so only globally installed extensions are loaded.
-// No --no-extensions either, so global extension discovery works normally.
-// No --web, so TUI mode is used (same as the original pi command).
-const bunArgs = ["run", CLI_ENTRY, ...args];
+// Load only the local goal-v2 extension explicitly (-e), while keeping
+// global extension discovery enabled (no --no-extensions). This gives us the
+// stable local goal implementation plus all other global extensions.
+const bunArgs = ["run", CLI_ENTRY, "-e", GOAL_EXT_ENTRY, ...args];
 
 const proc = Bun.spawn(["bun", ...bunArgs], {
 	stdio: ["inherit", "inherit", "inherit"],
