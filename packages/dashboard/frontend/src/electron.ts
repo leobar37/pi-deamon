@@ -13,6 +13,7 @@ export interface ElectronApi {
 	 * Resolves with the subagents backend URL once it is available.
 	 */
 	getBackendUrl(): Promise<string>;
+	chooseProjectDirectory(): Promise<string | null>;
 }
 
 declare global {

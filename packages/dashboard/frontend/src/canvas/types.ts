@@ -4,6 +4,8 @@ export interface CanvasSession {
 	id: string;
 	name: string;
 	createdAt: number;
+	projectId?: string;
+	cwd?: string;
 	/** Optional thread ID in the subagents backend. Falls back to the canvas session ID. */
 	threadId?: string;
 }

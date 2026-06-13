@@ -5,8 +5,11 @@ import { SessionSidebar } from "./sessions/SessionSidebar.js";
 import { resolveBackendUrl } from "./electron.js";
 import { createSubagentsClient } from "./api/client.ts";
 import type { CanvasSession } from "./canvas/types.js";
+import type { CanvasProject } from "./projects/types.js";
 
 const CANVAS_SESSIONS_KEY = "pi-dashboard:agent-canvas:sessions";
+const CANVAS_PROJECTS_KEY = "pi-dashboard:agent-canvas:projects";
+const SELECTED_PROJECT_KEY = "pi-dashboard:agent-canvas:selected-project";
 const LEFT_SIDEBAR_OPEN_KEY = "pi-dashboard:sidebar-left:open";
 const RIGHT_SIDEBAR_OPEN_KEY = "pi-dashboard:sidebar-right:open";
 
@@ -29,6 +32,56 @@ function saveSessions(sessions: CanvasSession[]): void {
 	window.localStorage.setItem(CANVAS_SESSIONS_KEY, JSON.stringify(sessions));
 }
 
+function loadSavedProjects(): CanvasProject[] {
+	try {
+		const raw = window.localStorage.getItem(CANVAS_PROJECTS_KEY);
+		if (!raw) return [];
+		const parsed = JSON.parse(raw) as unknown;
+		if (!Array.isArray(parsed)) return [];
+		return parsed.filter(
+			(project): project is CanvasProject =>
+				project &&
+				typeof project === "object" &&
+				"id" in project &&
+				typeof project.id === "string" &&
+				"name" in project &&
+				typeof project.name === "string" &&
+				"defaultCwd" in project &&
+				typeof project.defaultCwd === "string" &&
+				"createdAt" in project &&
+				typeof project.createdAt === "number" &&
+				"updatedAt" in project &&
+				typeof project.updatedAt === "number",
+		);
+	} catch {
+		return [];
+	}
+}
+
+function saveProjects(projects: CanvasProject[]): void {
+	window.localStorage.setItem(CANVAS_PROJECTS_KEY, JSON.stringify(projects));
+}
+
+function loadSelectedProjectId(): string | null {
+	try {
+		return window.localStorage.getItem(SELECTED_PROJECT_KEY);
+	} catch {
+		return null;
+	}
+}
+
+function saveSelectedProjectId(projectId: string | null): void {
+	try {
+		if (projectId) {
+			window.localStorage.setItem(SELECTED_PROJECT_KEY, projectId);
+		} else {
+			window.localStorage.removeItem(SELECTED_PROJECT_KEY);
+		}
+	} catch {
+		// best effort
+	}
+}
+
 function loadSidebarOpen(key: string, defaultValue: boolean): boolean {
 	try {
 		const raw = window.localStorage.getItem(key);
@@ -46,17 +99,40 @@ function saveSidebarOpen(key: string, value: boolean): void {
 	}
 }
 
+function directoryName(path: string): string {
+	const normalized = path.replace(/\/+$/, "");
+	const parts = normalized.split(/[\\/]/);
+	return parts.at(-1) || normalized || "Project";
+}
+
 function AppContent({ backendUrl }: { backendUrl: string }) {
 	const [focusedSessionId, setFocusedSessionId] = useState<string | null>(null);
 	const [sessions, setSessions] = useState<CanvasSession[]>(() => loadSavedSessions());
+	const [projects, setProjects] = useState<CanvasProject[]>(() => loadSavedProjects());
+	const [selectedProjectId, setSelectedProjectId] = useState<string | null>(() => loadSelectedProjectId());
 	const [leftOpen, setLeftOpen] = useState(() => loadSidebarOpen(LEFT_SIDEBAR_OPEN_KEY, true));
 	const [rightOpen, setRightOpen] = useState(() => loadSidebarOpen(RIGHT_SIDEBAR_OPEN_KEY, true));
 	const [createError, setCreateError] = useState<string | null>(null);
+	const [projectError, setProjectError] = useState<string | null>(null);
 	const client = useMemo(() => createSubagentsClient(backendUrl), [backendUrl]);
 
 	useEffect(() => {
 		saveSessions(sessions);
 	}, [sessions]);
+
+	useEffect(() => {
+		saveProjects(projects);
+	}, [projects]);
+
+	useEffect(() => {
+		saveSelectedProjectId(selectedProjectId);
+	}, [selectedProjectId]);
+
+	useEffect(() => {
+		if (selectedProjectId && !projects.some((project) => project.id === selectedProjectId)) {
+			setSelectedProjectId(null);
+		}
+	}, [projects, selectedProjectId]);
 
 	// Validate saved sessions against the backend on mount. Standalone sessions
 	// live only in the backend process memory, so they disappear when the
@@ -100,10 +176,62 @@ function AppContent({ backendUrl }: { backendUrl: string }) {
 		setFocusedSessionId(sessionId);
 	}, []);
 
+	const selectProject = useCallback(
+		(projectId: string | null) => {
+			setSelectedProjectId(projectId);
+			setFocusedSessionId((current) => {
+				if (!current) return null;
+				const focused = sessions.find((session) => session.id === current);
+				if (!focused) return null;
+				return projectId && focused.projectId !== projectId ? null : current;
+			});
+		},
+		[sessions],
+	);
+
+	const createProject = useCallback(async () => {
+		setProjectError(null);
+		const directory = await window.__PI_ELECTRON__?.chooseProjectDirectory();
+		if (!directory) {
+			if (!window.__PI_ELECTRON__) {
+				setProjectError("Project folders can only be selected from the Electron app.");
+			}
+			return;
+		}
+
+		const now = Date.now();
+		const project: CanvasProject = {
+			id: crypto.randomUUID(),
+			name: directoryName(directory),
+			defaultCwd: directory,
+			createdAt: now,
+			updatedAt: now,
+		};
+		setProjects((prev) => {
+			const existing = prev.find((item) => item.defaultCwd === directory);
+			if (existing) return prev;
+			const next = [project, ...prev];
+			saveProjects(next);
+			return next;
+		});
+		setSelectedProjectId((current) => {
+			const existing = projects.find((item) => item.defaultCwd === directory);
+			return existing?.id ?? project.id ?? current;
+		});
+	}, [projects]);
+
 	const createSession = useCallback(async () => {
 		setCreateError(null);
 		const localId = crypto.randomUUID();
-		const provisionalName = `Session ${sessions.length + 1}`;
+		const selectedProject = projects.find((project) => project.id === selectedProjectId);
+		const visibleSessionCount = selectedProjectId ? sessions.filter((session) => session.projectId === selectedProjectId).length : sessions.length;
+		const provisionalName = `Session ${visibleSessionCount + 1}`;
+		const projectSessionFields = selectedProject
+			? {
+					projectId: selectedProject.id,
+					cwd: selectedProject.defaultCwd,
+				}
+			: {};
 		setSessions((prev) => {
 			const next = [
 				...prev,
@@ -111,6 +239,7 @@ function AppContent({ backendUrl }: { backendUrl: string }) {
 					id: localId,
 					name: provisionalName,
 					createdAt: Date.now(),
+					...projectSessionFields,
 				},
 			];
 			saveSessions(next);
@@ -119,7 +248,7 @@ function AppContent({ backendUrl }: { backendUrl: string }) {
 		setFocusedSessionId(localId);
 
 		try {
-			const result = await client.threads.create({ name: provisionalName });
+			const result = await client.threads.create(selectedProject ? { name: provisionalName, cwd: selectedProject.defaultCwd } : { name: provisionalName });
 			setSessions((prev) => {
 				const next = prev.map((s) =>
 					s.id === localId
@@ -128,6 +257,7 @@ function AppContent({ backendUrl }: { backendUrl: string }) {
 								threadId: result.threadId,
 								name: result.name,
 								createdAt: result.createdAt,
+								...projectSessionFields,
 							}
 						: s,
 				);
@@ -137,8 +267,14 @@ function AppContent({ backendUrl }: { backendUrl: string }) {
 		} catch (error) {
 			const message = error instanceof Error ? error.message : String(error);
 			setCreateError(message);
+			setSessions((prev) => {
+				const next = prev.filter((session) => session.id !== localId);
+				saveSessions(next);
+				return next;
+			});
+			setFocusedSessionId((current) => (current === localId ? null : current));
 		}
-	}, [client, sessions.length]);
+	}, [client, projects, selectedProjectId, sessions]);
 
 	const removeSession = useCallback((sessionId: string) => {
 		setSessions((prev) => {
@@ -150,21 +286,28 @@ function AppContent({ backendUrl }: { backendUrl: string }) {
 	}, []);
 
 	const focusedSession = sessions.find((session) => session.id === focusedSessionId);
+	const visibleSessions = selectedProjectId ? sessions.filter((session) => session.projectId === selectedProjectId) : sessions;
 
 	return (
 		<div className="flex h-screen overflow-hidden bg-bg-base text-text-primary">
 			<SessionSidebar
 				isOpen={leftOpen}
 				onToggle={() => setLeftOpen((open) => !open)}
+				projects={projects}
 				sessions={sessions}
+				visibleSessions={visibleSessions}
+				selectedProjectId={selectedProjectId}
 				focusedSessionId={focusedSessionId}
+				projectError={projectError}
+				onSelectProject={selectProject}
+				onCreateProject={createProject}
 				onFocusSession={focusSession}
 				onCreateSession={createSession}
 				onRemoveSession={removeSession}
 			/>
 			<main className="relative min-w-0 flex-1">
 				<AgentCanvas
-					sessions={sessions}
+					sessions={visibleSessions}
 					backendUrl={backendUrl}
 					focusedSessionId={focusedSessionId}
 					onFocusSession={focusSession}

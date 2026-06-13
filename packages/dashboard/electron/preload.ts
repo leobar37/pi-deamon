@@ -18,6 +18,7 @@ export interface ElectronApi {
 	 * Resolves with the subagents backend URL once it is available.
 	 */
 	getBackendUrl(): Promise<string>;
+	chooseProjectDirectory(): Promise<string | null>;
 }
 
 const api: ElectronApi = {
@@ -28,6 +29,7 @@ const api: ElectronApi = {
 		node: process.versions.node,
 	},
 	getBackendUrl: () => ipcRenderer.invoke("get-backend-url"),
+	chooseProjectDirectory: () => ipcRenderer.invoke("choose-project-directory"),
 };
 
 contextBridge.exposeInMainWorld("__PI_ELECTRON__", api);

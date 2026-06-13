@@ -6,7 +6,7 @@
  * the preload script via IPC.
  */
 
-import { app, BrowserWindow, ipcMain } from "electron";
+import { app, BrowserWindow, dialog, ipcMain } from "electron";
 import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -236,6 +236,12 @@ function createWindow(): void {
 }
 
 ipcMain.handle("get-backend-url", () => backendManager.getUrl());
+ipcMain.handle("choose-project-directory", async () => {
+	const result = await dialog.showOpenDialog(mainWindow ?? undefined, {
+		properties: ["openDirectory", "createDirectory"],
+	});
+	return result.canceled ? null : result.filePaths[0] ?? null;
+});
 
 // Single instance lock
 const gotLock = app.requestSingleInstanceLock();

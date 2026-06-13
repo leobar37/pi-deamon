@@ -531,7 +531,7 @@ export function createSubagentsRouter(ctx: SubagentsApiContext) {
 
 			create: impl.threads.create.handler(async ({ input }) => {
 				const info = await ctx.standaloneSessions.create({
-					cwd: ctx.cwd,
+					cwd: input.cwd ?? ctx.cwd,
 					name: input.name,
 				});
 				return {

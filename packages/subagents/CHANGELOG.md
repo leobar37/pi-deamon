@@ -13,6 +13,7 @@
 - Added internal Lion checklist tools and dashboard progress UI for durable `.plans/` and `.reviews/` checklists.
 - Added Lion `review` strategy so `/lion-code-review` creates an active durable `.reviews/` plan with read-only checklist execution and false-positive validation.
 - Added `threads.create` oRPC endpoint and `StandaloneSessionManager` to create real, persistent agent sessions directly from the dashboard, independent of Lion runs.
+- Added optional `cwd` support to `threads.create` so dashboard-created sessions can start in a selected project directory.
 
 ### Changed
 

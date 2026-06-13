@@ -11,6 +11,7 @@
 - Collapsible left sessions sidebar and right session inspector with persisted open/close state.
 - Double-clicking a canvas session node now focuses and centers the node on the canvas.
 - "Add session" now creates a real backend thread via the subagents API and stores the returned `threadId`.
+- Project-scoped dashboard sessions with folder selection from Electron and sidebar filtering.
 
 ### Changed
 
