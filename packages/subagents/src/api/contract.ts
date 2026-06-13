@@ -88,13 +88,13 @@ export const subagentsContract = oc.router({
 		update: oc.input(TaskUpdateInputSchema).output(TaskMutationResultSchema),
 
 		complete: oc
-			.input(TaskUpdateInputSchema.pick({ id: true, expectedRevision: true }))
+			.input(TaskUpdateInputSchema.pick({ id: true, actorSessionId: true, expectedRevision: true }))
 			.output(TaskMutationResultSchema),
 
 		block: oc.input(TaskBlockInputSchema).output(TaskMutationResultSchema),
 
 		delete: oc
-			.input(TaskUpdateInputSchema.pick({ id: true, expectedRevision: true }))
+			.input(TaskUpdateInputSchema.pick({ id: true, actorSessionId: true, expectedRevision: true }))
 			.output(TaskMutationResultSchema),
 	},
 

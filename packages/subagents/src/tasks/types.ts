@@ -56,11 +56,12 @@ export interface TaskEvent {
 }
 
 export interface TaskChangeEvent {
-	type: "task.created" | "task.updated" | "task.deleted" | "task.snapshot";
-	taskId?: string;
-	task?: TaskRecord;
-	revision?: number;
-	timestamp: string;
+	type: "task.changed";
+	action: "created" | "updated" | "completed" | "blocked" | "deleted";
+	taskId: string;
+	task: TaskRecord;
+	timestamp: number;
+	instanceId?: undefined;
 }
 
 export interface TaskPatch {

@@ -118,6 +118,7 @@ export const TaskCreateInputSchema = z.object({
 	title: z.string().trim().min(1),
 	status: DashboardTaskStatusSchema.optional(),
 	assignedToSession: z.string().trim().min(1).optional(),
+	actorSessionId: z.string().trim().min(1).optional(),
 	context: DashboardTaskContextSchema.optional(),
 });
 
@@ -126,6 +127,7 @@ export const TaskUpdateInputSchema = z.object({
 	title: z.string().trim().min(1).optional(),
 	status: DashboardTaskStatusSchema.optional(),
 	assignedToSession: z.string().trim().min(1).nullable().optional(),
+	actorSessionId: z.string().trim().min(1).optional(),
 	context: DashboardTaskContextSchema.optional(),
 	expectedRevision: z.number().int().min(1).optional(),
 });
@@ -133,6 +135,7 @@ export const TaskUpdateInputSchema = z.object({
 export const TaskBlockInputSchema = z.object({
 	id: z.string().trim().min(1),
 	reason: z.string().trim().min(1),
+	actorSessionId: z.string().trim().min(1).optional(),
 	expectedRevision: z.number().int().min(1).optional(),
 });
 

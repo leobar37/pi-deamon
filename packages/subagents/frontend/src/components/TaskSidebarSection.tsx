@@ -1,5 +1,5 @@
 import { Ban, Check, Circle, Play, Plus, RotateCcw, Trash2 } from "lucide-react";
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import type { ReactNode } from "react";
 import {
 	groupTasks,
@@ -18,7 +18,7 @@ interface TaskSidebarSectionProps {
 }
 
 export function TaskSidebarSection({ sessionId, tasksOverride }: TaskSidebarSectionProps) {
-	const { data, isLoading } = useTasks({ enabled: tasksOverride === undefined, refetchInterval: 3000 });
+	const { data, isLoading } = useTasks({ enabled: tasksOverride === undefined, refetchInterval: 15000 });
 	const createTask = useCreateTask();
 	const updateTask = useUpdateTask();
 	const completeTask = useCompleteTask();
@@ -27,7 +27,7 @@ export function TaskSidebarSection({ sessionId, tasksOverride }: TaskSidebarSect
 	const [title, setTitle] = useState("");
 	const [notes, setNotes] = useState("");
 	const tasks = tasksOverride ?? data ?? [];
-	const grouped = groupTasks(tasks);
+	const grouped = useMemo(() => groupTasks(tasks), [tasks]);
 	const isMutating =
 		createTask.isPending || updateTask.isPending || completeTask.isPending || blockTask.isPending || deleteTask.isPending;
 
@@ -38,6 +38,7 @@ export function TaskSidebarSection({ sessionId, tasksOverride }: TaskSidebarSect
 		createTask.mutate(
 			{
 				title: trimmedTitle,
+				actorSessionId: sessionId,
 				context: trimmedNotes ? { notes: trimmedNotes } : undefined,
 			},
 			{
@@ -96,10 +97,18 @@ export function TaskSidebarSection({ sessionId, tasksOverride }: TaskSidebarSect
 					empty="No active task"
 					actions={(task) => (
 						<>
-							<TaskIconButton title="Complete" disabled={isMutating} onClick={() => completeTask.mutate({ id: task.id, expectedRevision: task.revision })}>
+							<TaskIconButton
+								title="Complete"
+								disabled={isMutating}
+								onClick={() => completeTask.mutate({ id: task.id, actorSessionId: sessionId, expectedRevision: task.revision })}
+							>
 								<Check className="h-3.5 w-3.5" />
 							</TaskIconButton>
-							<TaskIconButton title="Block" disabled={isMutating} onClick={() => blockTaskFromPrompt(blockTask.mutate, task)}>
+							<TaskIconButton
+								title="Block"
+								disabled={isMutating}
+								onClick={() => blockTaskFromPrompt(blockTask.mutate, task, sessionId)}
+							>
 								<Ban className="h-3.5 w-3.5" />
 							</TaskIconButton>
 						</>
@@ -119,13 +128,18 @@ export function TaskSidebarSection({ sessionId, tasksOverride }: TaskSidebarSect
 										id: task.id,
 										status: "in_progress",
 										assignedToSession: sessionId,
+										actorSessionId: sessionId,
 										expectedRevision: task.revision,
 									})
 								}
 							>
 								<Play className="h-3.5 w-3.5" />
 							</TaskIconButton>
-							<TaskIconButton title="Complete" disabled={isMutating} onClick={() => completeTask.mutate({ id: task.id, expectedRevision: task.revision })}>
+							<TaskIconButton
+								title="Complete"
+								disabled={isMutating}
+								onClick={() => completeTask.mutate({ id: task.id, actorSessionId: sessionId, expectedRevision: task.revision })}
+							>
 								<Check className="h-3.5 w-3.5" />
 							</TaskIconButton>
 						</>
@@ -139,7 +153,15 @@ export function TaskSidebarSection({ sessionId, tasksOverride }: TaskSidebarSect
 						<TaskIconButton
 							title="Reopen"
 							disabled={isMutating}
-							onClick={() => updateTask.mutate({ id: task.id, status: "pending", assignedToSession: null, expectedRevision: task.revision })}
+							onClick={() =>
+								updateTask.mutate({
+									id: task.id,
+									status: "pending",
+									assignedToSession: null,
+									actorSessionId: sessionId,
+									expectedRevision: task.revision,
+								})
+							}
 						>
 							<RotateCcw className="h-3.5 w-3.5" />
 						</TaskIconButton>
@@ -150,7 +172,11 @@ export function TaskSidebarSection({ sessionId, tasksOverride }: TaskSidebarSect
 					tasks={grouped.completed.slice(0, 4)}
 					empty="No completed task"
 					actions={(task) => (
-						<TaskIconButton title="Delete" disabled={isMutating} onClick={() => deleteTask.mutate({ id: task.id, expectedRevision: task.revision })}>
+						<TaskIconButton
+							title="Delete"
+							disabled={isMutating}
+							onClick={() => deleteTask.mutate({ id: task.id, actorSessionId: sessionId, expectedRevision: task.revision })}
+						>
 							<Trash2 className="h-3.5 w-3.5" />
 						</TaskIconButton>
 					)}
@@ -226,10 +252,11 @@ function TaskIconButton({
 }
 
 function blockTaskFromPrompt(
-	mutate: (input: { id: string; reason: string; expectedRevision?: number }) => void,
+	mutate: (input: { id: string; reason: string; actorSessionId?: string; expectedRevision?: number }) => void,
 	task: TaskRecord,
+	actorSessionId?: string,
 ): void {
 	const reason = window.prompt("Block reason");
 	if (!reason?.trim()) return;
-	mutate({ id: task.id, reason: reason.trim(), expectedRevision: task.revision });
+	mutate({ id: task.id, reason: reason.trim(), actorSessionId, expectedRevision: task.revision });
 }

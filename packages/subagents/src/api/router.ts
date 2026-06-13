@@ -813,23 +813,29 @@ export function createSubagentsRouter(ctx: SubagentsApiContext) {
 			}),
 
 			create: impl.tasks.create.handler(async ({ input }) => {
-				return taskOrThrow(await ctx.taskService.create(input));
+				const { actorSessionId, ...taskInput } = input;
+				return taskOrThrow(await ctx.taskService.create(taskInput, actorSessionId));
 			}),
 
 			update: impl.tasks.update.handler(async ({ input }) => {
-				return taskOrThrow(await ctx.taskService.update(input, input.assignedToSession ?? undefined));
+				const { actorSessionId, ...taskInput } = input;
+				return taskOrThrow(await ctx.taskService.update(taskInput, actorSessionId));
 			}),
 
 			complete: impl.tasks.complete.handler(async ({ input }) => {
-				return taskOrThrow(await ctx.taskService.complete(input.id, input.expectedRevision));
+				return taskOrThrow(await ctx.taskService.complete(input.id, input.expectedRevision, input.actorSessionId));
 			}),
 
 			block: impl.tasks.block.handler(async ({ input }) => {
-				return taskOrThrow(await ctx.taskService.block(input.id, input.reason, input.expectedRevision));
+				return taskOrThrow(
+					await ctx.taskService.block(input.id, input.reason, input.expectedRevision, input.actorSessionId),
+				);
 			}),
 
 			delete: impl.tasks.delete.handler(async ({ input }) => {
-				return taskOrThrow(await ctx.taskService.softDelete(input.id, input.expectedRevision));
+				return taskOrThrow(
+					await ctx.taskService.softDelete(input.id, input.expectedRevision, input.actorSessionId),
+				);
 			}),
 		},
 
