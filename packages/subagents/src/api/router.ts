@@ -2,6 +2,8 @@ import { join } from "node:path";
 import { SessionManager } from "@earendil-works/pi-coding-agent";
 import { implement, ORPCError } from "@orpc/server";
 import type { LionChecklistKind, LionStrategyName } from "../lion/types.js";
+import { isTaskStoreError } from "../tasks/store.js";
+import type { TaskRecord, TaskStoreError, TaskStoreResult } from "../tasks/types.js";
 import type { VirtualInstance } from "../transport/state-manager.js";
 import type { DashboardLionState, DashboardThreadState } from "../transport/types.js";
 import type { SubAgentRunRecord, SubAgentState } from "../types.js";
@@ -212,6 +214,23 @@ function errorData(error: unknown): Record<string, unknown> {
 	return {
 		error: error instanceof Error ? error.message : String(error),
 	};
+}
+
+function taskOrThrow(result: TaskStoreResult<TaskRecord>): { task: TaskRecord } {
+	if (!isTaskStoreError(result)) return { task: result };
+	throw new ORPCError(mapTaskErrorCode(result.error), { message: result.error.message });
+}
+
+function mapTaskErrorCode(error: TaskStoreError): "BAD_REQUEST" | "NOT_FOUND" | "SERVICE_UNAVAILABLE" {
+	switch (error.code) {
+		case "not_found":
+			return "NOT_FOUND";
+		case "lock_failed":
+		case "storage_error":
+			return "SERVICE_UNAVAILABLE";
+		default:
+			return "BAD_REQUEST";
+	}
 }
 
 async function getVirtualSessionFile(
@@ -450,6 +469,53 @@ async function selectThreadModel(
 	throw new ORPCError("NOT_FOUND", { message: "Thread not found" });
 }
 
+async function abortThread(ctx: SubagentsApiContext, threadId: string): Promise<void> {
+	const main = ctx.mainSession?.getThread();
+	if (main?.instanceId === threadId) {
+		if (!ctx.mainSession?.abort) {
+			throw new ORPCError("SERVICE_UNAVAILABLE", { message: "Main session is not controllable" });
+		}
+		await ctx.mainSession.abort(threadId);
+		return;
+	}
+
+	const instance = ctx.controller.getInstanceById(threadId);
+	if (instance) {
+		const state = instance.getState();
+		await ctx.controller.abortInstance(state.taskId);
+		return;
+	}
+
+	const cached = ctx.sessionCache.get(threadId);
+	if (cached) {
+		await cached.session.abort();
+		return;
+	}
+
+	const resumable = await getVirtualSessionFile(ctx, threadId);
+	if (resumable) {
+		try {
+			const session = await ctx.sessionCache.getOrCreate(resumable.record, resumable.sessionFile);
+			await session.session.abort();
+			return;
+		} catch (error) {
+			throw new ORPCError("SERVICE_UNAVAILABLE", {
+				message: error instanceof Error ? error.message : "Session not resumable",
+			});
+		}
+	}
+
+	if (isStandaloneSession(threadId)) {
+		const info = ctx.standaloneSessions.get(threadId);
+		if (info) {
+			await ctx.standaloneSessions.abort(threadId);
+			return;
+		}
+	}
+
+	throw new ORPCError("NOT_FOUND", { message: "Thread not found" });
+}
+
 export function createSubagentsRouter(ctx: SubagentsApiContext) {
 	const impl = implement(subagentsContract).$context<SubagentsApiContext>();
 
@@ -650,11 +716,7 @@ export function createSubagentsRouter(ctx: SubagentsApiContext) {
 			}),
 
 			abort: impl.threads.abort.handler(async ({ input }) => {
-				if (isStandaloneSession(input.threadId)) {
-					await ctx.standaloneSessions.abort(input.threadId);
-					return { threadId: input.threadId };
-				}
-				await ctx.controller.abortInstance(input.threadId);
+				await abortThread(ctx, input.threadId);
 				return { threadId: input.threadId };
 			}),
 
@@ -738,6 +800,36 @@ export function createSubagentsRouter(ctx: SubagentsApiContext) {
 						message: error instanceof Error ? error.message : String(error),
 					});
 				}
+			}),
+		},
+
+		tasks: {
+			list: impl.tasks.list.handler(async ({ input }) => {
+				return ctx.taskService.list(input);
+			}),
+
+			get: impl.tasks.get.handler(async ({ input }) => {
+				return ctx.taskService.get(input.id);
+			}),
+
+			create: impl.tasks.create.handler(async ({ input }) => {
+				return taskOrThrow(await ctx.taskService.create(input));
+			}),
+
+			update: impl.tasks.update.handler(async ({ input }) => {
+				return taskOrThrow(await ctx.taskService.update(input, input.assignedToSession ?? undefined));
+			}),
+
+			complete: impl.tasks.complete.handler(async ({ input }) => {
+				return taskOrThrow(await ctx.taskService.complete(input.id, input.expectedRevision));
+			}),
+
+			block: impl.tasks.block.handler(async ({ input }) => {
+				return taskOrThrow(await ctx.taskService.block(input.id, input.reason, input.expectedRevision));
+			}),
+
+			delete: impl.tasks.delete.handler(async ({ input }) => {
+				return taskOrThrow(await ctx.taskService.softDelete(input.id, input.expectedRevision));
 			}),
 		},
 

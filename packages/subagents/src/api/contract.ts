@@ -9,12 +9,19 @@ import {
 	DashboardLogQuerySchema,
 	DashboardLogSessionSummarySchema,
 	DashboardModelSchema,
+	DashboardTaskSchema,
 	DashboardThreadStateSchema,
 	LionChecklistSnapshotSchema,
 	LionSetStrategyInputSchema,
 	LionSetStrategyResultSchema,
 	SubAgentEventSchema,
 	SubAgentRunRecordSchema,
+	TaskBlockInputSchema,
+	TaskCreateInputSchema,
+	TaskIdInputSchema,
+	TaskListInputSchema,
+	TaskMutationResultSchema,
+	TaskUpdateInputSchema,
 	ThreadAbortInputSchema,
 	ThreadCreateInputSchema,
 	ThreadCreateResultSchema,
@@ -69,6 +76,26 @@ export const subagentsContract = oc.router({
 		setStrategy: oc.input(LionSetStrategyInputSchema).output(LionSetStrategyResultSchema),
 
 		checklist: oc.input(ChecklistInputSchema).output(LionChecklistSnapshotSchema),
+	},
+
+	tasks: {
+		list: oc.input(TaskListInputSchema).output(z.array(DashboardTaskSchema)),
+
+		get: oc.input(TaskIdInputSchema).output(DashboardTaskSchema.nullable()),
+
+		create: oc.input(TaskCreateInputSchema).output(TaskMutationResultSchema),
+
+		update: oc.input(TaskUpdateInputSchema).output(TaskMutationResultSchema),
+
+		complete: oc
+			.input(TaskUpdateInputSchema.pick({ id: true, expectedRevision: true }))
+			.output(TaskMutationResultSchema),
+
+		block: oc.input(TaskBlockInputSchema).output(TaskMutationResultSchema),
+
+		delete: oc
+			.input(TaskUpdateInputSchema.pick({ id: true, expectedRevision: true }))
+			.output(TaskMutationResultSchema),
 	},
 
 	logs: {

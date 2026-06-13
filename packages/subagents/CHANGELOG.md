@@ -27,6 +27,7 @@
 
 ### Fixed
 
+- Fixed main-thread dashboard prompts so slash commands such as `/lion-build` execute instead of being sent as plain user text.
 - Fixed file-backed Lion state leaking active plan mode into newly opened sessions in the same working directory.
 - Fixed Lion plan task completion so active plan tasks require structured subagent results with verified evidence before marking checklist tasks complete.
 - Fixed blocked Lion subagent outcomes being flattened into failed status in job and dashboard state.

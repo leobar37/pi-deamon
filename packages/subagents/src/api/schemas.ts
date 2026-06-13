@@ -23,6 +23,8 @@ export const LionChecklistKindSchema = z.enum(["plan", "review"]);
 
 export const LionTaskStatusSchema = z.enum(["pending", "in_progress", "complete", "blocked", "retryable"]);
 
+export const DashboardTaskStatusSchema = z.enum(["pending", "in_progress", "blocked", "completed", "deleted"]);
+
 // =============================================================================
 // Inputs
 // =============================================================================
@@ -83,6 +85,59 @@ export const DashboardLogQuerySchema = z.object({
 	since: z.number().optional(),
 	until: z.number().optional(),
 	limit: z.number().int().min(1).max(1000).optional(),
+});
+
+export const DashboardTaskContextSchema = z.object({
+	why: z.string().trim().min(1).optional(),
+	files: z.array(z.string().trim().min(1)).optional(),
+	doneWhen: z.array(z.string().trim().min(1)).optional(),
+	notes: z.string().trim().min(1).optional(),
+});
+
+export const DashboardTaskSchema = z.object({
+	id: z.string(),
+	title: z.string(),
+	status: DashboardTaskStatusSchema,
+	createdAt: z.string(),
+	updatedAt: z.string(),
+	completedAt: z.string().optional(),
+	revision: z.number(),
+	assignedToSession: z.string().optional(),
+	context: DashboardTaskContextSchema.optional(),
+});
+
+export const TaskListInputSchema = z.object({
+	includeDeleted: z.boolean().optional(),
+});
+
+export const TaskIdInputSchema = z.object({
+	id: z.string().trim().min(1),
+});
+
+export const TaskCreateInputSchema = z.object({
+	title: z.string().trim().min(1),
+	status: DashboardTaskStatusSchema.optional(),
+	assignedToSession: z.string().trim().min(1).optional(),
+	context: DashboardTaskContextSchema.optional(),
+});
+
+export const TaskUpdateInputSchema = z.object({
+	id: z.string().trim().min(1),
+	title: z.string().trim().min(1).optional(),
+	status: DashboardTaskStatusSchema.optional(),
+	assignedToSession: z.string().trim().min(1).nullable().optional(),
+	context: DashboardTaskContextSchema.optional(),
+	expectedRevision: z.number().int().min(1).optional(),
+});
+
+export const TaskBlockInputSchema = z.object({
+	id: z.string().trim().min(1),
+	reason: z.string().trim().min(1),
+	expectedRevision: z.number().int().min(1).optional(),
+});
+
+export const TaskMutationResultSchema = z.object({
+	task: DashboardTaskSchema,
 });
 
 // =============================================================================
