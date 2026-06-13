@@ -165,6 +165,51 @@ Create strategy file exporting:
 - Update `docs/lion.md` strategies table
 - Update `packages/subagents/CHANGELOG.md`
 
+## Session Architecture
+
+Sessions are now web-based, not TUI-based. The architecture has three layers:
+
+### 1. Session Core (`packages/subagents`)
+
+The `HttpServerTransport` hosts the session backend:
+
+- **Bun HTTP server** with oRPC API and SSE streaming
+- **StandaloneSessionManager** — creates real `AgentSession` instances on demand
+- **DashboardThreadSessionCache** — resumes persisted sessions from disk
+- **DashboardStateManager** — persists events and replays them to new clients
+- **Lion Runtime** — orchestration with strategies (none, simple, plan, review)
+
+Thread kinds: `main` (parent session), `standalone` (user-created), `subagent` (Lion delegation).
+
+### 2. Subagents Frontend (`packages/subagents/frontend`)
+
+TanStack Start SPA that renders individual sessions:
+
+- `/_layout/thread/$threadId` — session detail view
+- Connects to backend via oRPC client
+- Subscribes to SSE events for real-time updates
+- Handles messaging, model selection, command execution
+
+### 3. Dashboard Canvas (`packages/dashboard`)
+
+Electron app with React Flow canvas:
+
+- Each canvas node is an iframe to `/thread/<threadId>` on the subagents backend
+- Creates sessions via `threads.create` API
+- Persists canvas layout (node positions) to `localStorage`
+- Does NOT execute sessions — all execution happens in the subagents backend
+
+### Session Flow
+
+```
+User clicks "Add session" in dashboard
+  → Dashboard calls POST /rpc/threads.create
+  → Subagents backend creates StandaloneSessionManager session
+  → Dashboard adds canvas node with iframe to /thread/<id>
+  → Subagents frontend loads inside iframe
+  → User interacts directly with the session via the iframe
+```
+
 ## Adding a New LLM Provider (packages/ai)
 
 Adding a new provider requires changes across multiple files:

@@ -58,6 +58,36 @@ function AppContent({ backendUrl }: { backendUrl: string }) {
 		saveSessions(sessions);
 	}, [sessions]);
 
+	// Validate saved sessions against the backend on mount. Standalone sessions
+	// live only in the backend process memory, so they disappear when the
+	// backend restarts. Remove stale sessions instead of showing a stuck
+	// "Loading..." iframe.
+	useEffect(() => {
+		let cancelled = false;
+		async function validate() {
+			const valid: CanvasSession[] = [];
+			for (const session of sessions) {
+				if (!session.threadId) {
+					valid.push(session);
+					continue;
+				}
+				try {
+					await client.threads.get({ threadId: session.threadId });
+					valid.push(session);
+				} catch {
+					// stale session
+				}
+			}
+			if (!cancelled) {
+				setSessions(valid);
+			}
+		}
+		void validate();
+		return () => {
+			cancelled = true;
+		};
+	}, [client]);
+
 	useEffect(() => {
 		saveSidebarOpen(LEFT_SIDEBAR_OPEN_KEY, leftOpen);
 	}, [leftOpen]);

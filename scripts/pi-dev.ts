@@ -76,7 +76,10 @@ runBuild(["bun", "run", "build"], SUBAGENTS_DIR);
 // Build extensions so external dependencies are bundled and imports resolve.
 runBuild(["bun", "run", "build"], EXT_DIR);
 
-const bunArgs = ["run", CLI_ENTRY, "-e", EXT_DIR, "--web", ...args];
+// --no-extensions disables global extension discovery so we only load the
+// vendored extensions from packages/extensions, avoiding conflicts with
+// user-installed global extensions (e.g. @capyup/pi-goal, @juicesharp/rpiv-todo).
+const bunArgs = ["run", CLI_ENTRY, "--no-extensions", "-e", EXT_DIR, "--web", ...args];
 const proc = Bun.spawn(["bun", ...bunArgs], {
 	stdout: "pipe",
 	stderr: "pipe",

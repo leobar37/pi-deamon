@@ -209,8 +209,25 @@ function createWindow(): void {
 
 	mainWindow.loadURL(`file://${indexPath}`);
 
+	// Forward renderer console messages to the main process log so we can
+	// diagnose iframe/subagents frontend issues without needing DevTools.
+	mainWindow.webContents.on("console-message", (_event, level, message, line, sourceId) => {
+		const levelLabel = ["debug", "info", "warn", "error"][level] ?? "log";
+		console.log(`[renderer:${levelLabel}] ${sourceId ?? ""}:${line ?? ""} ${message}`);
+	});
+
+	// Open DevTools automatically during development so errors in the renderer
+	// and inside the subagent iframes are visible immediately.
+	mainWindow.webContents.openDevTools({ mode: "detach" });
+
 	mainWindow.once("ready-to-show", () => {
-		mainWindow?.show();
+		if (!mainWindow) return;
+		mainWindow.show();
+		if (process.platform === "darwin") {
+			app.dock.show();
+		}
+		mainWindow.focus();
+		console.log("[electron] Window shown and focused");
 	});
 
 	mainWindow.on("closed", () => {
@@ -223,14 +240,22 @@ ipcMain.handle("get-backend-url", () => backendManager.getUrl());
 // Single instance lock
 const gotLock = app.requestSingleInstanceLock();
 if (!gotLock) {
+	console.error("[electron] Another Pi Dashboard instance is already running. Exiting.");
 	app.quit();
 	process.exit(0);
 }
 
 app.on("second-instance", () => {
+	console.log("[electron] Second instance detected; focusing existing window");
 	if (mainWindow) {
 		if (mainWindow.isMinimized()) {
 			mainWindow.restore();
+		}
+		if (!mainWindow.isVisible()) {
+			mainWindow.show();
+		}
+		if (process.platform === "darwin") {
+			app.dock.show();
 		}
 		mainWindow.focus();
 	}
@@ -239,12 +264,15 @@ app.on("second-instance", () => {
 // App lifecycle
 app.whenReady().then(async () => {
 	try {
+		console.log("[electron] Starting dashboard backend...");
 		backendManager.start();
 		const url = await backendManager.getUrl();
+		console.log(`[electron] Backend URL resolved: ${url}`);
 		await waitForBackend(url, HEALTHCHECK_TIMEOUT_MS, HEALTHCHECK_INTERVAL_MS);
+		console.log("[electron] Backend is ready; creating window");
 		createWindow();
 	} catch (err) {
-		console.error("Failed to start dashboard:", err);
+		console.error("[electron] Failed to start dashboard:", err);
 		app.quit();
 	}
 });
