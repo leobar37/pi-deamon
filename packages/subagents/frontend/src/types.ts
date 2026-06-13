@@ -95,6 +95,27 @@ export interface LionChecklistSnapshot {
 	updatedAt: string | null;
 }
 
+export type TaskStatus = "pending" | "in_progress" | "blocked" | "completed" | "deleted";
+
+export interface TaskContext {
+	why?: string;
+	files?: string[];
+	doneWhen?: string[];
+	notes?: string;
+}
+
+export interface TaskRecord {
+	id: string;
+	title: string;
+	status: TaskStatus;
+	createdAt: string;
+	updatedAt: string;
+	completedAt?: string;
+	revision: number;
+	assignedToSession?: string;
+	context?: TaskContext;
+}
+
 export interface SubAgentEvent {
 	type: string;
 	timestamp: number;
@@ -161,7 +182,8 @@ export type SubAgentEventType =
 	| "instance.session"
 	| "session.event"
 	| "session.message.complete"
-	| "session.snapshot";
+	| "session.snapshot"
+	| "task.changed";
 
 // =============================================================================
 // Message blocks — normalized representation of message content

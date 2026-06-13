@@ -340,6 +340,73 @@ describe("HttpServerTransport", () => {
 		});
 	});
 
+	it("aborts the main dashboard thread through the main session bridge", async () => {
+		let abortCount = 0;
+		const mainSession: DashboardSessionSource = {
+			...createControllableMainSession([]),
+			abort: (threadId) => {
+				expect(threadId).toBe("main:session-1");
+				abortCount++;
+			},
+		};
+		transport = new HttpServerTransport({
+			controller: controller as any,
+			port: 0,
+			host: "127.0.0.1",
+			mainSession,
+		});
+		await transport.start();
+		await waitForServer();
+
+		const res = await callRpc(transport.port, "/threads/abort", { threadId: "main:session-1" });
+
+		expect(res.status).toBe(200);
+		expect(abortCount).toBe(1);
+	});
+
+	it("aborts live subagent threads by task id", async () => {
+		const abortCalls: string[] = [];
+		const liveState: SubAgentInstanceState = {
+			instanceId: "instance-1",
+			taskId: "task-1",
+			definitionName: "executor",
+			state: "running",
+			startTime: 100,
+			endTime: null,
+			turnCount: 1,
+			lastActivityAt: 150,
+			currentTool: null,
+			error: null,
+			toolCount: 0,
+			currentToolStartedAt: null,
+			durationMs: 50,
+		};
+		const liveController = {
+			...controller,
+			getInstanceById: (threadId: string) =>
+				threadId === "instance-1"
+					? {
+							getState: () => liveState,
+						}
+					: undefined,
+			abortInstance: async (taskId: string) => {
+				abortCalls.push(taskId);
+			},
+		};
+		transport = new HttpServerTransport({
+			controller: liveController as any,
+			port: 0,
+			host: "127.0.0.1",
+		});
+		await transport.start();
+		await waitForServer();
+
+		const res = await callRpc(transport.port, "/threads/abort", { threadId: "instance-1" });
+
+		expect(res.status).toBe(200);
+		expect(abortCalls).toEqual(["task-1"]);
+	});
+
 	it("serves persisted completed runs in /rpc/threads.list", async () => {
 		const runStore = new SubAgentRunStore(tmpDir);
 		await runStore.start({

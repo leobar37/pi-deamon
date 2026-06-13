@@ -261,7 +261,14 @@ export class MainSessionBridge implements DashboardSessionSource {
 			this.pi.sendUserMessage(content, { deliverAs: "steer" });
 			return;
 		}
-		this.pi.sendUserMessage(content);
+		this.pi.sendUserMessage(content, { executeCommands: true });
+	}
+
+	abort(threadId: string): void {
+		if (!this.thread || this.thread.instanceId !== threadId || !this.lastContext) {
+			throw new Error("Main session is not controllable");
+		}
+		this.lastContext.abort();
 	}
 
 	getCommands(threadId: string) {

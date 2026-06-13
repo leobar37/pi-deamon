@@ -11,6 +11,7 @@ import type { SubAgentController } from "../controller.js";
 import { LionChecklistService } from "../lion/checklist-service.js";
 import type { LionStrategyName } from "../lion/types.js";
 import { SubAgentRunStore } from "../run-store.js";
+import { TaskService } from "../tasks/service.js";
 import { DashboardStateManager } from "./state-manager.js";
 import type { DashboardLionState, DashboardSessionSource, SubAgentTransport, SubAgentTransportEvent } from "./types.js";
 
@@ -85,6 +86,7 @@ export class HttpServerTransport implements SubAgentTransport {
 	private unsubscribeMainSession?: () => void;
 	private runStore: SubAgentRunStore;
 	private checklistService: LionChecklistService;
+	private taskService: TaskService;
 	private sessionCache: DashboardThreadSessionCache;
 	private logStore: DashboardSessionLogStore;
 	private orpcHandler: RPCHandler<SubagentsApiContext>;
@@ -95,6 +97,7 @@ export class HttpServerTransport implements SubAgentTransport {
 		this.staticDir = resolveStaticDir(options);
 		this.runStore = new SubAgentRunStore(options.controller.getCwd());
 		this.checklistService = new LionChecklistService();
+		this.taskService = new TaskService(options.controller.getCwd(), (event) => this.emit(event));
 		this.stateManager = new DashboardStateManager(options.controller.getCwd(), this.runStore);
 		this.sessionCache = new DashboardThreadSessionCache((event) => this.emit(event));
 		this.logStore = new DashboardSessionLogStore(options.controller.getCwd());
@@ -113,6 +116,7 @@ export class HttpServerTransport implements SubAgentTransport {
 			lionState: options.lionState,
 			setLionStrategy: options.setLionStrategy,
 			checklistService: this.checklistService,
+			taskService: this.taskService,
 			sessionCache: this.sessionCache,
 			logStore: this.logStore,
 			emitEvent: (event) => this.emit(event),

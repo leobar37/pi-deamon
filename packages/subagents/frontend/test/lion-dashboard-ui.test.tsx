@@ -7,8 +7,9 @@ import { ChatComposer } from "../src/components/ChatComposer";
 import { LionModeBadge } from "../src/components/LionModeBadge";
 import { MessageItem } from "../src/components/MessageItem";
 import { groupSubagents, SubagentListPanel } from "../src/components/SubagentListPanel";
+import { TaskSidebarSection } from "../src/components/TaskSidebarSection";
 import { useSubAgentStore } from "../src/store/use-subagent-store";
-import type { ChatMessage, LionDashboardState, SubAgentInstanceState, SubAgentRunRecord } from "../src/types";
+import type { ChatMessage, LionDashboardState, SubAgentInstanceState, SubAgentRunRecord, TaskRecord } from "../src/types";
 
 const baseAgent: SubAgentInstanceState = {
 	instanceId: "subagent-1",
@@ -101,6 +102,27 @@ const baseRun: SubAgentRunRecord = {
 	toolCount: 2,
 };
 
+const sidebarTasks: TaskRecord[] = [
+	{
+		id: "deadbeef",
+		title: "Wire task sidebar",
+		status: "in_progress",
+		createdAt: "2026-06-12T00:00:00.000Z",
+		updatedAt: "2026-06-12T00:00:00.000Z",
+		revision: 1,
+		assignedToSession: "session-1",
+		context: { notes: "Keep context compact." },
+	},
+	{
+		id: "feedface",
+		title: "Review task store",
+		status: "pending",
+		createdAt: "2026-06-12T00:00:00.000Z",
+		updatedAt: "2026-06-12T00:00:00.000Z",
+		revision: 1,
+	},
+];
+
 function createLionState(overrides: Partial<LionDashboardState>): LionDashboardState {
 	return {
 		active: true,
@@ -149,6 +171,17 @@ describe("Lion dashboard UI", () => {
 		expect(html).not.toContain("session-1");
 		expect(html).not.toContain("Status");
 		expect(html).not.toContain("paused");
+	});
+
+	it("renders task groups in the main session sidebar", () => {
+		const html = renderWithQueryClient(<TaskSidebarSection sessionId="session-1" tasksOverride={sidebarTasks} />);
+
+		expect(html).toContain("Tasks");
+		expect(html).toContain("Active");
+		expect(html).toContain("Pending");
+		expect(html).toContain("Wire task sidebar");
+		expect(html).toContain("Keep context compact.");
+		expect(html).toContain("Review task store");
 	});
 
 	it("shows run input and output for subagents", () => {

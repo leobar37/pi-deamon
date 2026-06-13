@@ -1,6 +1,6 @@
 import { AnimatePresence, motion, useReducedMotion } from "framer-motion";
 import { Check, ChevronDown, Paperclip, SendHorizontal, Square, Terminal, X } from "lucide-react";
-import { useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import type { ChangeEvent, ClipboardEvent, KeyboardEvent } from "react";
 import { useThreadCommands } from "../hooks/use-thread-commands.ts";
 import { useSelectThreadModel, useThreadModels } from "../hooks/use-thread-models.ts";
@@ -36,6 +36,7 @@ export function ChatComposer({ instanceId, thread }: ChatComposerProps) {
 	const [commandsOpen, setCommandsOpen] = useState(false);
 	const [modelsOpen, setModelsOpen] = useState(false);
 	const [isFocused, setIsFocused] = useState(false);
+	const [abortRequested, setAbortRequested] = useState(false);
 	const textareaRef = useRef<HTMLTextAreaElement | null>(null);
 	const fileInputRef = useRef<HTMLInputElement | null>(null);
 	const shouldReduceMotion = useReducedMotion();
@@ -69,6 +70,7 @@ export function ChatComposer({ instanceId, thread }: ChatComposerProps) {
 	const trimmed = message.trim();
 	const canSend = Boolean(thread && (trimmed || attachments.length > 0) && !sendMessage.isPending);
 	const isSelectingModel = selectModel.isPending;
+	const canAbort = isStreaming && !abortMessage.isPending && !abortRequested;
 	const statusText = abortMessage.isPending
 		? "Stopping..."
 		: sendMessage.isPending
@@ -76,6 +78,12 @@ export function ChatComposer({ instanceId, thread }: ChatComposerProps) {
 			: isSelectingModel
 				? "Selecting model"
 				: null;
+
+	useEffect(() => {
+		if (!isStreaming) {
+			setAbortRequested(false);
+		}
+	}, [isStreaming]);
 
 	function resizeTextarea(target: HTMLTextAreaElement) {
 		target.style.height = "0px";
@@ -99,6 +107,11 @@ export function ChatComposer({ instanceId, thread }: ChatComposerProps) {
 				return;
 			}
 			setCommandsOpen(false);
+			return;
+		}
+		if (event.key === "Tab" && commandsOpen && commandIntent && filteredCommands.length > 0) {
+			event.preventDefault();
+			insertCommand(filteredCommands[0].name);
 			return;
 		}
 		if (event.key === "Enter" && !event.shiftKey) {
@@ -147,10 +160,12 @@ export function ChatComposer({ instanceId, thread }: ChatComposerProps) {
 	}
 
 	async function handleAbort() {
-		if (!isStreaming) return;
+		if (!canAbort) return;
+		setAbortRequested(true);
 		try {
 			await abortMessage.mutateAsync({ threadId: instanceId });
 		} catch (err) {
+			setAbortRequested(false);
 			console.error("Failed to abort:", err);
 		}
 	}
@@ -301,16 +316,16 @@ export function ChatComposer({ instanceId, thread }: ChatComposerProps) {
 						<motion.button
 							type="button"
 							onClick={() => void (isStreaming ? handleAbort() : submit())}
-							disabled={!isStreaming && !canSend}
+							disabled={isStreaming ? !canAbort : !canSend}
 							whileTap={
-								shouldReduceMotion || (!isStreaming && !canSend) ? undefined : { scale: 0.94 }
+								shouldReduceMotion || (isStreaming ? !canAbort : !canSend) ? undefined : { scale: 0.94 }
 							}
 							whileHover={
-								shouldReduceMotion || (!isStreaming && !canSend) ? undefined : { scale: 1.04 }
+								shouldReduceMotion || (isStreaming ? !canAbort : !canSend) ? undefined : { scale: 1.04 }
 							}
 							className={`flex h-9 w-9 items-center justify-center rounded-full transition-colors ${
 								isStreaming
-									? "bg-error text-bg-base hover:bg-error-hover"
+									? "bg-error text-bg-base hover:bg-error-hover disabled:cursor-not-allowed disabled:bg-text-muted disabled:text-bg-surface"
 									: "bg-text-primary text-bg-base hover:bg-accent-hover disabled:cursor-not-allowed disabled:bg-text-muted disabled:text-bg-surface"
 							}`}
 							title={isStreaming ? "Stop" : "Send"}

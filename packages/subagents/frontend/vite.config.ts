@@ -4,6 +4,8 @@ import react from "@vitejs/plugin-react";
 import tailwindcss from "@tailwindcss/vite";
 import path from "node:path";
 
+const backendUrl = process.env.PI_SUBAGENTS_BACKEND_URL ?? "http://127.0.0.1:9393";
+
 export default defineConfig({
 	plugins: [
 		tailwindcss(),
@@ -24,8 +26,8 @@ export default defineConfig({
 	},
 	server: {
 		proxy: {
-			"/rpc": "http://127.0.0.1:9393",
-			"/events": "http://127.0.0.1:9393",
+			"/rpc": backendUrl,
+			"/events": backendUrl,
 		},
 	},
 	build: {
