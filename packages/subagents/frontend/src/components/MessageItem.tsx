@@ -30,8 +30,8 @@ export function MessageItem({ message }: MessageItemProps) {
 
 	if (isTool) {
 		return (
-			<div className="group flex justify-start">
-				<div className="max-w-[85%] min-w-0 select-text">
+			<div className="group flex min-w-0 justify-start overflow-x-hidden">
+				<div className="max-w-[85%] min-w-0 overflow-x-hidden select-text">
 					<div className="min-w-0 space-y-1">
 						{message.blocks.map((block, i) => (
 							<BlockRenderer key={i} block={block} currentThreadId={message.instanceId} />
@@ -43,8 +43,8 @@ export function MessageItem({ message }: MessageItemProps) {
 	}
 
 	return (
-		<div className={`group flex ${isUser ? "justify-end" : "justify-start"}`}>
-			<div className={`max-w-[85%] min-w-0 select-text space-y-2 ${isUser ? "items-end" : "items-start"}`}>
+		<div className={`group flex min-w-0 overflow-x-hidden ${isUser ? "justify-end" : "justify-start"}`}>
+			<div className={`max-w-[85%] min-w-0 overflow-x-hidden select-text space-y-2 ${isUser ? "items-end" : "items-start"}`}>
 				{thinkingBlocks.length > 0 ? (
 					<div className="min-w-0 space-y-1">
 						{thinkingBlocks.map((block, index) => (
@@ -67,7 +67,7 @@ export function MessageItem({ message }: MessageItemProps) {
 						>
 							{copied ? <Check className="h-3.5 w-3.5" aria-hidden="true" /> : <Copy className="h-3.5 w-3.5" aria-hidden="true" />}
 						</button>
-						<div className="min-w-0 space-y-1 pr-6">
+						<div className="min-w-0 overflow-x-hidden space-y-1 pr-6">
 							{visibleBlocks.map((block, index) => (
 								<BlockRenderer key={index} block={block} currentThreadId={message.instanceId} />
 							))}
@@ -75,9 +75,9 @@ export function MessageItem({ message }: MessageItemProps) {
 					</div>
 				) : null}
 				{toolGroups.length > 0 ? (
-					<div className="min-w-0 space-y-1">
+					<div className="min-w-0 space-y-0.5">
 						{toolGroups.map((blocks, index) => (
-							<div key={`tool-${index}`} className="min-w-0 space-y-1">
+							<div key={`tool-${index}`} className="min-w-0 space-y-0.5">
 								{blocks.map((block, blockIndex) => (
 									<BlockRenderer
 										key={`${block.type}-${blockIndex}`}

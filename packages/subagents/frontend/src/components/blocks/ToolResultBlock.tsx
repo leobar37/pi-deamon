@@ -67,7 +67,7 @@ export function ToolResultBlock({ toolName, content, isError }: ToolResultBlockP
 			{isExpanded ? (
 				<div className="mt-1 max-w-full pl-4">
 					{renderAsPre ? (
-						<pre className="max-h-32 overflow-auto whitespace-pre-wrap font-mono text-[11px] leading-snug text-text-secondary">
+						<pre className="max-h-32 overflow-y-auto overflow-x-hidden whitespace-pre-wrap break-words font-mono text-[11px] leading-snug text-text-secondary">
 							{formatted}
 						</pre>
 					) : (
