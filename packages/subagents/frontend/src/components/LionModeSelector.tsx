@@ -55,7 +55,7 @@ export function LionModeSelector() {
 				type="button"
 				onClick={() => setOpen((value) => !value)}
 				disabled={setStrategy.isPending}
-				className="flex max-w-[10rem] shrink min-w-0 items-center gap-1.5 rounded border border-border-subtle bg-bg px-2.5 py-1.5 text-xs text-text-secondary transition hover:border-border-hover hover:text-text-primary disabled:opacity-60"
+				className="flex max-w-[10rem] shrink min-w-0 items-center gap-1.5 rounded-md px-2 py-1.5 text-xs text-text-secondary transition hover:bg-bg-hover hover:text-text-primary disabled:opacity-60"
 				aria-expanded={open}
 				title={`Lion mode: ${currentItem.label}`}
 			>

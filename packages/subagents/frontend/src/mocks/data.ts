@@ -9,6 +9,7 @@ import type {
 
 const now = Date.now();
 const mainThreadId = "main:mock-session";
+const idleMainThreadId = "main:mock-idle-session";
 const lionTasksToolCallId = "main-tool-lion-tasks";
 const lionChecklistToolCallId = "main-tool-lion-checklist";
 const lionRunId = "mock-run-1";
@@ -145,6 +146,28 @@ export const MOCK_AGENTS: SubAgentInstanceState[] = [
 		durationMs: 90000,
 		isLive: true,
 		sessionId: "mock-session",
+		modelProvider: "openai-codex",
+		modelId: "gpt-5.5",
+	},
+	{
+		instanceId: idleMainThreadId,
+		taskId: "main-idle",
+		definitionName: "main-agent",
+		cwd: mockCwd,
+		kind: "main",
+		description: "Idle mock Pi session",
+		state: "completed",
+		startTime: now - 120000,
+		endTime: now - 60000,
+		turnCount: 2,
+		lastActivityAt: now - 60000,
+		currentTool: null,
+		error: null,
+		toolCount: 1,
+		currentToolStartedAt: null,
+		durationMs: 60000,
+		isLive: true,
+		sessionId: "mock-idle-session",
 		modelProvider: "openai-codex",
 		modelId: "gpt-5.5",
 	},
@@ -873,18 +896,24 @@ type MockSentMessage = Record<string, unknown> & {
 	instanceId: string;
 	role: "user";
 	content: string;
+	mode: "prompt" | "follow_up" | "steer";
 	timestamp: number;
 };
 
 const sentMessagesByInstance = new Map<string, MockSentMessage[]>();
 
-export function appendMockPromptMessage(instanceId: string, message: string): MockSentMessage {
+export function appendMockPromptMessage(
+	instanceId: string,
+	message: string,
+	mode: "prompt" | "follow_up" | "steer",
+): MockSentMessage {
 	const timestamp = Date.now();
 	const sentMessage: MockSentMessage = {
 		id: `mock-user-${instanceId}-${timestamp}`,
 		instanceId,
 		role: "user",
 		content: message,
+		mode,
 		timestamp,
 	};
 	const existing = sentMessagesByInstance.get(instanceId) ?? [];

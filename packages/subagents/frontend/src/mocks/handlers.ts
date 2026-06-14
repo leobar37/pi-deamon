@@ -134,12 +134,12 @@ export const handlers = [
 			const input = (await getORPCInput(request, url)) as
 				| { threadId: string; message: string; mode: "prompt" | "follow_up" | "steer" }
 				| undefined;
-				if (!input?.threadId || !input.message.trim()) {
-					return new HttpResponse("Invalid prompt", { status: 400 });
-				}
-				appendMockPromptMessage(input.threadId, input.message.trim());
-				return orpcJson({
-					threadId: input.threadId,
+			if (!input?.threadId || !input.message.trim()) {
+				return new HttpResponse("Invalid prompt", { status: 400 });
+			}
+			appendMockPromptMessage(input.threadId, input.message.trim(), input.mode);
+			return orpcJson({
+				threadId: input.threadId,
 				mode: input.mode,
 				status: "sent",
 				acceptedAt: Date.now(),

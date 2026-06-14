@@ -1,18 +1,25 @@
 /**
  * DashboardDaemon — minimal HTTP server for the web dashboard SPA.
  *
- * Serves the static React SPA. Session runtime is handled by the subagents
- * backend spawned by Electron's main process.
+ * Serves the static React SPA and exposes the dashboard catalog API. Session
+ * runtime is handled by the subagents backend spawned by Electron's main process.
  */
 
 import { existsSync } from "node:fs";
+import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { RPCHandler } from "@orpc/server/fetch";
 import { CORSPlugin } from "@orpc/server/plugins";
+import { createDatabase } from "../db/connection.js";
+import { runMigrations } from "../db/migrate.js";
+import { createCanvasNodeRepository, createProjectRepository, createSessionRepository } from "../db/repositories.js";
+import { DashboardEventBus } from "../events.js";
 import { logger } from "../logging.js";
 import { createDashboardRouter } from "../procedures/index.js";
-import type { DashboardConfig } from "../types.js";
+import type { DashboardConfig, DashboardContext } from "../types.js";
+import { DashboardEventStream } from "./events.js";
+import { createFetchHandler, type HttpServer, startHttpServer } from "./http-server.js";
 import { serveStaticFile } from "./static.js";
 
 function resolveDefaultFrontendDir(moduleDir: string): string {
@@ -20,11 +27,18 @@ function resolveDefaultFrontendDir(moduleDir: string): string {
 	return candidates.find((candidate) => existsSync(join(candidate, "index.html"))) ?? candidates[0];
 }
 
+function resolveDefaultDatabasePath(): string {
+	return join(homedir(), ".pi", "dashboard.sqlite");
+}
+
 export class DashboardDaemon {
-	private handler: RPCHandler<Record<string, unknown>> | null = null;
-	private server: ReturnType<typeof Bun.serve> | null = null;
+	private handler: RPCHandler<DashboardContext> | null = null;
+	private server: HttpServer | null = null;
 	private config: Required<DashboardConfig>;
 	private startTime = 0;
+	private context: DashboardContext | null = null;
+	private subagentsUrl: string | undefined;
+	private eventStream: DashboardEventStream | null = null;
 
 	constructor(config?: DashboardConfig) {
 		const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -33,7 +47,26 @@ export class DashboardDaemon {
 			port: config?.port ?? 9393,
 			frontendDir: config?.frontendDir ?? resolveDefaultFrontendDir(__dirname),
 			dev: config?.dev ?? false,
+			databasePath: config?.databasePath ?? resolveDefaultDatabasePath(),
 		};
+		const db = createDatabase({ path: this.config.databasePath });
+		runMigrations(db);
+		this.context = {
+			db,
+			projects: createProjectRepository(db),
+			sessions: createSessionRepository(db),
+			canvasNodes: createCanvasNodeRepository(db),
+			events: new DashboardEventBus(),
+		};
+		this.eventStream = new DashboardEventStream(this.context.events);
+		logger.info("Dashboard database initialized", { path: this.config.databasePath });
+	}
+
+	getContext(): DashboardContext {
+		if (!this.context) {
+			throw new Error("Dashboard context is not initialized");
+		}
+		return this.context;
 	}
 
 	/**
@@ -48,7 +81,11 @@ export class DashboardDaemon {
 		this.startTime = Date.now();
 
 		const listenPort = port ?? this.config.port;
-		const router = createDashboardRouter(() => this.startTime);
+		const router = createDashboardRouter({
+			getStartTime: () => this.startTime,
+			context: this.getContext(),
+			getSubagentsUrl: () => this.subagentsUrl,
+		});
 		this.handler = new RPCHandler(router, {
 			plugins: [
 				new CORSPlugin({
@@ -58,32 +95,16 @@ export class DashboardDaemon {
 			],
 		});
 
-		this.server = Bun.serve({
-			hostname: this.config.host,
-			port: listenPort,
-			// @ts-expect-error idleTimeout is available in Bun 1.1.26+ but not in types yet
-			idleTimeout: 0,
-			fetch: async (req: Request) => {
-				const url = new URL(req.url);
-				const requestId = `req-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+		const fetchHandler = createFetchHandler(
+			this.handler,
+			"/rpc",
+			this.getContext(),
+			(pathname: string) => serveStaticFile(pathname, this.config.frontendDir),
+			(request) => this.eventStream?.serve(request),
+		);
 
-				logger.debug(`${req.method} ${url.pathname}`, { requestId });
-
-				// API routes -> oRPC handler
-				if (url.pathname.startsWith("/api")) {
-					const { matched, response } = await this.handler!.handle(req, {
-						prefix: "/api",
-						context: {},
-					});
-					if (matched) {
-						return response;
-					}
-				}
-
-				// Static files -> frontend dist
-				return serveStaticFile(url.pathname, this.config.frontendDir);
-			},
-		});
+		this.eventStream?.start();
+		this.server = await startHttpServer(fetchHandler, this.config.host, listenPort);
 
 		return this.url!;
 	}
@@ -92,6 +113,7 @@ export class DashboardDaemon {
 		if (!this.server) return;
 
 		this.server.stop(true);
+		this.eventStream?.stop();
 		this.server = null;
 		this.handler = null;
 		this.startTime = 0;
@@ -109,5 +131,14 @@ export class DashboardDaemon {
 	get uptime(): number {
 		if (!this.startTime) return 0;
 		return Date.now() - this.startTime;
+	}
+
+	setSubagentsUrl(url: string | undefined): void {
+		this.subagentsUrl = url;
+		logger.info("Subagents backend URL registered", { url });
+	}
+
+	getSubagentsUrl(): string | undefined {
+		return this.subagentsUrl;
 	}
 }

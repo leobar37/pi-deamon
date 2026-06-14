@@ -1,15 +1,23 @@
-import { ExternalLink, PanelRight, PanelRightClose, Server } from "lucide-react";
-import type { CanvasSession } from "../canvas/types.js";
+import { ExternalLink, PanelRight, PanelRightClose, Server, Square } from "lucide-react";
+import type { CanvasSession, CanvasSessionRuntime } from "../canvas/types.js";
 
 interface SessionInspectorProps {
 	session: CanvasSession | undefined;
+	runtime?: CanvasSessionRuntime;
 	backendUrl: string;
 	isOpen?: boolean;
 	onToggle?: () => void;
 	onClose: () => void;
+	onAbortSession: (sessionId: string) => void;
 }
 
-export function SessionInspector({ session, backendUrl, isOpen = true, onToggle, onClose }: SessionInspectorProps) {
+function runtimeLabel(runtime: CanvasSessionRuntime | undefined): string {
+	if (!runtime) return "Unknown";
+	if (runtime.state === "idle") return "Idle";
+	return runtime.state.charAt(0).toUpperCase() + runtime.state.slice(1);
+}
+
+export function SessionInspector({ session, runtime, backendUrl, isOpen = true, onToggle, onClose, onAbortSession }: SessionInspectorProps) {
 	if (!session) {
 		return null;
 	}
@@ -41,6 +49,17 @@ export function SessionInspector({ session, backendUrl, isOpen = true, onToggle,
 					<div className="mt-0.5 truncate text-xs text-text-tertiary">{session.id}</div>
 				</div>
 				<div className="flex items-center gap-1">
+					{runtime?.canAbort ? (
+						<button
+							type="button"
+							onClick={() => onAbortSession(session.id)}
+							className="flex h-8 w-8 items-center justify-center rounded-md text-text-secondary transition hover:bg-warning/10 hover:text-warning"
+							title="Abort session"
+							aria-label="Abort session"
+						>
+							<Square size={13} aria-hidden="true" />
+						</button>
+					) : null}
 					<button
 						type="button"
 						onClick={onClose}
@@ -63,6 +82,31 @@ export function SessionInspector({ session, backendUrl, isOpen = true, onToggle,
 			</div>
 			<div className="min-h-0 flex-1 overflow-auto p-4">
 				<div className="space-y-4">
+					<div>
+						<div className="mb-2 text-xs font-semibold uppercase tracking-wide text-text-tertiary">Runtime</div>
+						<div className="rounded-lg border border-border-subtle bg-bg-elevated p-3">
+							<div className="flex items-center justify-between gap-3">
+								<div className="text-sm font-medium text-text-primary">{runtimeLabel(runtime)}</div>
+								<span
+									className={`inline-flex items-center gap-1 rounded border px-2 py-1 text-xs ${
+										runtime?.isRunning
+											? "border-success/30 bg-success/10 text-success"
+											: "border-border-subtle bg-bg-surface text-text-tertiary"
+									}`}
+								>
+									<span className={`h-1.5 w-1.5 rounded-full ${runtime?.isRunning ? "bg-success" : "bg-text-muted"}`} />
+									{runtime?.isLive ? "Live" : "Offline"}
+								</span>
+							</div>
+							{runtime?.lastActivityAt ? (
+								<div className="mt-2 text-xs text-text-tertiary">
+									Last activity {new Date(runtime.lastActivityAt).toLocaleTimeString()}
+								</div>
+							) : null}
+							{runtime?.error ? <div className="mt-2 text-xs text-error">{runtime.error}</div> : null}
+						</div>
+					</div>
+
 					<div>
 						<div className="mb-2 text-xs font-semibold uppercase tracking-wide text-text-tertiary">Embedded UI</div>
 						<div className="rounded-lg border border-border-subtle bg-bg-elevated p-3">

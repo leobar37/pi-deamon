@@ -13,63 +13,78 @@ import {
 } from "@xyflow/react";
 import "@xyflow/react/dist/style.css";
 import { Plus } from "lucide-react";
+import { LoadingSpinner } from "../components/LoadingSpinner.js";
 import { AgentSessionNode } from "./AgentSessionNode.js";
 import { createSessionNodes } from "./layout.js";
-import type { AgentCanvasNode, CanvasSession } from "./types.js";
+import { createDashboardClient } from "../api/dashboard-client.ts";
+import type { AgentCanvasNode, CanvasSession, CanvasSessionRuntime } from "./types.js";
 
 interface AgentCanvasProps {
 	sessions: CanvasSession[];
 	backendUrl: string;
+	dashboardUrl: string;
 	focusedSessionId: string | null;
 	onFocusSession: (sessionId: string) => void;
 	onOpenSession: (sessionId: string) => void;
 	onCreateSession: () => void;
 	canCreateSession: boolean;
+	isCreatingSession?: boolean;
 	onRemoveSession: (sessionId: string) => void;
+	sessionRuntimes: Record<string, CanvasSessionRuntime>;
+	onAbortSession: (sessionId: string) => void;
 }
 
 const nodeTypes = {
 	agentSession: AgentSessionNode,
 };
 
-const CANVAS_POSITIONS_KEY = "pi-dashboard:agent-canvas:positions";
-
-type SavedPositions = Record<string, { x: number; y: number }>;
-
-function loadSavedPositions(): SavedPositions {
-	try {
-		const raw = window.localStorage.getItem(CANVAS_POSITIONS_KEY);
-		if (!raw) return {};
-		const parsed = JSON.parse(raw) as unknown;
-		if (!parsed || typeof parsed !== "object") return {};
-		return parsed as SavedPositions;
-	} catch {
-		return {};
-	}
-}
-
-function savePositions(nodes: AgentCanvasNode[]): void {
-	const positions: SavedPositions = {};
-	for (const node of nodes) {
-		positions[node.id] = node.position;
-	}
-	window.localStorage.setItem(CANVAS_POSITIONS_KEY, JSON.stringify(positions));
-}
-
 interface FlowCanvasProps {
 	sessions: CanvasSession[];
 	backendUrl: string;
+	dashboardUrl: string;
 	focusedSessionId: string | null;
 	onFocusSession: (sessionId: string) => void;
+	sessionRuntimes: Record<string, CanvasSessionRuntime>;
+	onAbortSession: (sessionId: string) => void;
 }
 
 function FlowCanvas({
 	sessions,
 	backendUrl,
+	dashboardUrl,
 	focusedSessionId,
 	onFocusSession,
+	sessionRuntimes,
+	onAbortSession,
 }: FlowCanvasProps) {
 	const { fitView } = useReactFlow<AgentCanvasNode>();
+	const dashboardClient = useMemo(() => createDashboardClient(dashboardUrl), [dashboardUrl]);
+	const [layoutMap, setLayoutMap] = useState<Record<string, { x: number; y: number; width: number; height: number }>>({});
+
+	// Load layout from backend on mount
+	useEffect(() => {
+		let cancelled = false;
+		async function load() {
+			const map: Record<string, { x: number; y: number; width: number; height: number }> = {};
+			for (const session of sessions) {
+				try {
+					const node = await dashboardClient.layout.get({ sessionId: session.id });
+					if (node) {
+						map[session.id] = { x: node.x, y: node.y, width: node.width, height: node.height };
+					}
+				} catch {
+					// ignore missing layout
+				}
+			}
+			if (!cancelled) {
+				setLayoutMap(map);
+			}
+		}
+		void load();
+		return () => {
+			cancelled = true;
+		};
+	}, [dashboardClient, sessions]);
 
 	const handleOpenNode = useCallback(
 		(nodeId: string) => {
@@ -84,27 +99,28 @@ function FlowCanvas({
 		[onFocusSession, fitView],
 	);
 
-	const initialNodes = useMemo(
-		() => createSessionNodes(sessions, focusedSessionId, focusedSessionId, backendUrl, onFocusSession, handleOpenNode),
-		[sessions, focusedSessionId, backendUrl, onFocusSession, handleOpenNode],
-	);
-	const positionedInitialNodes = useMemo(() => {
-		const savedPositions = loadSavedPositions();
-		return initialNodes.map((node) => ({
-			...node,
-			position: savedPositions[node.id] ?? node.position,
-		}));
-	}, [initialNodes]);
-	const [nodes, setNodes, onNodesChange] = useNodesState<AgentCanvasNode>(positionedInitialNodes);
+	const initialNodes = useMemo(() => {
+		const sessionsWithRuntime = sessions.map((session) => ({ ...session, runtime: sessionRuntimes[session.id] }));
+		return createSessionNodes(
+			sessionsWithRuntime,
+			focusedSessionId,
+			focusedSessionId,
+			backendUrl,
+			onFocusSession,
+			handleOpenNode,
+			onAbortSession,
+			layoutMap,
+		);
+	}, [sessions, sessionRuntimes, focusedSessionId, backendUrl, onFocusSession, handleOpenNode, onAbortSession, layoutMap]);
+	const [nodes, setNodes, onNodesChange] = useNodesState<AgentCanvasNode>(initialNodes);
 	const [edges, , onEdgesChange] = useEdgesState([]);
 
 	useEffect(() => {
 		setNodes((currentNodes) => {
 			const currentById = new Map(currentNodes.map((node) => [node.id, node]));
-			const savedPositions = loadSavedPositions();
 			return initialNodes.map((node) => ({
 				...node,
-				position: currentById.get(node.id)?.position ?? savedPositions[node.id] ?? node.position,
+				position: currentById.get(node.id)?.position ?? node.position,
 			}));
 		});
 	}, [initialNodes, setNodes]);
@@ -114,11 +130,19 @@ function FlowCanvas({
 			onNodesChange(changes);
 			if (!changes.some((change) => change.type === "position" && change.dragging === false)) return;
 			setNodes((currentNodes) => {
-				savePositions(currentNodes);
+				for (const node of currentNodes) {
+					void dashboardClient.layout.update({
+						sessionId: node.id,
+						x: node.position.x,
+						y: node.position.y,
+						width: node.width ?? 760,
+						height: node.height ?? 560,
+					});
+				}
 				return currentNodes;
 			});
 		},
-		[onNodesChange, setNodes],
+		[onNodesChange, setNodes, dashboardClient],
 	);
 
 	const handleNodeClick = useCallback<NodeMouseHandler<AgentCanvasNode>>(
@@ -160,22 +184,18 @@ function FlowCanvas({
 export function AgentCanvas({
 	sessions,
 	backendUrl,
+	dashboardUrl,
 	focusedSessionId,
 	onFocusSession,
 	onCreateSession,
 	canCreateSession,
-	onRemoveSession,
+	isCreatingSession,
+	sessionRuntimes,
+	onAbortSession,
 }: AgentCanvasProps) {
-	const [creating, setCreating] = useState(false);
-
 	const handleCreateSession = () => {
-		if (!canCreateSession) return;
-		setCreating(true);
-		try {
-			onCreateSession();
-		} finally {
-			setCreating(false);
-		}
+		if (!canCreateSession || isCreatingSession) return;
+		onCreateSession();
 	};
 
 	return (
@@ -185,15 +205,19 @@ export function AgentCanvas({
 					<button
 						type="button"
 						onClick={handleCreateSession}
-						disabled={creating || !canCreateSession}
-						title={canCreateSession ? "Add session" : "Select a project first"}
+						disabled={isCreatingSession || !canCreateSession}
+						title={canCreateSession ? (isCreatingSession ? "Creating session..." : "Add session") : "Select a project first"}
 						className="group max-w-sm text-center disabled:cursor-not-allowed disabled:opacity-60"
 					>
 						<div className="mx-auto flex h-12 w-12 items-center justify-center rounded-lg border border-border-default bg-bg-elevated text-accent transition group-hover:border-accent/70 group-hover:bg-bg-hover">
-							<Plus size={20} aria-hidden="true" />
+							{isCreatingSession ? (
+								<LoadingSpinner size="md" />
+							) : (
+								<Plus size={20} aria-hidden="true" />
+							)}
 						</div>
 						<div className="mt-4 text-base font-semibold text-text-primary">
-							{creating ? "Creating session..." : "No sessions yet"}
+							{isCreatingSession ? "Creating session..." : "No sessions yet"}
 						</div>
 						<div className="mt-2 text-sm leading-normal text-text-secondary">
 							{canCreateSession ? "Create a session to place a new agent view on the canvas." : "Select a project before creating sessions."}
@@ -206,9 +230,12 @@ export function AgentCanvas({
 				<FlowCanvas
 					sessions={sessions}
 					backendUrl={backendUrl}
-					focusedSessionId={focusedSessionId}
-					onFocusSession={onFocusSession}
-				/>
+						dashboardUrl={dashboardUrl}
+						focusedSessionId={focusedSessionId}
+						onFocusSession={onFocusSession}
+						sessionRuntimes={sessionRuntimes}
+						onAbortSession={onAbortSession}
+					/>
 			</ReactFlowProvider>
 		</div>
 	);

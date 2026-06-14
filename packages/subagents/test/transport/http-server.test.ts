@@ -5,6 +5,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import type { ThreadPromptImage } from "../../src/api/session-control.js";
+import type { SubAgentController } from "../../src/controller.js";
 import { SubAgentEventBus } from "../../src/event-bus.js";
 import { SubAgentRunStore } from "../../src/run-store.js";
 import { HttpServerTransport } from "../../src/transport/http-server.js";
@@ -438,6 +439,57 @@ describe("HttpServerTransport", () => {
 
 		expect(res.status).toBe(200);
 		expect(abortCalls).toEqual(["task-1"]);
+	});
+
+	it("routes live subagent lifecycle controls by task id", async () => {
+		const calls: string[] = [];
+		const liveState: SubAgentInstanceState = {
+			instanceId: "instance-1",
+			taskId: "task-1",
+			definitionName: "executor",
+			cwd: tmpDir,
+			state: "paused",
+			startTime: 100,
+			endTime: null,
+			turnCount: 1,
+			lastActivityAt: 150,
+			currentTool: null,
+			error: null,
+			toolCount: 0,
+			currentToolStartedAt: null,
+			durationMs: 50,
+		};
+		const liveController = {
+			...controller,
+			getInstanceById: (threadId: string) =>
+				threadId === "instance-1"
+					? {
+							getState: () => liveState,
+						}
+					: undefined,
+			resumeInstance: async (taskId: string) => {
+				calls.push(`resume:${taskId}`);
+			},
+			cancelInstance: async (taskId: string) => {
+				calls.push(`cancel:${taskId}`);
+			},
+		};
+		transport = new HttpServerTransport({
+			controller: liveController as unknown as SubAgentController,
+			port: 0,
+			host: "127.0.0.1",
+		});
+		await transport.start();
+		await waitForServer();
+
+		const resumeRes = await callRpc(transport.port, "/threads/resume", { threadId: "instance-1" });
+		const cancelRes = await callRpc(transport.port, "/threads/cancel", { threadId: "instance-1" });
+		const killRes = await callRpc(transport.port, "/threads/kill", { threadId: "instance-1" });
+
+		expect(resumeRes.status).toBe(200);
+		expect(cancelRes.status).toBe(200);
+		expect(killRes.status).toBe(200);
+		expect(calls).toEqual(["resume:task-1", "cancel:task-1", "cancel:task-1"]);
 	});
 
 	it("serves persisted completed runs in /rpc/threads.list", async () => {

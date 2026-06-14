@@ -7,7 +7,7 @@ import { useSelectThreadModel, useThreadModels } from "../hooks/use-thread-model
 import { type ComposerMode, useSendThreadMessage } from "../hooks/use-send-thread-message.ts";
 import { useAbortThreadMessage } from "../hooks/use-abort-thread-message.ts";
 import { useSessionMessagesStore } from "../store/session-messages.ts";
-import type { DashboardImageAttachment, DashboardModel, SubAgentInstanceState } from "../types.ts";
+import type { DashboardImageAttachment, DashboardModel, SubAgentInstanceState, SubAgentState } from "../types.ts";
 import { LionModeSelector } from "./LionModeSelector.tsx";
 
 interface ChatComposerProps {
@@ -21,18 +21,21 @@ interface DashboardCommand {
 	source: "extension" | "prompt" | "skill";
 }
 
-const MODE_LABELS: Record<ComposerMode, string> = {
-	prompt: "Prompt",
-	follow_up: "Follow-up",
-	steer: "Steer",
-};
+interface RecentPrompt {
+	message: string;
+	images?: DashboardImageAttachment[];
+}
 
-const MODES = Object.keys(MODE_LABELS) as ComposerMode[];
+const FOLLOW_UP_STATES = new Set<SubAgentState>(["running", "starting", "completing", "queued"]);
+
+export function resolveComposerMode(state: SubAgentState | undefined): ComposerMode {
+	return state && FOLLOW_UP_STATES.has(state) ? "follow_up" : "prompt";
+}
 
 export function ChatComposer({ instanceId, thread }: ChatComposerProps) {
 	const [message, setMessage] = useState("");
 	const [attachments, setAttachments] = useState<DashboardImageAttachment[]>([]);
-	const [mode, setMode] = useState<ComposerMode>("prompt");
+	const [recentPrompt, setRecentPrompt] = useState<RecentPrompt | null>(null);
 	const [commandsOpen, setCommandsOpen] = useState(false);
 	const [modelsOpen, setModelsOpen] = useState(false);
 	const [isFocused, setIsFocused] = useState(false);
@@ -69,8 +72,10 @@ export function ChatComposer({ instanceId, thread }: ChatComposerProps) {
 
 	const trimmed = message.trim();
 	const canSend = Boolean(thread && (trimmed || attachments.length > 0) && !sendMessage.isPending);
+	const nextMode = resolveComposerMode(thread?.state);
 	const isSelectingModel = selectModel.isPending;
 	const canAbort = isStreaming && !abortMessage.isPending && !abortRequested;
+	const canSteerRecent = Boolean(thread && recentPrompt && !sendMessage.isPending);
 	const statusText = abortMessage.isPending
 		? "Stopping..."
 		: sendMessage.isPending
@@ -152,11 +157,22 @@ export function ChatComposer({ instanceId, thread }: ChatComposerProps) {
 		setCommandsOpen(false);
 		if (textareaRef.current) textareaRef.current.style.height = "44px";
 		try {
-			await sendMessage.mutateAsync({ threadId: instanceId, message: outbound, mode, images: outboundAttachments });
+			await sendMessage.mutateAsync({ threadId: instanceId, message: outbound, mode: nextMode, images: outboundAttachments });
+			setRecentPrompt(nextMode === "follow_up" ? { message: outbound, images: outboundAttachments } : null);
 		} catch {
 			setMessage(outbound);
 			setAttachments(outboundAttachments);
 		}
+	}
+
+	async function steerRecentPrompt() {
+		if (!thread || !recentPrompt || sendMessage.isPending) return;
+		await sendMessage.mutateAsync({
+			threadId: instanceId,
+			message: recentPrompt.message,
+			mode: "steer",
+			images: recentPrompt.images,
+		});
 	}
 
 	async function handleAbort() {
@@ -188,9 +204,9 @@ export function ChatComposer({ instanceId, thread }: ChatComposerProps) {
 	}
 
 	return (
-		<div className="border-t border-border-subtle bg-bg-base px-4 py-3">
+		<div className="border-t border-border-subtle bg-bg-base px-3 py-2">
 			<motion.div
-				className="relative mx-auto flex max-w-5xl flex-col gap-2"
+				className="relative mx-auto flex max-w-5xl flex-col gap-1.5"
 				animate={shouldReduceMotion ? undefined : { y: isFocused ? -1 : 0, scale: isFocused ? 1.002 : 1 }}
 				transition={{ duration: 0.18, ease: [0.22, 1, 0.36, 1] }}
 			>
@@ -210,6 +226,29 @@ export function ChatComposer({ instanceId, thread }: ChatComposerProps) {
 					) : null}
 				</AnimatePresence>
 
+				<AnimatePresence>
+					{recentPrompt ? (
+						<motion.div
+							className="flex min-w-0 items-center gap-2 rounded-md bg-bg-elevated/70 px-2.5 py-1 text-xs text-text-tertiary"
+							initial={shouldReduceMotion ? false : { opacity: 0, y: 4 }}
+							animate={{ opacity: 1, y: 0 }}
+							exit={shouldReduceMotion ? undefined : { opacity: 0, y: 4 }}
+							transition={{ duration: 0.14, ease: [0.22, 1, 0.36, 1] }}
+						>
+							<span className="min-w-0 flex-1 truncate">{recentPrompt.message || "Attached images"}</span>
+							<button
+								type="button"
+								onClick={() => void steerRecentPrompt()}
+								disabled={!canSteerRecent}
+								className="shrink-0 rounded px-2 py-0.5 font-medium text-accent transition hover:bg-accent-muted hover:text-accent-hover disabled:cursor-not-allowed disabled:text-text-muted"
+								aria-label="Steer recent prompt"
+							>
+								Steer
+							</button>
+						</motion.div>
+					) : null}
+				</AnimatePresence>
+
 				<textarea
 					ref={textareaRef}
 					value={message}
@@ -223,7 +262,7 @@ export function ChatComposer({ instanceId, thread }: ChatComposerProps) {
 					onBlur={() => setIsFocused(false)}
 					onKeyDown={handleKeyDown}
 					onPaste={(event) => void handlePaste(event)}
-					className={`min-h-11 resize-none rounded-lg border bg-bg-surface px-4 py-3 text-sm leading-normal text-text-primary outline-none transition placeholder:text-text-tertiary ${
+					className={`min-h-10 resize-none rounded-md border bg-bg-surface px-3 py-2.5 text-sm leading-normal text-text-primary outline-none transition placeholder:text-text-tertiary ${
 						isFocused ? "border-border-hover" : "border-border-default"
 					}`}
 				/>
@@ -269,7 +308,7 @@ export function ChatComposer({ instanceId, thread }: ChatComposerProps) {
 							onClick={() => fileInputRef.current?.click()}
 							title="Attach images"
 							aria-label="Attach images"
-							className="flex h-8 w-8 shrink-0 items-center justify-center rounded border border-border-subtle bg-bg text-text-secondary transition hover:border-border-hover hover:text-text-primary"
+							className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md text-text-secondary transition hover:bg-bg-hover hover:text-text-primary"
 						>
 							<Paperclip className="h-4 w-4" aria-hidden="true" />
 						</button>
@@ -281,7 +320,6 @@ export function ChatComposer({ instanceId, thread }: ChatComposerProps) {
 							onClick={() => setModelsOpen((open) => !open)}
 						/>
 						<LionModeSelector />
-						<ModeTabs mode={mode} onChange={setMode} shouldReduceMotion={shouldReduceMotion} />
 					</div>
 
 					<div className="flex shrink-0 items-center gap-2">
@@ -386,7 +424,7 @@ function ModelButton({ currentModel, fallbackProvider, fallbackModelId, isOpen, 
 		<button
 			type="button"
 			onClick={onClick}
-			className="flex max-w-[16rem] shrink min-w-0 items-center gap-1.5 rounded border border-border-subtle bg-bg px-2.5 py-1.5 text-xs text-text-secondary transition hover:border-border-hover hover:text-text-primary"
+			className="flex max-w-[16rem] shrink min-w-0 items-center gap-1.5 rounded-md px-2 py-1.5 text-xs text-text-secondary transition hover:bg-bg-hover hover:text-text-primary"
 			title={title}
 			aria-expanded={isOpen}
 		>
@@ -439,39 +477,6 @@ function ModelPalette({ models, currentModel, onSelect, shouldReduceMotion }: Mo
 				);
 			})}
 		</motion.div>
-	);
-}
-
-interface ModeTabsProps {
-	mode: ComposerMode;
-	onChange(mode: ComposerMode): void;
-	shouldReduceMotion: boolean | null;
-}
-
-function ModeTabs({ mode, onChange, shouldReduceMotion }: ModeTabsProps) {
-	return (
-		<div className="flex shrink-0 rounded-md border border-border-subtle bg-bg p-0.5">
-			{MODES.map((item) => (
-				<motion.button
-					key={item}
-					type="button"
-					onClick={() => onChange(item)}
-					whileTap={shouldReduceMotion ? undefined : { scale: 0.97 }}
-					className={`relative rounded px-2.5 py-1.5 text-xs transition-colors ${
-						mode === item ? "text-accent-hover" : "text-text-secondary hover:text-text-primary"
-					}`}
-				>
-					{mode === item ? (
-						<motion.span
-							layoutId="composer-mode-indicator"
-							className="absolute inset-0 rounded bg-accent-muted"
-							transition={{ duration: 0.2, ease: [0.22, 1, 0.36, 1] }}
-						/>
-					) : null}
-					<span className="relative">{MODE_LABELS[item]}</span>
-				</motion.button>
-			))}
-		</div>
 	);
 }
 

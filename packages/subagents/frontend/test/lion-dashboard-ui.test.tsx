@@ -3,7 +3,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { renderToString } from "react-dom/server";
 import { describe, expect, it } from "vitest";
 import { AgentRunSidebar } from "../src/components/AgentRunSidebar";
-import { ChatComposer } from "../src/components/ChatComposer";
+import { ChatComposer, resolveComposerMode } from "../src/components/ChatComposer";
 import { LionModeBadge } from "../src/components/LionModeBadge";
 import { MessageItem } from "../src/components/MessageItem";
 import { groupSubagents, SubagentListPanel } from "../src/components/SubagentListPanel";
@@ -297,16 +297,31 @@ describe("Lion dashboard UI", () => {
 		]);
 	});
 
-	it("renders composer mode controls", () => {
+	it("resolves composer modes from thread state", () => {
+		expect(resolveComposerMode("running")).toBe("follow_up");
+		expect(resolveComposerMode("starting")).toBe("follow_up");
+		expect(resolveComposerMode("completing")).toBe("follow_up");
+		expect(resolveComposerMode("queued")).toBe("follow_up");
+		expect(resolveComposerMode("completed")).toBe("prompt");
+		expect(resolveComposerMode("blocked")).toBe("prompt");
+		expect(resolveComposerMode("timed_out")).toBe("prompt");
+		expect(resolveComposerMode("cancelled")).toBe("prompt");
+		expect(resolveComposerMode("failed")).toBe("prompt");
+		expect(resolveComposerMode("created")).toBe("prompt");
+		expect(resolveComposerMode("paused")).toBe("prompt");
+		expect(resolveComposerMode(undefined)).toBe("prompt");
+	});
+
+	it("renders the compact composer without mode tabs", () => {
 		useSubAgentStore.getState().setConnected(true);
 
 		const html = renderWithQueryClient(<ChatComposer instanceId="subagent-running" thread={runningAgent} />);
 
 		expect(html).toContain("Message thread");
 		expect(html).toContain("openai-codex/gpt-5.5");
-		expect(html).toContain("Prompt");
-		expect(html).toContain("Follow-up");
-		expect(html).toContain("Steer");
+		expect(html).toContain("Attach images");
+		expect(html).not.toContain("Follow-up");
+		expect(html).not.toContain("Steer recent prompt");
 		expect(html).toContain("aria-label=\"Send\"");
 	});
 

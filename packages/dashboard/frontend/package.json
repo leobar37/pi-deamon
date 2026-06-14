@@ -10,6 +10,7 @@
     "test": "vitest --run"
   },
   "dependencies": {
+    "@local/pi-dashboard": "workspace:*",
     "@local/pi-subagents": "workspace:*",
     "@orpc/client": "^1.14.3",
     "@orpc/contract": "^1.14.3",

@@ -1,15 +1,18 @@
 /**
  * Electron main process.
  *
- * Spawns the Pi coding-agent in web mode, waits for the Lion dashboard URL,
- * then loads the React frontend. The renderer obtains the backend URL through
- * the preload script via IPC.
+ * Starts the dashboard backend (DashboardDaemon) and the subagents backend,
+ * then loads the React frontend. The renderer obtains both backend URLs
+ * through the preload script via IPC and performs catalog operations through
+ * the dashboard backend API.
  */
 
 import { app, BrowserWindow, dialog, ipcMain } from "electron";
 import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
+import { createDashboardClient } from "../src/api/dashboard-client.js";
+import { DashboardDaemon } from "../src/server/daemon.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
@@ -21,6 +24,8 @@ const MAX_STDOUT_BUFFER_SIZE = 8192;
 const DEV_RENDERER_URL = process.env.PI_DASHBOARD_RENDERER_URL;
 
 let mainWindow: BrowserWindow | null = null;
+let dashboardDaemon: DashboardDaemon | null = null;
+let dashboardClient: ReturnType<typeof createDashboardClient> | null = null;
 
 class BackendManager {
 	private process: ChildProcessWithoutNullStreams | null = null;
@@ -171,30 +176,22 @@ function getBackendCommand(): { command: string; args: string[] } {
 }
 
 /**
- * Wait for the backend healthcheck endpoint to respond.
+ * Wait for a URL healthcheck endpoint to respond.
  */
-async function waitForBackend(url: string, timeoutMs: number, intervalMs: number): Promise<void> {
-	const start = Date.now();
-	while (Date.now() - start < timeoutMs) {
-		try {
-			const res = await fetch(`${url}/rpc`, { method: "HEAD" });
-			if (res.ok || res.status === 404) {
-				return;
-			}
-		} catch {
-			// not ready yet
-		}
-		await new Promise((r) => setTimeout(r, intervalMs));
-	}
-	throw new Error(`Backend at ${url} did not become ready within ${timeoutMs}ms`);
-}
-
+/**
+ * Wait for a URL to become reachable.
+ *
+ * Accepts any 2xx response as "ready". A 404 is also accepted because some
+ * backends (including older subagents builds) may not serve a root handler and
+ * still be healthy. Redirects are not followed here; Electron's net/fetch
+ * should resolve them before we see the response.
+ */
 async function waitForUrl(url: string, timeoutMs: number, intervalMs: number): Promise<void> {
 	const start = Date.now();
 	while (Date.now() - start < timeoutMs) {
 		try {
-			const res = await fetch(url, { method: "HEAD" });
-			if (res.ok) {
+			const res = await fetch(url, { method: "GET" });
+			if (res.ok || res.status === 404) {
 				return;
 			}
 		} catch {
@@ -266,11 +263,68 @@ async function createWindow(): Promise<void> {
 }
 
 ipcMain.handle("get-backend-url", () => backendManager.getUrl());
+ipcMain.handle("get-dashboard-url", () => dashboardDaemon?.url?.toString() ?? null);
+
 ipcMain.handle("choose-project-directory", async () => {
 	const result = await dialog.showOpenDialog(mainWindow ?? undefined, {
 		properties: ["openDirectory", "createDirectory"],
 	});
 	return result.canceled ? null : result.filePaths[0] ?? null;
+});
+
+ipcMain.handle("dashboard:create-project", async (_event, input: { name: string; defaultCwd: string }) => {
+	if (!dashboardClient) throw new Error("Dashboard client is not ready");
+	return dashboardClient.projects.create(input);
+});
+
+ipcMain.handle("dashboard:list-projects", async () => {
+	if (!dashboardClient) throw new Error("Dashboard client is not ready");
+	return dashboardClient.projects.list();
+});
+
+ipcMain.handle("dashboard:update-project", async (_event, input: { id: string; name?: string }) => {
+	if (!dashboardClient) throw new Error("Dashboard client is not ready");
+	return dashboardClient.projects.update(input);
+});
+
+ipcMain.handle("dashboard:delete-project", async (_event, input: { id: string }) => {
+	if (!dashboardClient) throw new Error("Dashboard client is not ready");
+	return dashboardClient.projects.delete(input);
+});
+
+ipcMain.handle("dashboard:create-session", async (_event, input: { projectId: string; name?: string }) => {
+	if (!dashboardClient) throw new Error("Dashboard client is not ready");
+	return dashboardClient.sessions.create(input);
+});
+
+ipcMain.handle("dashboard:list-sessions", async (_event, input: { projectId?: string }) => {
+	if (!dashboardClient) throw new Error("Dashboard client is not ready");
+	return dashboardClient.sessions.list(input);
+});
+
+ipcMain.handle("dashboard:update-session", async (_event, input: { id: string; name?: string }) => {
+	if (!dashboardClient) throw new Error("Dashboard client is not ready");
+	return dashboardClient.sessions.update(input);
+});
+
+ipcMain.handle("dashboard:delete-session", async (_event, input: { id: string }) => {
+	if (!dashboardClient) throw new Error("Dashboard client is not ready");
+	return dashboardClient.sessions.delete(input);
+});
+
+ipcMain.handle("dashboard:get-session-status", async (_event, input: { id: string }) => {
+	if (!dashboardClient) throw new Error("Dashboard client is not ready");
+	return dashboardClient.sessions.status(input);
+});
+
+ipcMain.handle("dashboard:update-layout", async (_event, input: { sessionId: string; x: number; y: number; width: number; height: number }) => {
+	if (!dashboardClient) throw new Error("Dashboard client is not ready");
+	return dashboardClient.layout.update(input);
+});
+
+ipcMain.handle("dashboard:get-layout", async (_event, input: { sessionId: string }) => {
+	if (!dashboardClient) throw new Error("Dashboard client is not ready");
+	return dashboardClient.layout.get(input);
 });
 
 if (!DEV_RENDERER_URL) {
@@ -302,11 +356,21 @@ if (!DEV_RENDERER_URL) {
 app.whenReady().then(async () => {
 	try {
 		console.log("[electron] Starting dashboard backend...");
+		dashboardDaemon = new DashboardDaemon({
+			databasePath: join(app.getPath("userData"), "dashboard.sqlite"),
+		});
+		const dashboardUrl = await dashboardDaemon.start();
+		console.log(`[electron] Dashboard backend URL: ${dashboardUrl}`);
+		dashboardClient = createDashboardClient(dashboardUrl.toString());
+
+		console.log("[electron] Starting subagents backend...");
 		backendManager.start();
-		const url = await backendManager.getUrl();
-		console.log(`[electron] Backend URL resolved: ${url}`);
-		await waitForBackend(url, HEALTHCHECK_TIMEOUT_MS, HEALTHCHECK_INTERVAL_MS);
-		console.log("[electron] Backend is ready; creating window");
+		const subagentsUrl = await backendManager.getUrl();
+		console.log(`[electron] Subagents backend URL resolved: ${subagentsUrl}`);
+		dashboardDaemon.setSubagentsUrl(subagentsUrl);
+
+		await waitForUrl(subagentsUrl, HEALTHCHECK_TIMEOUT_MS, HEALTHCHECK_INTERVAL_MS);
+		console.log("[electron] Subagents backend is ready; creating window");
 		await createWindow();
 	} catch (err) {
 		console.error("[electron] Failed to start dashboard:", err);
@@ -316,6 +380,7 @@ app.whenReady().then(async () => {
 
 app.on("before-quit", () => {
 	backendManager.kill();
+	void dashboardDaemon?.stop();
 });
 
 app.on("window-all-closed", () => {

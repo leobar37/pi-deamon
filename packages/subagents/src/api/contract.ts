@@ -63,6 +63,12 @@ export const subagentsContract = oc.router({
 
 		abort: oc.input(ThreadAbortInputSchema).output(ThreadIdInputSchema),
 
+		resume: oc.input(ThreadAbortInputSchema).output(ThreadIdInputSchema),
+
+		cancel: oc.input(ThreadAbortInputSchema).output(ThreadIdInputSchema),
+
+		kill: oc.input(ThreadAbortInputSchema).output(ThreadIdInputSchema),
+
 		commands: oc.input(ThreadIdInputSchema).output(z.array(DashboardCommandSchema)),
 
 		models: oc.input(ThreadIdInputSchema).output(z.array(DashboardModelSchema)),

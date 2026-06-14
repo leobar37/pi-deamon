@@ -1,95 +1,14 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { createPiSessionsSdk } from "@local/pi-dashboard/sdk";
 import { AgentCanvas } from "./canvas/AgentCanvas.js";
 import { SessionInspector } from "./sessions/SessionInspector.js";
 import { SessionSidebar } from "./sessions/SessionSidebar.js";
-import { resolveBackendUrl } from "./electron.js";
-import { createSubagentsClient } from "./api/client.ts";
-import type { CanvasSession } from "./canvas/types.js";
+import { resolveBackendUrl, resolveDashboardUrl, getElectronApi } from "./electron.js";
+import type { CanvasSession, CanvasSessionRuntime } from "./canvas/types.js";
 import type { CanvasProject } from "./projects/types.js";
 
-const CANVAS_SESSIONS_KEY = "pi-dashboard:agent-canvas:sessions";
-const CANVAS_PROJECTS_KEY = "pi-dashboard:agent-canvas:projects";
-const SELECTED_PROJECT_KEY = "pi-dashboard:agent-canvas:selected-project";
 const LEFT_SIDEBAR_OPEN_KEY = "pi-dashboard:sidebar-left:open";
 const RIGHT_SIDEBAR_OPEN_KEY = "pi-dashboard:sidebar-right:open";
-
-function loadSavedSessions(): CanvasSession[] {
-	try {
-		const raw = window.localStorage.getItem(CANVAS_SESSIONS_KEY);
-		if (!raw) return [];
-		const parsed = JSON.parse(raw) as unknown;
-		if (!Array.isArray(parsed)) return [];
-		return parsed.filter(
-			(s): s is CanvasSession =>
-				s &&
-				typeof s === "object" &&
-				"id" in s &&
-				typeof s.id === "string" &&
-				"name" in s &&
-				typeof s.name === "string" &&
-				"projectId" in s &&
-				typeof s.projectId === "string" &&
-				"cwd" in s &&
-				typeof s.cwd === "string",
-		);
-	} catch {
-		return [];
-	}
-}
-
-function saveSessions(sessions: CanvasSession[]): void {
-	window.localStorage.setItem(CANVAS_SESSIONS_KEY, JSON.stringify(sessions));
-}
-
-function loadSavedProjects(): CanvasProject[] {
-	try {
-		const raw = window.localStorage.getItem(CANVAS_PROJECTS_KEY);
-		if (!raw) return [];
-		const parsed = JSON.parse(raw) as unknown;
-		if (!Array.isArray(parsed)) return [];
-		return parsed.filter(
-			(project): project is CanvasProject =>
-				project &&
-				typeof project === "object" &&
-				"id" in project &&
-				typeof project.id === "string" &&
-				"name" in project &&
-				typeof project.name === "string" &&
-				"defaultCwd" in project &&
-				typeof project.defaultCwd === "string" &&
-				"createdAt" in project &&
-				typeof project.createdAt === "number" &&
-				"updatedAt" in project &&
-				typeof project.updatedAt === "number",
-		);
-	} catch {
-		return [];
-	}
-}
-
-function saveProjects(projects: CanvasProject[]): void {
-	window.localStorage.setItem(CANVAS_PROJECTS_KEY, JSON.stringify(projects));
-}
-
-function loadSelectedProjectId(): string | null {
-	try {
-		return window.localStorage.getItem(SELECTED_PROJECT_KEY);
-	} catch {
-		return null;
-	}
-}
-
-function saveSelectedProjectId(projectId: string | null): void {
-	try {
-		if (projectId) {
-			window.localStorage.setItem(SELECTED_PROJECT_KEY, projectId);
-		} else {
-			window.localStorage.removeItem(SELECTED_PROJECT_KEY);
-		}
-	} catch {
-		// best effort
-	}
-}
 
 function loadSidebarOpen(key: string, defaultValue: boolean): boolean {
 	try {
@@ -114,10 +33,6 @@ function directoryName(path: string): string {
 	return parts.at(-1) || normalized || "Project";
 }
 
-function normalizeCwd(path: string): string {
-	return path.replace(/\/+$/, "");
-}
-
 function matchesSessionSearch(session: CanvasSession, projects: CanvasProject[], query: string): boolean {
 	const normalizedQuery = query.trim().toLowerCase();
 	if (!normalizedQuery) return true;
@@ -134,66 +49,128 @@ function matchesSessionSearch(session: CanvasSession, projects: CanvasProject[],
 	return values.some((value) => value.toLowerCase().includes(normalizedQuery));
 }
 
-function AppContent({ backendUrl }: { backendUrl: string }) {
+function AppContent({ backendUrl, dashboardUrl }: { backendUrl: string; dashboardUrl: string }) {
 	const isElectronDarwin = window.__PI_ELECTRON__?.platform === "darwin";
 	const [focusedSessionId, setFocusedSessionId] = useState<string | null>(null);
-	const [sessions, setSessions] = useState<CanvasSession[]>(() => loadSavedSessions());
-	const [projects, setProjects] = useState<CanvasProject[]>(() => loadSavedProjects());
-	const [selectedProjectId, setSelectedProjectId] = useState<string | null>(() => loadSelectedProjectId());
+	const [sessions, setSessions] = useState<CanvasSession[]>([]);
+	const [sessionRuntimes, setSessionRuntimes] = useState<Record<string, CanvasSessionRuntime>>({});
+	const [projects, setProjects] = useState<CanvasProject[]>([]);
+	const [selectedProjectId, setSelectedProjectId] = useState<string | null>(null);
 	const [leftOpen, setLeftOpen] = useState(() => loadSidebarOpen(LEFT_SIDEBAR_OPEN_KEY, true));
 	const [rightOpen, setRightOpen] = useState(() => loadSidebarOpen(RIGHT_SIDEBAR_OPEN_KEY, true));
 	const [sessionSearch, setSessionSearch] = useState("");
 	const [createError, setCreateError] = useState<string | null>(null);
 	const [projectError, setProjectError] = useState<string | null>(null);
-	const client = useMemo(() => createSubagentsClient(backendUrl), [backendUrl]);
+	const [isLoading, setIsLoading] = useState(true);
+	const [isCreatingSession, setIsCreatingSession] = useState(false);
+	const creatingSessionRef = useRef(isCreatingSession);
 
 	useEffect(() => {
-		saveSessions(sessions);
-	}, [sessions]);
+		creatingSessionRef.current = isCreatingSession;
+	}, [isCreatingSession]);
+	const sdk = useMemo(() => createPiSessionsSdk({ dashboardUrl }), [dashboardUrl]);
+
+	// Load initial state from dashboard backend
+	useEffect(() => {
+		let cancelled = false;
+		async function load() {
+			try {
+				const [projectList, sessionList, runtimeList] = await Promise.all([
+					sdk.projects.list(),
+					sdk.sessions.list({}),
+					sdk.runtime.list({}),
+				]);
+				if (!cancelled) {
+					setProjects(projectList);
+					setSessions(sessionList);
+					setSessionRuntimes(Object.fromEntries(runtimeList.map((runtime) => [runtime.id, runtime])));
+				}
+			} catch (err) {
+				console.error("Failed to load dashboard state:", err);
+			} finally {
+				if (!cancelled) {
+					setIsLoading(false);
+				}
+			}
+		}
+		void load();
+		return () => {
+			cancelled = true;
+		};
+	}, [sdk]);
 
 	useEffect(() => {
-		saveProjects(projects);
-	}, [projects]);
+		return sdk.events.subscribe({
+			projectId: selectedProjectId ?? undefined,
+			onEvent: (event) => {
+				switch (event.type) {
+					case "project.created":
+						setProjects((prev) => (prev.some((project) => project.id === event.project.id) ? prev : [event.project, ...prev]));
+						break;
+					case "project.updated":
+						setProjects((prev) => prev.map((project) => (project.id === event.project.id ? event.project : project)));
+						break;
+					case "project.deleted":
+						setProjects((prev) => prev.filter((project) => project.id !== event.projectId));
+						break;
+					case "session.created":
+						setSessions((prev) => (prev.some((session) => session.id === event.session.id) ? prev : [...prev, event.session]));
+						break;
+					case "session.updated":
+						setSessions((prev) => prev.map((session) => (session.id === event.session.id ? event.session : session)));
+						break;
+					case "session.deleted":
+						setSessions((prev) => prev.filter((session) => session.id !== event.sessionId));
+						setSessionRuntimes((prev) => {
+							const next = { ...prev };
+							delete next[event.sessionId];
+							return next;
+						});
+						setFocusedSessionId((current) => (current === event.sessionId ? null : current));
+						break;
+					case "session.runtime":
+						setSessionRuntimes((prev) => ({ ...prev, [event.runtime.id]: event.runtime }));
+						break;
+					case "session.action":
+						break;
+				}
+			},
+			onError: (error) => console.error("Dashboard event stream failed:", error),
+		});
+	}, [sdk, selectedProjectId]);
 
 	useEffect(() => {
-		saveSelectedProjectId(selectedProjectId);
-	}, [selectedProjectId]);
+		if (sessions.length === 0) {
+			setSessionRuntimes({});
+			return;
+		}
+
+		let cancelled = false;
+		async function refreshVisibleRuntimes() {
+			try {
+				const runtimeList = await sdk.runtime.list({ projectId: selectedProjectId ?? undefined });
+				if (!cancelled) {
+					setSessionRuntimes((prev) => ({
+						...prev,
+						...Object.fromEntries(runtimeList.map((runtime) => [runtime.id, runtime])),
+					}));
+				}
+			} catch (error) {
+				console.error("Failed to refresh session runtime state:", error);
+			}
+		}
+
+		void refreshVisibleRuntimes();
+		return () => {
+			cancelled = true;
+		};
+	}, [sdk, selectedProjectId, sessions.length]);
 
 	useEffect(() => {
 		if (selectedProjectId && !projects.some((project) => project.id === selectedProjectId)) {
 			setSelectedProjectId(null);
 		}
 	}, [projects, selectedProjectId]);
-
-	// Validate saved sessions against the backend on mount. Standalone sessions
-	// live only in the backend process memory, so they disappear when the
-	// backend restarts. Remove stale sessions instead of showing a stuck
-	// "Loading..." iframe.
-	useEffect(() => {
-		let cancelled = false;
-		async function validate() {
-			const valid: CanvasSession[] = [];
-			for (const session of sessions) {
-				if (!session.threadId) {
-					valid.push(session);
-					continue;
-				}
-				try {
-					await client.threads.get({ threadId: session.threadId });
-					valid.push(session);
-				} catch {
-					// stale session
-				}
-			}
-			if (!cancelled) {
-				setSessions(valid);
-			}
-		}
-		void validate();
-		return () => {
-			cancelled = true;
-		};
-	}, [client]);
 
 	useEffect(() => {
 		saveSidebarOpen(LEFT_SIDEBAR_OPEN_KEY, leftOpen);
@@ -222,113 +199,92 @@ function AppContent({ backendUrl }: { backendUrl: string }) {
 
 	const createProject = useCallback(async () => {
 		setProjectError(null);
-		const directory = await window.__PI_ELECTRON__?.chooseProjectDirectory();
+		const electronApi = getElectronApi();
+		const directory = await electronApi?.chooseProjectDirectory();
 		if (!directory) {
-			if (!window.__PI_ELECTRON__) {
+			if (!electronApi) {
 				setProjectError("Project folders can only be selected from the Electron app.");
 			}
 			return;
 		}
 
-		const now = Date.now();
-		const project: CanvasProject = {
-			id: crypto.randomUUID(),
-			name: directoryName(directory),
-			defaultCwd: directory,
-			createdAt: now,
-			updatedAt: now,
-		};
-		setProjects((prev) => {
-			const existing = prev.find((item) => item.defaultCwd === directory);
-			if (existing) return prev;
-			const next = [project, ...prev];
-			saveProjects(next);
-			return next;
-		});
-		setSelectedProjectId((current) => {
-			const existing = projects.find((item) => item.defaultCwd === directory);
-			return existing?.id ?? project.id ?? current;
-		});
-	}, [projects]);
+		try {
+			const project = await sdk.projects.create({
+				name: directoryName(directory),
+				defaultCwd: directory,
+			});
+			setProjects((prev) => (prev.some((item) => item.id === project.id) ? prev : [project, ...prev]));
+			setSelectedProjectId(project.id);
+		} catch (err) {
+			const message = err instanceof Error ? err.message : String(err);
+			setProjectError(message);
+		}
+	}, [sdk]);
 
 	const createSession = useCallback(async () => {
 		setCreateError(null);
-		const selectedProject = projects.find((project) => project.id === selectedProjectId);
-		if (!selectedProject) {
+		if (!selectedProjectId) {
 			setCreateError("Select or create a project before adding a session.");
 			return;
 		}
+		if (creatingSessionRef.current) {
+			return;
+		}
 
-		const localId = crypto.randomUUID();
-		const visibleSessionCount = sessions.filter((session) => session.projectId === selectedProject.id).length;
-		const provisionalName = `Session ${visibleSessionCount + 1}`;
-		const projectSessionFields = {
-			projectId: selectedProject.id,
-			cwd: selectedProject.defaultCwd,
-		};
-		setSessions((prev) => {
-			const next = [
-				...prev,
-				{
-					id: localId,
-					name: provisionalName,
-					createdAt: Date.now(),
-					...projectSessionFields,
-				},
-			];
-			saveSessions(next);
-			return next;
-		});
-		setFocusedSessionId(localId);
-
+		setIsCreatingSession(true);
 		try {
-			const result = await client.threads.create({ name: provisionalName, cwd: selectedProject.defaultCwd });
-			const thread = await client.threads.get({ threadId: result.threadId });
-			const backendCwd = thread.cwd ?? result.cwd;
-			if (normalizeCwd(backendCwd) !== normalizeCwd(selectedProject.defaultCwd)) {
-				throw new Error(`Backend created the session in ${backendCwd}, expected ${selectedProject.defaultCwd}`);
-			}
-			setSessions((prev) => {
-				const next = prev.map((s) =>
-					s.id === localId
-						? {
-							...s,
-							threadId: result.threadId,
-							name: result.name,
-							createdAt: result.createdAt,
-							...projectSessionFields,
-							cwd: backendCwd,
-						}
-						: s,
-				);
-				saveSessions(next);
-				return next;
-			});
+			const session = await sdk.sessions.create({ projectId: selectedProjectId });
+			setSessions((prev) => (prev.some((item) => item.id === session.id) ? prev : [...prev, session]));
+			setFocusedSessionId(session.id);
+			const runtime = await sdk.runtime.get(session.id);
+			setSessionRuntimes((prev) => ({ ...prev, [runtime.id]: runtime }));
 		} catch (error) {
 			const message = error instanceof Error ? error.message : String(error);
 			setCreateError(message);
-			setSessions((prev) => {
-				const next = prev.filter((session) => session.id !== localId);
-				saveSessions(next);
-				return next;
-			});
-			setFocusedSessionId((current) => (current === localId ? null : current));
+		} finally {
+			setIsCreatingSession(false);
 		}
-	}, [client, projects, selectedProjectId, sessions]);
+	}, [sdk, selectedProjectId]);
 
-	const removeSession = useCallback((sessionId: string) => {
-		setSessions((prev) => {
-			const next = prev.filter((s) => s.id !== sessionId);
-			saveSessions(next);
-			return next;
-		});
-		setFocusedSessionId((current) => (current === sessionId ? null : current));
-	}, []);
+	const removeSession = useCallback(
+		async (sessionId: string) => {
+			try {
+				await sdk.sessions.delete(sessionId);
+				setSessions((prev) => prev.filter((s) => s.id !== sessionId));
+				setFocusedSessionId((current) => (current === sessionId ? null : current));
+			} catch (err) {
+				console.error("Failed to delete session:", err);
+			}
+		},
+		[sdk],
+	);
+
+	const abortSession = useCallback(
+		async (sessionId: string) => {
+			try {
+				const runtime = await sdk.actions.abort(sessionId);
+				setSessionRuntimes((prev) => ({ ...prev, [runtime.id]: runtime }));
+			} catch (err) {
+				console.error("Failed to abort session:", err);
+			}
+		},
+		[sdk],
+	);
 
 	const focusedSession = sessions.find((session) => session.id === focusedSessionId);
 	const projectSessions = selectedProjectId ? sessions.filter((session) => session.projectId === selectedProjectId) : sessions;
 	const visibleSessions = projectSessions.filter((session) => matchesSessionSearch(session, projects, sessionSearch));
 	const canCreateSession = selectedProjectId ? projects.some((project) => project.id === selectedProjectId) : false;
+
+	if (isLoading) {
+		return (
+			<div className="flex h-screen items-center justify-center bg-bg-base text-text-primary">
+				<div className="text-center">
+					<div className="text-base font-semibold">Loading dashboard...</div>
+				</div>
+			</div>
+		);
+	}
 
 	return (
 		<div className={`relative flex h-screen overflow-hidden bg-bg-base text-text-primary ${isElectronDarwin ? "pt-window-drag" : ""}`}>
@@ -343,28 +299,35 @@ function AppContent({ backendUrl }: { backendUrl: string }) {
 				selectedProjectId={selectedProjectId}
 				focusedSessionId={focusedSessionId}
 				projectError={projectError}
+				sessionRuntimes={sessionRuntimes}
 				onSessionSearchChange={setSessionSearch}
 				onSelectProject={selectProject}
 				onCreateProject={createProject}
 				onFocusSession={focusSession}
 				onCreateSession={createSession}
 				canCreateSession={canCreateSession}
+				isCreatingSession={isCreatingSession}
 				onRemoveSession={removeSession}
+				onAbortSession={abortSession}
 			/>
 			<main className="relative min-w-0 flex-1">
 				<AgentCanvas
 					sessions={visibleSessions}
 					backendUrl={backendUrl}
+					dashboardUrl={dashboardUrl}
 					focusedSessionId={focusedSessionId}
 					onFocusSession={focusSession}
 					onOpenSession={focusSession}
 					onCreateSession={createSession}
 					canCreateSession={canCreateSession}
+					isCreatingSession={isCreatingSession}
 					onRemoveSession={removeSession}
+					sessionRuntimes={sessionRuntimes}
+					onAbortSession={abortSession}
 				/>
 				{createError ? (
 					<div className="absolute bottom-4 left-1/2 z-20 flex -translate-x-1/2 items-center gap-2 rounded-lg border border-error/30 bg-error/10 px-4 py-2 text-sm text-error shadow-md">
-						<span>Failed to create backend session: {createError}</span>
+						<span>Failed to create session: {createError}</span>
 						<button
 							type="button"
 							onClick={() => setCreateError(null)}
@@ -380,6 +343,8 @@ function AppContent({ backendUrl }: { backendUrl: string }) {
 				onToggle={() => setRightOpen((open) => !open)}
 				session={focusedSession}
 				backendUrl={backendUrl}
+				runtime={focusedSession ? sessionRuntimes[focusedSession.id] : undefined}
+				onAbortSession={abortSession}
 				onClose={() => setFocusedSessionId(null)}
 			/>
 		</div>
@@ -388,15 +353,19 @@ function AppContent({ backendUrl }: { backendUrl: string }) {
 
 export default function App() {
 	const [backendUrl, setBackendUrl] = useState<string | null>(null);
+	const [dashboardUrl, setDashboardUrl] = useState<string | null>(null);
 	const [error, setError] = useState<string | null>(null);
 
 	useEffect(() => {
-		resolveBackendUrl()
-			.then((url) => {
-				if (url) {
-					setBackendUrl(url);
-				} else {
+		Promise.all([resolveBackendUrl(), resolveDashboardUrl()])
+			.then(([backend, dashboard]) => {
+				if (backend && dashboard) {
+					setBackendUrl(backend);
+					setDashboardUrl(dashboard);
+				} else if (!backend) {
 					setError("No backend URL available. Open this app through Electron or provide ?backendUrl=.");
+				} else {
+					setError("No dashboard URL available.");
 				}
 			})
 			.catch((err) => {
@@ -408,23 +377,23 @@ export default function App() {
 		return (
 			<div className="flex h-screen items-center justify-center bg-bg-base text-text-primary">
 				<div className="max-w-md text-center">
-					<div className="text-base font-semibold text-error">Failed to connect to agent backend</div>
+					<div className="text-base font-semibold text-error">Failed to connect</div>
 					<div className="mt-2 text-sm text-text-secondary">{error}</div>
 				</div>
 			</div>
 		);
 	}
 
-	if (!backendUrl) {
+	if (!backendUrl || !dashboardUrl) {
 		return (
 			<div className="flex h-screen items-center justify-center bg-bg-base text-text-primary">
 				<div className="text-center">
-					<div className="text-base font-semibold">Connecting to agent backend...</div>
-					<div className="mt-2 text-sm text-text-secondary">Waiting for Electron to spawn the subagents process.</div>
+					<div className="text-base font-semibold">Connecting...</div>
+					<div className="mt-2 text-sm text-text-secondary">Waiting for backends to start.</div>
 				</div>
 			</div>
 		);
 	}
 
-	return <AppContent backendUrl={backendUrl} />;
+	return <AppContent backendUrl={backendUrl} dashboardUrl={dashboardUrl} />;
 }

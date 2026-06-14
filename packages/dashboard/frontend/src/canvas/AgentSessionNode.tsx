@@ -1,36 +1,16 @@
 import { memo, useCallback } from "react";
 import { Handle, NodeResizeControl, Position, type NodeProps, type ResizeParams } from "@xyflow/react";
-import { ExternalLink } from "lucide-react";
+import { ExternalLink, Square } from "lucide-react";
 import type { AgentCanvasNode } from "./types.js";
 
-const NODE_SIZES_KEY = "pi-dashboard:agent-canvas:sizes";
 const MIN_NODE_SIZE = { width: 520, height: 360 };
 
-type SavedSizes = Record<string, { width: number; height: number }>;
-
-function loadSavedSizes(): SavedSizes {
-	try {
-		const raw = window.localStorage.getItem(NODE_SIZES_KEY);
-		if (!raw) return {};
-		const parsed = JSON.parse(raw) as unknown;
-		if (!parsed || typeof parsed !== "object") return {};
-		return parsed as SavedSizes;
-	} catch {
-		return {};
-	}
-}
-
-function saveNodeSize(nodeId: string, size: { width: number; height: number }): void {
-	const sizes = loadSavedSizes();
-	sizes[nodeId] = size;
-	window.localStorage.setItem(NODE_SIZES_KEY, JSON.stringify(sizes));
-}
-
 export const AgentSessionNode = memo(function AgentSessionNode({ data }: NodeProps<AgentCanvasNode>) {
-	const { session, backendUrl, focused, onFocus, onOpen } = data;
+	const { session, backendUrl, focused, onFocus, onOpen, runtime, onAbort } = data;
 	const title = session.name || `Session ${session.id.slice(0, 8)}`;
 	const threadId = session.threadId ?? session.id;
 	const iframeUrl = `${backendUrl}/thread/${encodeURIComponent(threadId)}`;
+	const runtimeLabel = runtime?.state === "idle" ? "Idle" : runtime?.state ? runtime.state.charAt(0).toUpperCase() + runtime.state.slice(1) : "Unknown";
 
 	const handleResizeStart = useCallback(() => {
 		document.body.classList.add("agent-node-resizing");
@@ -39,12 +19,11 @@ export const AgentSessionNode = memo(function AgentSessionNode({ data }: NodePro
 	const handleResizeEnd = useCallback(
 		(_: unknown, params: ResizeParams) => {
 			document.body.classList.remove("agent-node-resizing");
-			saveNodeSize(session.id, {
-				width: params.width,
-				height: params.height,
-			});
+			// Layout persistence is handled by the AgentCanvas component
+			// via the dashboard API on node position/size changes.
+			void params;
 		},
-		[session.id],
+		[],
 	);
 
 	return (
@@ -70,6 +49,29 @@ export const AgentSessionNode = memo(function AgentSessionNode({ data }: NodePro
 				<button type="button" onClick={() => onFocus(session.id)} className="min-w-0 flex-1 text-left">
 					<div className="truncate text-sm font-medium text-text-primary">{title}</div>
 				</button>
+				<div
+					className={`flex shrink-0 items-center gap-1.5 rounded border px-2 py-1 text-[11px] ${
+						runtime?.isRunning
+							? "border-success/30 bg-success/10 text-success"
+							: "border-border-subtle bg-bg-surface text-text-tertiary"
+					}`}
+				>
+					<span className={`h-1.5 w-1.5 rounded-full ${runtime?.isRunning ? "bg-success" : "bg-text-muted"}`} />
+					{runtimeLabel}
+				</div>
+				{runtime?.canAbort ? (
+					<button
+						type="button"
+						onClick={(event) => {
+							event.stopPropagation();
+							onAbort?.(session.id);
+						}}
+						title="Abort session"
+						className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-text-tertiary transition hover:bg-warning/10 hover:text-warning"
+					>
+						<Square size={12} aria-hidden="true" />
+					</button>
+				) : null}
 				<a
 					href={iframeUrl}
 					target="_blank"

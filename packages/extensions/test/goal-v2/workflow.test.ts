@@ -6,6 +6,7 @@ import type { ExtensionAPI, ExtensionContext, ToolInfo } from "@earendil-works/p
 import { GoalContextTracker, type GoalFileDocument } from "../../src/extensions/goal-v2/context-store.js";
 import { createCore, setGoal, setGoalPhase, setGoalStatus } from "../../src/extensions/goal-v2/core.js";
 import goalV2Extension from "../../src/extensions/goal-v2/index.js";
+import type { Goal } from "../../src/extensions/goal-v2/types.js";
 
 function testCoreTracksPhaseAndBlockedStatus(): void {
 	const core = createCore();
@@ -198,6 +199,81 @@ async function testGoalToolCallBlockedWhenInactive(): Promise<void> {
 
 	assert.equal(result?.block, true);
 	assert.match(String(result?.reason ?? ""), /gated/);
+}
+
+async function testToolErrorsRecordedAsProgress(): Promise<void> {
+	const cwd = mkdtempSync(join(tmpdir(), "goal-v2-tool-error-"));
+	try {
+		const pi = fakePi();
+		goalV2Extension(pi.api);
+		const ctx = fakeCtx(pi, cwd);
+
+		await pi.commands.get("goal")?.handler("set ship the feature", ctx);
+
+		// Simulate a tool error (e.g., validation failure)
+		await pi.emit(
+			"tool_result",
+			{
+				type: "tool_result",
+				toolCallId: "tool-1",
+				toolName: "write",
+				content: [
+					{
+						type: "text",
+						text: 'Validation failed for tool "write":\n  - path: must have required properties path',
+					},
+				],
+				details: {},
+				isError: true,
+			},
+			ctx,
+		);
+
+		// Verify the error was recorded as progress in the context file
+		const goalEntry = pi.entries.find((e) => e.customType === "goal-v2")?.data as { goal: Goal } | undefined;
+		assert.ok(goalEntry?.goal);
+		const doc = await new GoalContextTracker(cwd, "session-1").read(goalEntry.goal);
+		assert.ok(doc);
+		assert.equal(doc?.iterations.at(-1)?.kind, "blocker");
+		assert.equal(doc?.iterations.at(-1)?.summary, "Tool error: write");
+		assert.match(doc?.iterations.at(-1)?.details ?? "", /Validation failed/);
+	} finally {
+		rmSync(cwd, { recursive: true, force: true });
+	}
+}
+
+async function testNonErrorToolResultsIgnored(): Promise<void> {
+	const cwd = mkdtempSync(join(tmpdir(), "goal-v2-tool-success-"));
+	try {
+		const pi = fakePi();
+		goalV2Extension(pi.api);
+		const ctx = fakeCtx(pi, cwd);
+
+		await pi.commands.get("goal")?.handler("set ship the feature", ctx);
+
+		// Simulate a successful tool result
+		await pi.emit(
+			"tool_result",
+			{
+				type: "tool_result",
+				toolCallId: "tool-1",
+				toolName: "read",
+				content: [{ type: "text", text: "file content" }],
+				details: {},
+				isError: false,
+			},
+			ctx,
+		);
+
+		const goalEntry = pi.entries.find((e) => e.customType === "goal-v2")?.data as { goal: Goal } | undefined;
+		assert.ok(goalEntry?.goal);
+		const doc = await new GoalContextTracker(cwd, "session-1").read(goalEntry.goal);
+		assert.ok(doc);
+		// Only the initial "Goal context initialized" iteration should exist
+		assert.equal(doc?.iterations.length, 1);
+	} finally {
+		rmSync(cwd, { recursive: true, force: true });
+	}
 }
 
 async function testLegacyJsonMigration(): Promise<void> {
@@ -401,4 +477,6 @@ await testGoalToolsStayInactiveDuringLionBuild();
 await testGoalToolsStayInactiveDuringFileBackedLionBuild();
 await testGoalToolsActivateDuringFileBackedLionPlanning();
 await testGoalToolCallBlockedWhenInactive();
+await testToolErrorsRecordedAsProgress();
+await testNonErrorToolResultsIgnored();
 await testLegacyJsonMigration();

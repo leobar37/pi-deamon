@@ -135,6 +135,19 @@ export class StandaloneSessionManager {
 		this.emitState(info, "paused");
 	}
 
+	async resume(instanceId: string): Promise<void> {
+		const info = this.sessions.get(instanceId);
+		if (!info) throw new Error(`Standalone session "${instanceId}" not found`);
+		await this.prompt(instanceId, "Continue.", "follow_up");
+	}
+
+	async cancel(instanceId: string): Promise<void> {
+		const info = this.sessions.get(instanceId);
+		if (!info) throw new Error(`Standalone session "${instanceId}" not found`);
+		await info.session.abort();
+		this.emitState(info, "cancelled");
+	}
+
 	getMessages(instanceId: string): AgentMessage[] {
 		const info = this.sessions.get(instanceId);
 		if (!info) throw new Error(`Standalone session "${instanceId}" not found`);

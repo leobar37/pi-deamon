@@ -1,18 +1,12 @@
-/**
- * Dashboard router factory.
- *
- * Creates a minimal oRPC router for the static-file-serving backend. Session
- * management has moved to the subagents backend.
- */
-
+import type { DashboardProcedureOptions } from "./dashboard.js";
 import { createDashboardProcedures } from "./dashboard.js";
 
 // ============================================================================
 // Router factory
 // ============================================================================
 
-export function createDashboardRouter(getStartTime: () => number) {
-	return createDashboardProcedures(getStartTime);
+export function createDashboardRouter(options: DashboardProcedureOptions) {
+	return createDashboardProcedures(options);
 }
 
 export type DashboardRouter = ReturnType<typeof createDashboardRouter>;

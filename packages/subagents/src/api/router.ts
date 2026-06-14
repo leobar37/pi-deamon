@@ -517,6 +517,115 @@ async function abortThread(ctx: SubagentsApiContext, threadId: string): Promise<
 	throw new ORPCError("NOT_FOUND", { message: "Thread not found" });
 }
 
+async function resumeThread(ctx: SubagentsApiContext, threadId: string): Promise<void> {
+	const main = ctx.mainSession?.getThread();
+	if (main?.instanceId === threadId) {
+		if (!ctx.mainSession?.sendMessage) {
+			throw new ORPCError("SERVICE_UNAVAILABLE", { message: "Main session is not controllable" });
+		}
+		await ctx.mainSession.sendMessage(threadId, "Continue.", "follow_up");
+		return;
+	}
+
+	const instance = ctx.controller.getInstanceById(threadId);
+	if (instance) {
+		const state = instance.getState();
+		await ctx.controller.resumeInstance(state.taskId);
+		return;
+	}
+
+	const cached = ctx.sessionCache.get(threadId);
+	if (cached) {
+		await sendToAgentSession(cached.session, "Continue.", "follow_up");
+		return;
+	}
+
+	const resumable = await getVirtualSessionFile(ctx, threadId);
+	if (resumable) {
+		try {
+			const session = await ctx.sessionCache.getOrCreate(resumable.record, resumable.sessionFile);
+			await sendToAgentSession(session.session, "Continue.", "follow_up");
+			return;
+		} catch (error) {
+			throw new ORPCError("SERVICE_UNAVAILABLE", {
+				message: error instanceof Error ? error.message : "Session not resumable",
+			});
+		}
+	}
+
+	if (isStandaloneSession(threadId)) {
+		const info = ctx.standaloneSessions.get(threadId);
+		if (info) {
+			await ctx.standaloneSessions.resume(threadId);
+			return;
+		}
+	}
+
+	throw new ORPCError("NOT_FOUND", { message: "Thread not found" });
+}
+
+async function cancelThread(ctx: SubagentsApiContext, threadId: string): Promise<void> {
+	const main = ctx.mainSession?.getThread();
+	if (main?.instanceId === threadId) {
+		if (!ctx.mainSession?.abort) {
+			throw new ORPCError("SERVICE_UNAVAILABLE", { message: "Main session is not controllable" });
+		}
+		await ctx.mainSession.abort(threadId);
+		return;
+	}
+
+	const instance = ctx.controller.getInstanceById(threadId);
+	if (instance) {
+		const state = instance.getState();
+		await ctx.controller.cancelInstance(state.taskId);
+		return;
+	}
+
+	const cached = ctx.sessionCache.get(threadId);
+	if (cached) {
+		await cached.session.abort();
+		return;
+	}
+
+	if (isStandaloneSession(threadId)) {
+		const info = ctx.standaloneSessions.get(threadId);
+		if (info) {
+			await ctx.standaloneSessions.cancel(threadId);
+			return;
+		}
+	}
+
+	throw new ORPCError("NOT_FOUND", { message: "Thread not found" });
+}
+
+async function killThread(ctx: SubagentsApiContext, threadId: string): Promise<void> {
+	const main = ctx.mainSession?.getThread();
+	if (main?.instanceId === threadId) {
+		throw new ORPCError("SERVICE_UNAVAILABLE", { message: "Main session cannot be killed from dashboard" });
+	}
+
+	const instance = ctx.controller.getInstanceById(threadId);
+	if (instance) {
+		const state = instance.getState();
+		await ctx.controller.cancelInstance(state.taskId);
+		return;
+	}
+
+	if (ctx.sessionCache.dispose(threadId)) {
+		return;
+	}
+
+	if (isStandaloneSession(threadId)) {
+		const info = ctx.standaloneSessions.get(threadId);
+		if (info) {
+			ctx.standaloneSessions.dispose(threadId);
+			return;
+		}
+	}
+
+	throw new ORPCError("NOT_FOUND", { message: "Thread not found" });
+}
+
 export function createSubagentsRouter(ctx: SubagentsApiContext) {
 	const impl = implement(subagentsContract).$context<SubagentsApiContext>();
 
@@ -719,6 +828,21 @@ export function createSubagentsRouter(ctx: SubagentsApiContext) {
 
 			abort: impl.threads.abort.handler(async ({ input }) => {
 				await abortThread(ctx, input.threadId);
+				return { threadId: input.threadId };
+			}),
+
+			resume: impl.threads.resume.handler(async ({ input }) => {
+				await resumeThread(ctx, input.threadId);
+				return { threadId: input.threadId };
+			}),
+
+			cancel: impl.threads.cancel.handler(async ({ input }) => {
+				await cancelThread(ctx, input.threadId);
+				return { threadId: input.threadId };
+			}),
+
+			kill: impl.threads.kill.handler(async ({ input }) => {
+				await killThread(ctx, input.threadId);
 				return { threadId: input.threadId };
 			}),
 

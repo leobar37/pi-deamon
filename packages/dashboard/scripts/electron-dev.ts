@@ -45,6 +45,28 @@ async function runCommand(command: string, args: string[], cwd?: string): Promis
 	}
 }
 
+/**
+ * Rebuild native modules against Electron's NODE_MODULE_VERSION.
+ *
+ * Bun installs better-sqlite3 with prebuilds targeting the system Node ABI
+ * (NODE_MODULE_VERSION 141+), but Electron's embedded Node uses a different ABI
+ * (e.g. NODE_MODULE_VERSION 133 for Electron 35). Without this rebuild step the
+ * dashboard daemon fails at startup with ERR_DLOPEN_FAILED.
+ *
+ * Run only better-sqlite3 to keep iteration fast. The rebuild is incremental
+ * (skips if already rebuilt for the current Electron version).
+ */
+async function rebuildNativeModulesForElectron(): Promise<void> {
+	await runCommand("bun", [
+		"x",
+		"electron-rebuild",
+		"--only",
+		"better-sqlite3",
+		"--module-dir",
+		".",
+	]);
+}
+
 function spawnProcess(command: string, args: string[], options?: { cwd?: string; env?: NodeJS.ProcessEnv }): ChildProcess {
 	return spawn(command, args, {
 		stdio: "inherit",
@@ -73,6 +95,7 @@ async function main(): Promise<void> {
 	await runCommand("bun", ["run", "build"], "../subagents");
 	await runCommand("bun", ["run", "build"]);
 	await runCommand("bun", ["run", "build:electron"]);
+	await rebuildNativeModulesForElectron();
 
 	const renderer = spawnProcess("bun", ["run", "dev", "--", "--host", HOST, "--port", String(port), "--strictPort"], {
 		cwd: "frontend",

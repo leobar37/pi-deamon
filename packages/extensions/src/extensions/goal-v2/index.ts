@@ -533,6 +533,30 @@ export default function goalV2Extension(pi: ExtensionAPI) {
 		};
 	});
 
+	pi.on("tool_result", async (event, ctx) => {
+		if (!core.goal || core.goal.status !== "active") return;
+		if (!event.isError) return;
+
+		// Record tool errors as progress so the goal doesn't get stuck
+		// when a tool fails validation or execution. This gives the LLM
+		// visibility into the failure and allows recovery.
+		const errorText = event.content
+			.filter((c) => c.type === "text")
+			.map((c) => c.text || "")
+			.join("\n");
+
+		if (!errorText) return;
+
+		await recordGoalProgress(ctx, {
+			kind: "blocker",
+			summary: `Tool error: ${event.toolName}`,
+			details: errorText,
+			evidence: [`tool: ${event.toolName}`, `callId: ${event.toolCallId}`],
+		});
+		persist("status");
+		refreshUI(ctx);
+	});
+
 	pi.on("session_before_compact", async (event, ctx) => {
 		const snapshot = currentGoalSnapshot(core);
 		if (!snapshot || snapshot.status === "complete" || !ctx.model) return;

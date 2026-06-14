@@ -1,5 +1,6 @@
-import { Bot, Folder, PanelLeft, PanelLeftClose, Plus, Search, Sparkles, Trash2 } from "lucide-react";
-import type { CanvasSession } from "../canvas/types.js";
+import { Bot, Folder, PanelLeft, PanelLeftClose, Plus, Search, Sparkles, Square, Trash2 } from "lucide-react";
+import { LoadingSpinner } from "../components/LoadingSpinner.js";
+import type { CanvasSession, CanvasSessionRuntime } from "../canvas/types.js";
 import type { CanvasProject } from "../projects/types.js";
 
 interface SessionSidebarProps {
@@ -12,13 +13,16 @@ interface SessionSidebarProps {
 	selectedProjectId: string | null;
 	focusedSessionId: string | null;
 	projectError: string | null;
+	sessionRuntimes: Record<string, CanvasSessionRuntime>;
 	onSessionSearchChange: (value: string) => void;
 	onSelectProject: (projectId: string | null) => void;
 	onCreateProject: () => void;
 	onFocusSession: (sessionId: string) => void;
 	onCreateSession: () => void;
 	canCreateSession: boolean;
+	isCreatingSession?: boolean;
 	onRemoveSession: (sessionId: string) => void;
+	onAbortSession: (sessionId: string) => void;
 }
 
 function shortPath(path: string): string {
@@ -26,6 +30,12 @@ function shortPath(path: string): string {
 	const parts = normalized.split(/[\\/]/);
 	if (parts.length <= 2) return normalized;
 	return `${parts.at(-2)}/${parts.at(-1)}`;
+}
+
+function runtimeLabel(runtime: CanvasSessionRuntime | undefined): string {
+	if (!runtime) return "Unknown";
+	if (runtime.state === "idle") return "Idle";
+	return runtime.state.charAt(0).toUpperCase() + runtime.state.slice(1);
 }
 
 export function SessionSidebar({
@@ -38,13 +48,16 @@ export function SessionSidebar({
 	selectedProjectId,
 	focusedSessionId,
 	projectError,
+	sessionRuntimes,
 	onSessionSearchChange,
 	onSelectProject,
 	onCreateProject,
 	onFocusSession,
 	onCreateSession,
 	canCreateSession,
+	isCreatingSession,
 	onRemoveSession,
+	onAbortSession,
 }: SessionSidebarProps) {
 	if (!isOpen) {
 		return (
@@ -74,11 +87,15 @@ export function SessionSidebar({
 						<button
 							type="button"
 							onClick={onCreateSession}
-							disabled={!canCreateSession}
+							disabled={!canCreateSession || isCreatingSession}
 							className="flex h-8 w-8 items-center justify-center rounded-md border border-border-subtle text-text-secondary transition hover:border-border-hover hover:bg-bg-hover hover:text-text-primary disabled:cursor-not-allowed disabled:opacity-45 disabled:hover:border-border-subtle disabled:hover:bg-transparent disabled:hover:text-text-secondary"
-							title={canCreateSession ? "Add session" : "Select a project first"}
+							title={canCreateSession ? (isCreatingSession ? "Creating session..." : "Add session") : "Select a project first"}
 						>
-							<Plus size={15} aria-hidden="true" />
+							{isCreatingSession ? (
+								<LoadingSpinner size="sm" />
+							) : (
+								<Plus size={15} aria-hidden="true" />
+							)}
 						</button>
 						<button
 							type="button"
@@ -181,11 +198,19 @@ export function SessionSidebar({
 					<div className="space-y-1">
 						{visibleSessions.map((session) => {
 							const selected = session.id === focusedSessionId;
+							const runtime = sessionRuntimes[session.id];
 							return (
-								<button
+								<div
 									key={session.id}
-									type="button"
+									role="button"
+									tabIndex={0}
 									onClick={() => onFocusSession(session.id)}
+									onKeyDown={(e) => {
+										if (e.key === "Enter" || e.key === " ") {
+											e.preventDefault();
+											onFocusSession(session.id);
+										}
+									}}
 									className={`group w-full rounded-md border px-3 py-2.5 text-left transition ${
 										selected
 											? "border-accent/60 bg-accent-muted"
@@ -198,10 +223,33 @@ export function SessionSidebar({
 										</div>
 										<div className="min-w-0 flex-1">
 											<div className="truncate text-sm font-medium text-text-primary">{session.name || `Session ${session.id.slice(0, 8)}`}</div>
-											<div className="mt-2 text-[11px] text-text-tertiary">
-												{new Date(session.createdAt).toLocaleTimeString()}
+											<div className="mt-2 flex items-center gap-2 text-[11px] text-text-tertiary">
+												<span>{new Date(session.createdAt).toLocaleTimeString()}</span>
+												<span
+													className={`inline-flex items-center gap-1 rounded border px-1.5 py-0.5 ${
+														runtime?.isRunning
+															? "border-success/30 bg-success/10 text-success"
+															: "border-border-subtle bg-bg-surface text-text-tertiary"
+													}`}
+												>
+													<span className={`h-1.5 w-1.5 rounded-full ${runtime?.isRunning ? "bg-success" : "bg-text-muted"}`} />
+													{runtimeLabel(runtime)}
+												</span>
 											</div>
 										</div>
+										{runtime?.canAbort ? (
+											<button
+												type="button"
+												onClick={(e) => {
+													e.stopPropagation();
+													onAbortSession(session.id);
+												}}
+												className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-text-tertiary transition hover:bg-warning/10 hover:text-warning"
+												title="Abort session"
+											>
+												<Square size={12} aria-hidden="true" />
+											</button>
+										) : null}
 										<button
 											type="button"
 											onClick={(e) => {
@@ -214,7 +262,7 @@ export function SessionSidebar({
 											<Trash2 size={13} aria-hidden="true" />
 										</button>
 									</div>
-								</button>
+								</div>
 							);
 						})}
 					</div>

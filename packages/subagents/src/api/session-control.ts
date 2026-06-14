@@ -134,6 +134,14 @@ export class DashboardThreadSessionCache {
 		return this.sessions.get(instanceId);
 	}
 
+	dispose(instanceId: string): boolean {
+		const session = this.sessions.get(instanceId);
+		if (!session) return false;
+		session.dispose();
+		this.sessions.delete(instanceId);
+		return true;
+	}
+
 	disposeAll(): void {
 		for (const session of this.sessions.values()) {
 			session.dispose();
