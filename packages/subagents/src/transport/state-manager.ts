@@ -192,6 +192,7 @@ export class DashboardStateManager {
 			kind: "subagent",
 			isLive: false,
 			sessionId: record.sessionId,
+			sessionFile: record.sessionFile,
 			modelProvider: record.modelProvider,
 			modelId: record.modelId,
 		};

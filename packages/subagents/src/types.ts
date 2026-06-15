@@ -523,6 +523,7 @@ export interface SubAgentContextStore {
 export interface SubAgentRunRecord {
 	version: 1;
 	sessionId: string;
+	sessionFile?: string;
 	taskId: string;
 	instanceId: string;
 	definitionName: string;
@@ -562,6 +563,7 @@ export interface SubAgentRunStore {
 	list(filters?: SubAgentRunListFilters): Promise<SubAgentRunRecord[]>;
 	start(input: {
 		sessionId: string;
+		sessionFile?: string;
 		taskId: string;
 		instanceId: string;
 		definitionName: string;

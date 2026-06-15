@@ -1,5 +1,6 @@
+import { readdir } from "node:fs/promises";
 import { join } from "node:path";
-import { SessionManager } from "@earendil-works/pi-coding-agent";
+import { getDefaultSessionDir, SessionManager } from "@earendil-works/pi-coding-agent";
 import { implement, ORPCError } from "@orpc/server";
 import type { LionStrategyName } from "../lion/types.js";
 import { isTaskStoreError } from "../tasks/store.js";
@@ -55,6 +56,7 @@ function projectRunRecord(record: SubAgentRunRecord): DashboardThreadState {
 		kind: "subagent",
 		isLive: false,
 		sessionId: record.sessionId,
+		sessionFile: record.sessionFile,
 		modelProvider: record.modelProvider,
 		modelId: record.modelId,
 	};
@@ -75,6 +77,7 @@ function mergeRunRecordIntoThread(thread: DashboardThreadState, record: SubAgent
 		lastActivityAt: Math.max(thread.lastActivityAt, projected.lastActivityAt),
 		error: thread.error ?? projected.error,
 		sessionId: thread.sessionId ?? projected.sessionId,
+		sessionFile: thread.sessionFile ?? projected.sessionFile,
 		modelProvider: thread.modelProvider ?? projected.modelProvider,
 		modelId: thread.modelId ?? projected.modelId,
 	};
@@ -110,17 +113,38 @@ async function tryOpenSession(
 		}
 	}
 
-	if (virtual.sessionId) {
-		try {
-			const records = await runStore.list();
-			const record = records.find((r) => r.instanceId === threadId);
-			if (record?.cwd && record.sessionId) {
-				const sessionPath = join(record.cwd, ".pi", "sessions", `${record.sessionId}.json`);
-				return SessionManager.open(sessionPath);
-			}
-		} catch {
-			// Not found or inaccessible
+	try {
+		const records = await runStore.list();
+		const record = records.find((r) => r.instanceId === threadId);
+		if (!record) return null;
+
+		const sessionFile = await resolveSessionFile(record);
+		if (sessionFile) {
+			return SessionManager.open(sessionFile);
 		}
+	} catch {
+		// Not found or inaccessible
+	}
+
+	return null;
+}
+
+async function resolveSessionFile(record: SubAgentRunRecord): Promise<string | null> {
+	if (record.sessionFile) return record.sessionFile;
+	if (!record.sessionId || !record.cwd) return null;
+
+	try {
+		const sessionDir = getDefaultSessionDir(record.cwd);
+		const files = await readdir(sessionDir);
+		const match = files.find(
+			(file) =>
+				file.endsWith(`_${record.sessionId}.jsonl`) ||
+				file === `${record.sessionId}.jsonl` ||
+				file === `${record.sessionId}.json`,
+		);
+		if (match) return join(sessionDir, match);
+	} catch {
+		// Directory missing or unreadable
 	}
 
 	return null;
@@ -263,7 +287,7 @@ async function getVirtualSessionFile(
 	const virtual = ctx.stateManager.getInstance(threadId);
 	const record = await findRunRecord(ctx, threadId);
 	if (!record) return null;
-	return { record, sessionFile: virtual?.sessionFile };
+	return { record, sessionFile: virtual?.sessionFile ?? record.sessionFile };
 }
 
 async function sendThreadMessage(

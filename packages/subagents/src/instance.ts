@@ -511,6 +511,7 @@ export class SubAgentInstance {
 		const rpcState = this.getRpcState();
 		await this.runStore.start({
 			sessionId: rpcState.sessionId,
+			sessionFile: rpcState.sessionFile,
 			taskId: this.taskId,
 			instanceId: this.instanceId,
 			definitionName: this.definitionName,

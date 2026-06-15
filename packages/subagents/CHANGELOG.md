@@ -30,6 +30,7 @@
 
 ### Fixed
 
+- Fixed completed subagent transcripts not loading because run records did not store the session file path.
 - Fixed Lion durable plan state being discarded when a new session/turn starts in the same project. Lion state is now project-scoped; active plans persist across sessions until explicitly deactivated or completed.
 - Added optimistic concurrency (`updatedAt` CAS) to Lion state persistence to detect conflicting writes from multiple runtime instances on the same project.
 - Added failure surfacing for Lion state persistence so commands/tools warn when the state file cannot be written.

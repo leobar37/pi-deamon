@@ -47,6 +47,7 @@ export class SubAgentRunStore implements SubAgentRunStoreContract {
 		const record: SubAgentRunRecord = {
 			version: SUBAGENT_RUN_VERSION,
 			sessionId: input.sessionId,
+			sessionFile: input.sessionFile,
 			taskId: input.taskId,
 			instanceId: input.instanceId,
 			definitionName: input.definitionName,
