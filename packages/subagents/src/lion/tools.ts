@@ -5,6 +5,7 @@ import { LionEvents } from "./events/defs.js";
 import { PlanActivator } from "./plan-activator.js";
 import { buildReviewTaskLionTasksParams, loadReviewPlan } from "./review-plan.js";
 import type { LionRuntime } from "./runtime.js";
+import { matchStrategy, matchStrategyOnly } from "./strategy-match.js";
 import type { RunTasksParams } from "./task-runner.js";
 import { TaskRunner } from "./task-runner.js";
 import type {
@@ -38,6 +39,16 @@ export interface LionToolResponse {
 		reason: string;
 	}>;
 }
+
+export const LION_TOOL_NAMES = [
+	"lion_activate_plan",
+	"lion_checklist_read",
+	"lion_checklist_record",
+	"lion_checklist_start_next",
+	"lion_tasks",
+] as const;
+
+export type LionToolName = (typeof LION_TOOL_NAMES)[number];
 
 // =============================================================================
 // Parameter schemas
@@ -176,6 +187,7 @@ export function registerLionTools(runtime: LionRuntime): void {
 			"Activate the requested Lion plan when the user asks to select or switch plans. After activation, use lion_tasks with analyzer or planner delegations for analysis and validation. This does not permit implementation; /lion-build is still required.",
 		parameters: ActivatePlanParams,
 		async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
+			assertLionToolAllowed(runtime, "lion_activate_plan");
 			const result = activator.activate(ctx, params.reference);
 			runtime.logTool("lion_activate_plan", { reference: params.reference }, result);
 			return toToolResult(result);
@@ -190,6 +202,7 @@ export function registerLionTools(runtime: LionRuntime): void {
 			"Use lion_checklist_read to inspect durable checklist progress. Do not read or edit checklist.json directly.",
 		parameters: ChecklistReadParams,
 		async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
+			assertLionToolAllowed(runtime, "lion_checklist_read");
 			const checklist = checklistService.read({
 				kind: params.kind as LionChecklistKind,
 				reference: params.reference,
@@ -220,6 +233,7 @@ export function registerLionTools(runtime: LionRuntime): void {
 			"Use lion_checklist_start_next before preparing work from a durable plan or review checklist. Do not update checklist.json manually.",
 		parameters: ChecklistStartNextParams,
 		async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
+			assertLionToolAllowed(runtime, "lion_checklist_start_next");
 			const { checklist, task } = checklistService.startNext({
 				kind: params.kind as LionChecklistKind,
 				reference: params.reference,
@@ -272,6 +286,7 @@ export function registerLionTools(runtime: LionRuntime): void {
 			"Use lion_checklist_record to mark durable checklist tasks complete, blocked, retryable, pending, or in progress. Include evidence in summary.",
 		parameters: ChecklistRecordParams,
 		async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
+			assertLionToolAllowed(runtime, "lion_checklist_record");
 			const { checklist, task } = checklistService.recordResult({
 				kind: params.kind as LionChecklistKind,
 				reference: params.reference,
@@ -315,6 +330,7 @@ export function registerLionTools(runtime: LionRuntime): void {
 			"Delegate subagent work via lion_tasks. Use explicit tasks array with definition (analyzer, planner, reviewer, validator, executor), title, and structured prompt. Use source: active_plan_next_task (executor only) during build mode to run the next plan task. Strategies: parallel, sequential, chain. Do not pass both source and tasks.",
 		parameters: LionTasksParams,
 		async execute(toolCallId, params, _signal, _onUpdate, ctx) {
+			assertLionToolAllowed(runtime, "lion_tasks");
 			const result = await runner.run(ctx, params, {
 				threadId: runtime.mainSession.getThread()?.instanceId ?? `main:${ctx.sessionManager.getSessionId()}`,
 				toolCallId,
@@ -331,6 +347,45 @@ export function registerLionTools(runtime: LionRuntime): void {
 			);
 			return toToolResult(result);
 		},
+	});
+}
+
+export function getActiveLionTools(runtime: LionRuntime): LionToolName[] {
+	if (!runtime.state.active) return [];
+
+	return matchStrategy(runtime.state, {
+		plan: (phase) => {
+			const tools: LionToolName[] = phase === "planning" ? ["lion_activate_plan", "lion_tasks"] : ["lion_tasks"];
+			if (runtime.state.activePlanPath) {
+				tools.push("lion_checklist_read", "lion_checklist_start_next", "lion_checklist_record");
+			}
+			return tools;
+		},
+		simple: () => ["lion_tasks"],
+		review: () => ["lion_checklist_read", "lion_checklist_start_next", "lion_checklist_record", "lion_tasks"],
+		none: () => [],
+	});
+}
+
+export function assertLionToolAllowed(runtime: LionRuntime, toolName: LionToolName): void {
+	if (!getActiveLionTools(runtime).includes(toolName)) {
+		const state = runtime.state;
+		throw new Error(
+			`${toolName} is not available while Lion is ${state.active ? `${state.strategy}/${state.phase}` : "inactive"}. Activate the matching Lion command first.`,
+		);
+	}
+}
+
+export function isLionToolCallAllowed(runtime: LionRuntime, toolName: LionToolName): boolean {
+	if (!runtime.state.active) return false;
+	if (!getActiveLionTools(runtime).includes(toolName)) return false;
+	if (toolName !== "lion_activate_plan") return true;
+
+	return matchStrategyOnly(runtime.state.strategy, {
+		plan: () => runtime.state.phase === "planning",
+		simple: () => false,
+		review: () => false,
+		none: () => false,
 	});
 }
 

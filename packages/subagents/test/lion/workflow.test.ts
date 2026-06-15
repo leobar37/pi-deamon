@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { ToolCallEvent, ToolResultEvent } from "@earendil-works/pi-coding-agent";
 import { visibleWidth } from "@earendil-works/pi-tui";
+import { LionChecklistService } from "../../src/lion/checklist-service.js";
 import { registerLionCommands } from "../../src/lion/commands.js";
 import {
 	createLionCore,
@@ -31,7 +32,7 @@ import { LionRuntime } from "../../src/lion/runtime.js";
 import { getLionStatePath, readLionState, writeLionState } from "../../src/lion/state-store.js";
 import { hasPlanReference } from "../../src/lion/strategies/shared.js";
 import { TaskRunner } from "../../src/lion/task-runner.js";
-import { registerLionTools } from "../../src/lion/tools.js";
+import { getActiveLionTools, registerLionTools } from "../../src/lion/tools.js";
 import type { LionPlan, LionTask } from "../../src/lion/types.js";
 import { buildLionSubagentWidgetLines } from "../../src/lion/ui/subagents-widget.js";
 import { parseReviewVerdict } from "../../src/lion/utils.js";
@@ -982,8 +983,17 @@ async function testLionBuildCommandStopsOnRetryableTask(): Promise<void> {
 			updated.tasks.map((item) => item.status),
 			["retryable", "pending"],
 		);
-		assert.deepEqual(executedTasks, ["T-001: Task 1"]);
+		assert.deepEqual(executedTasks, ["T-001: Task 1", "T-001: Task 1"]);
 		assert.equal(runtime.state.activeTaskId, null);
+		const visibleMessages = pi.messages
+			.map((message) => message.content?.content)
+			.filter((content): content is string => typeof content === "string");
+		assert.equal(visibleMessages.filter((message) => message.includes("Lion build mode activated for")).length, 1);
+		assert.ok(
+			visibleMessages.some((message) =>
+				message.includes("Reason: executor completed without subagent_record_result after one retry."),
+			),
+		);
 	} finally {
 		rmSync(dir, { recursive: true, force: true });
 	}
@@ -1073,6 +1083,7 @@ async function testLionActivatePlanToolKeepsPlanningPhase(): Promise<void> {
 	const pi = fakePiWithTools();
 	try {
 		const runtime = new LionRuntime(pi as any, TEST_CWD);
+		runtime.activatePlanning();
 		registerLionTools(runtime);
 		const tool = pi.tools.get("lion_activate_plan");
 		assert.ok(tool);
@@ -1082,6 +1093,56 @@ async function testLionActivatePlanToolKeepsPlanningPhase(): Promise<void> {
 		assert.equal(runtime.state.activePlanPath, dir);
 		assert.equal(runtime.state.phase, "planning");
 		assert.equal(result.details.plan.rootPath, dir);
+	} finally {
+		rmSync(dir, { recursive: true, force: true });
+	}
+}
+
+async function testLionActivatePlanToolRequiresActivePlanningMode(): Promise<void> {
+	const dir = createStructuredPlanDirWithChecklist();
+	const pi = fakePiWithTools();
+	try {
+		const runtime = new LionRuntime(pi as any, TEST_CWD);
+		registerLionTools(runtime);
+		const tool = pi.tools.get("lion_activate_plan");
+		assert.ok(tool);
+
+		await assert.rejects(
+			() => tool.execute("tool-1", { reference: dir }, undefined, undefined, fakeCtx({}) as any),
+			/lion_activate_plan is not available while Lion is inactive/,
+		);
+	} finally {
+		rmSync(dir, { recursive: true, force: true });
+	}
+}
+
+function testPlanChecklistServiceUsesMarkdownTasksWithoutJson(): void {
+	const dir = createStructuredPlanDirWithMarkdownTasks();
+	try {
+		const service = new LionChecklistService();
+		const started = service.startNext({ kind: "plan", activePlanPath: dir, cwd: dir });
+
+		assert.equal(started.task?.id, "T-001");
+		assert.equal(started.task?.status, "in_progress");
+		assert.equal(started.checklist.progress.inProgress, 1);
+		assert.equal(
+			readFileSync(join(dir, "tasks", "01-foundation.md"), "utf-8").includes('status: "in_progress"'),
+			true,
+		);
+
+		const recorded = service.recordResult({
+			kind: "plan",
+			activePlanPath: dir,
+			cwd: dir,
+			taskId: "T-001",
+			status: "complete",
+			summary: "done",
+		});
+
+		assert.equal(recorded.task?.status, "complete");
+		assert.equal(recorded.checklist.progress.completed, 1);
+		const taskFile = readFileSync(join(dir, "tasks", "01-foundation.md"), "utf-8");
+		assert.equal(taskFile.includes('last_summary: "done"'), true);
 	} finally {
 		rmSync(dir, { recursive: true, force: true });
 	}
@@ -1164,6 +1225,17 @@ function testLionToolsRegisterPlanActivationAndDelegationOnly(): void {
 		"lion_checklist_start_next",
 		"lion_tasks",
 	]);
+}
+
+function testActiveLionToolsFollowParentCommandAndPhase(): void {
+	const runtime = new LionRuntime(fakePi() as any, TEST_CWD);
+	assert.deepEqual(getActiveLionTools(runtime), []);
+
+	runtime.activatePlanning();
+	assert.deepEqual(getActiveLionTools(runtime).sort(), ["lion_activate_plan", "lion_tasks"]);
+
+	runtime.setPhase("building");
+	assert.deepEqual(getActiveLionTools(runtime), ["lion_tasks"]);
 }
 
 function testLionDashboardUrlUsesStatusOnly(): void {
@@ -1805,7 +1877,6 @@ function testRuntimeRestoreState(): void {
 				lastRunId: null,
 			},
 			createLionCore(),
-			"test-session",
 		);
 		const runtime = new LionRuntime(fakePi() as any, cwd);
 		runtime.restore(fakeCtx({ cwd }) as any);
@@ -1818,7 +1889,7 @@ function testRuntimeRestoreState(): void {
 	}
 }
 
-function testRuntimeRestoreStateIgnoresOtherSession(): void {
+function testRuntimeRestoreStateAcceptsOtherSession(): void {
 	const cwd = mkdtempSync(join(tmpdir(), "lion-restore-other-session-"));
 	try {
 		writeLionState(
@@ -1836,19 +1907,18 @@ function testRuntimeRestoreStateIgnoresOtherSession(): void {
 				lastRunId: null,
 			},
 			createLionCore(),
-			"previous-session",
 		);
 		const runtime = new LionRuntime(fakePi() as any, cwd);
 		runtime.restore(fakeCtx({ cwd, sessionId: "new-session" }) as any);
-		assert.equal(runtime.state.active, false);
-		assert.equal(runtime.state.strategy, "none");
-		assert.equal(runtime.state.activePlanSlug, null);
+		assert.equal(runtime.state.active, true);
+		assert.equal(runtime.state.strategy, "plan");
+		assert.equal(runtime.state.activePlanSlug, "plan");
 	} finally {
 		rmSync(cwd, { recursive: true, force: true });
 	}
 }
 
-function testRuntimeRestoreStateIgnoresOwnerlessActiveDocument(): void {
+function testRuntimeRestoreStateAcceptsOwnerlessActiveDocument(): void {
 	const cwd = mkdtempSync(join(tmpdir(), "lion-restore-ownerless-"));
 	try {
 		const statePath = getLionStatePath(cwd);
@@ -1875,8 +1945,9 @@ function testRuntimeRestoreStateIgnoresOwnerlessActiveDocument(): void {
 		);
 		const runtime = new LionRuntime(fakePi() as any, cwd);
 		runtime.restore(fakeCtx({ cwd }) as any);
-		assert.equal(runtime.state.active, false);
-		assert.equal(runtime.state.strategy, "none");
+		assert.equal(runtime.state.active, true);
+		assert.equal(runtime.state.strategy, "plan");
+		assert.equal(runtime.state.activePlanSlug, "plan");
 	} finally {
 		rmSync(cwd, { recursive: true, force: true });
 	}
@@ -1944,18 +2015,78 @@ function testRuntimePersist(): void {
 	const cwd = mkdtempSync(join(tmpdir(), "lion-persist-"));
 	try {
 		const runtime = new LionRuntime(fakePi() as any, cwd);
-		runtime.restore(fakeCtx({ cwd, sessionId: "persist-session" }) as any);
+		const ctx = fakeCtx({ cwd, sessionId: "persist-session" }) as any;
+		runtime.restore(ctx);
 		runtime.activatePlanning();
-		runtime.persist();
-		const saved = readLionState(cwd, fakeCtx({ cwd, sessionId: "persist-session" }) as any);
+		assert.equal(runtime.persist(ctx), true);
+		const saved = readLionState(cwd, ctx);
 		assert.ok(saved);
 		assert.equal(saved.state.active, true);
 		assert.equal(saved.state.strategy, "plan");
 		assert.equal(saved.state.phase, "planning");
-		assert.equal(readLionState(cwd, fakeCtx({ cwd, sessionId: "other-session" }) as any), null);
+		const otherSession = readLionState(cwd, fakeCtx({ cwd, sessionId: "other-session" }) as any);
+		assert.ok(otherSession);
+		assert.equal(otherSession.state.active, true);
 	} finally {
 		rmSync(cwd, { recursive: true, force: true });
 	}
+}
+
+function testRuntimePersistDetectsConflict(): void {
+	const cwd = mkdtempSync(join(tmpdir(), "lion-persist-conflict-"));
+	try {
+		const runtime = new LionRuntime(fakePi() as any, cwd);
+		const ctx = fakeCtx({ cwd, sessionId: "session-a" }) as any;
+		runtime.restore(ctx);
+		runtime.activatePlanning();
+		assert.equal(runtime.persist(ctx), true);
+
+		// Simulate another session/process modifying the file.
+		const saved = readLionState(cwd, ctx);
+		assert.ok(saved);
+		writeLionState(cwd, { ...saved.state, activePlanSlug: "other-plan" }, saved.core);
+
+		// Now runtime's lastKnownUpdatedAt is stale.
+		runtime.activateSimple();
+		assert.equal(runtime.persist(ctx), false);
+	} finally {
+		rmSync(cwd, { recursive: true, force: true });
+	}
+}
+
+function testLionPlanSurvivesSessionChange(): void {
+	const dir = createStructuredPlanDirWithChecklist();
+	try {
+		const runtime = new LionRuntime(fakePi() as any, dir);
+		const ctx = fakeCtx({ cwd: dir, sessionId: "session-a" }) as any;
+		runtime.restore(ctx);
+
+		const plan = loadLionPlan(dir);
+		runtime.activatePlan(plan);
+		assert.equal(runtime.persist(ctx), true);
+
+		// Simulate a new session/turn in the same project.
+		runtime.restore(fakeCtx({ cwd: dir, sessionId: "session-b" }) as any);
+		assert.equal(runtime.state.activePlanPath, dir);
+		assert.equal(runtime.state.activePlanSlug, "plan");
+	} finally {
+		rmSync(dir, { recursive: true, force: true });
+	}
+}
+
+function testLionDeactivateCommand(): void {
+	const pi = fakePiWithCommands();
+	const runtime = new LionRuntime(pi as any, TEST_CWD);
+	registerLionCommands(pi as any, runtime);
+	runtime.activatePlanning();
+	assert.equal(runtime.state.active, true);
+
+	const ctx = fakeCtx({ cwd: TEST_CWD, sessionId: "test-session" }) as any;
+	pi.commands.get("lion-deactivate")!.handler("", ctx);
+
+	assert.equal(runtime.state.active, false);
+	assert.equal(runtime.state.strategy, "none");
+	assert.equal(runtime.state.activePlanPath, null);
 }
 
 function testRuntimeEmit(): void {
@@ -2516,14 +2647,26 @@ function testRuntimeCleanupSubagentUiKeepsRecent(): void {
 const TEST_CWD = "/tmp";
 
 function fakePi() {
+	const activeTools = new Set<string>();
 	return {
 		entries: [] as any[],
 		messages: [] as any[],
+		activeTools,
 		appendEntry(type: string, data: any) {
 			this.entries.push({ type, data });
 		},
 		sendMessage(content: any, options: any) {
 			this.messages.push({ content, options });
+		},
+		getActiveTools() {
+			return [...activeTools];
+		},
+		setActiveTools(toolNames: string[]) {
+			activeTools.clear();
+			for (const toolName of toolNames) activeTools.add(toolName);
+		},
+		getAllTools() {
+			return [];
 		},
 	};
 }
@@ -2544,6 +2687,9 @@ function fakePiWithTools() {
 		tools: new Map<string, any>(),
 		registerTool(tool: any) {
 			this.tools.set(tool.name, tool);
+		},
+		getAllTools() {
+			return [...this.tools.values()];
 		},
 	};
 }
@@ -2690,6 +2836,49 @@ Status: pending
 	return dir;
 }
 
+function createStructuredPlanDirWithMarkdownTasks(): string {
+	const dir = mkdtempSync(join(tmpdir(), "lion-structured-markdown-"));
+	mkdirSync(join(dir, "tasks"));
+	writeFileSync(
+		join(dir, "task-index.md"),
+		`# Test Plan Task Index
+
+## Summary
+
+- Mode: Structured
+- Slug: \`test-plan\`
+- Task State: \`tasks/*.md\` frontmatter
+
+## Task List
+
+| Task ID | File | Purpose | Dependencies |
+| --- | --- | --- | --- |
+| \`T-001\` | \`tasks/01-foundation.md\` | Foundation task | none |
+`,
+	);
+	writeFileSync(join(dir, "context.md"), "# Context\n\nTest project context.");
+	writeFileSync(join(dir, "requirements.md"), "# Requirements\n\n- FR-001");
+	writeFileSync(
+		join(dir, "tasks", "01-foundation.md"),
+		`---
+id: T-001
+title: Foundation task
+status: pending
+dependencies: []
+requirements:
+  - FR-001
+---
+
+# T-001 Foundation task
+
+## Objective
+
+Build the foundation.
+`,
+	);
+	return dir;
+}
+
 function createStructuredPlanDirWithDependentChecklist(): string {
 	const dir = mkdtempSync(join(tmpdir(), "lion-structured-"));
 	writeFileSync(
@@ -2796,12 +2985,24 @@ const tests = [
 	{ name: "testLionTaskEvidenceDetectsHiddenErrors", fn: testLionTaskEvidenceDetectsHiddenErrors },
 	{ name: "testLionTaskEvidenceUsesRecordedResult", fn: testLionTaskEvidenceUsesRecordedResult },
 	{ name: "testLionActivatePlanToolKeepsPlanningPhase", fn: testLionActivatePlanToolKeepsPlanningPhase },
+	{
+		name: "testLionActivatePlanToolRequiresActivePlanningMode",
+		fn: testLionActivatePlanToolRequiresActivePlanningMode,
+	},
+	{
+		name: "testPlanChecklistServiceUsesMarkdownTasksWithoutJson",
+		fn: testPlanChecklistServiceUsesMarkdownTasksWithoutJson,
+	},
 	{ name: "testLionValidateCommandInjectsLionTasksPrompt", fn: testLionValidateCommandInjectsLionTasksPrompt },
 	{ name: "testLionReviewCommandCreatesPlanReviewPipeline", fn: testLionReviewCommandCreatesPlanReviewPipeline },
 	{ name: "testLionReviewCommandRequiresActivePlan", fn: testLionReviewCommandRequiresActivePlan },
 	{
 		name: "testLionToolsRegisterPlanActivationAndDelegationOnly",
 		fn: testLionToolsRegisterPlanActivationAndDelegationOnly,
+	},
+	{
+		name: "testActiveLionToolsFollowParentCommandAndPhase",
+		fn: testActiveLionToolsFollowParentCommandAndPhase,
 	},
 	{ name: "testLionDashboardUrlUsesStatusOnly", fn: testLionDashboardUrlUsesStatusOnly },
 	{ name: "testLionExtensionDoesNotGuardWhenInactive", fn: testLionExtensionDoesNotGuardWhenInactive },
@@ -2849,15 +3050,18 @@ const tests = [
 	{ name: "testResolvePlanPath", fn: testResolvePlanPath },
 	{ name: "testResolvePlanPathWithDir", fn: testResolvePlanPathWithDir },
 	{ name: "testRuntimeRestoreState", fn: testRuntimeRestoreState },
-	{ name: "testRuntimeRestoreStateIgnoresOtherSession", fn: testRuntimeRestoreStateIgnoresOtherSession },
+	{ name: "testRuntimeRestoreStateAcceptsOtherSession", fn: testRuntimeRestoreStateAcceptsOtherSession },
 	{
-		name: "testRuntimeRestoreStateIgnoresOwnerlessActiveDocument",
-		fn: testRuntimeRestoreStateIgnoresOwnerlessActiveDocument,
+		name: "testRuntimeRestoreStateAcceptsOwnerlessActiveDocument",
+		fn: testRuntimeRestoreStateAcceptsOwnerlessActiveDocument,
 	},
 	{ name: "testRuntimeRestoreStateIgnoresLegacyVersion", fn: testRuntimeRestoreStateIgnoresLegacyVersion },
 	{ name: "testRuntimeRestoreStateInvalidVersion", fn: testRuntimeRestoreStateInvalidVersion },
 	{ name: "testRuntimeRestoreStateNoEntries", fn: testRuntimeRestoreStateNoEntries },
 	{ name: "testRuntimePersist", fn: testRuntimePersist },
+	{ name: "testRuntimePersistDetectsConflict", fn: testRuntimePersistDetectsConflict },
+	{ name: "testLionPlanSurvivesSessionChange", fn: testLionPlanSurvivesSessionChange },
+	{ name: "testLionDeactivateCommand", fn: testLionDeactivateCommand },
 	{ name: "testRuntimeEmit", fn: testRuntimeEmit },
 	{ name: "testRuntimeRetainAndRelease", fn: testRuntimeRetainAndRelease },
 	{ name: "testRuntimeRetainMultipleSameRun", fn: testRuntimeRetainMultipleSameRun },

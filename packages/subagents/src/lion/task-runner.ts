@@ -18,6 +18,7 @@ import { createRunId } from "./utils.js";
 export interface RunTasksParams {
 	source?: "active_plan_next_task";
 	role?: "analyzer" | "planner" | "executor" | "reviewer" | "validator";
+	retryDirective?: string;
 	tasks?: Array<{
 		definition: string;
 		title: string;
@@ -51,16 +52,20 @@ export class TaskRunner {
 
 	async runActivePlanBuild(ctx: ExtensionContext, parent: RunTasksParent): Promise<LionToolResponse[]> {
 		const responses: LionToolResponse[] = [];
+		const unstructuredRetries = new Map<string, number>();
+		let retryDirective: string | undefined;
 		for (;;) {
 			let response: LionToolResponse;
 			try {
 				response = await this.run(
 					ctx,
-					{ source: "active_plan_next_task", role: "executor", strategy: "sequential" },
+					{ source: "active_plan_next_task", role: "executor", strategy: "sequential", retryDirective },
 					parent,
 				);
+				retryDirective = undefined;
 			} catch (err: unknown) {
 				if (err instanceof Error && err.message === "No executable task is available in the active Lion plan.") {
+					this.runtime.ui.showMessage("Lion build complete.\n\nNo executable task remains in the active plan.");
 					return responses;
 				}
 				throw err;
@@ -70,7 +75,51 @@ export class TaskRunner {
 			const shouldContinue =
 				response.tasks?.length &&
 				response.tasks.every((task) => task.status === "completed" && task.verificationStatus === "verified");
-			if (!shouldContinue) return responses;
+			if (shouldContinue) {
+				if (response.nextTask) {
+					this.runtime.ui.showMessage(
+						`Lion task completed.\n\n${response.nextTask.id}: ${response.nextTask.title}`,
+					);
+				}
+				continue;
+			}
+
+			const unstructuredTask = getUnstructuredCompletedTask(response);
+			if (unstructuredTask && response.nextTask) {
+				const attempts = unstructuredRetries.get(response.nextTask.id) ?? 0;
+				if (attempts < 1) {
+					unstructuredRetries.set(response.nextTask.id, attempts + 1);
+					retryDirective = [
+						"The previous executor attempt finished without calling subagent_record_result.",
+						"This retry is only successful if you call subagent_record_result before finishing.",
+						"Record status, summary, files, evidence, risks, and nextStep. Do not finish with plain text only.",
+					].join("\n");
+					this.runtime.ui.showMessage(
+						[
+							"Lion completion gate failed.",
+							"",
+							`Retrying ${response.nextTask.id}: ${response.nextTask.title}`,
+							"Reason: executor completed without subagent_record_result.",
+						].join("\n"),
+					);
+					continue;
+				}
+
+				this.runtime.ui.showMessage(
+					[
+						"Lion build stopped.",
+						"",
+						`Task: ${response.nextTask.id}: ${response.nextTask.title}`,
+						"Status: retryable",
+						"Reason: executor completed without subagent_record_result after one retry.",
+						"Next action: run /lion-build again after reviewing the subagent output.",
+					].join("\n"),
+				);
+				return responses;
+			}
+
+			this.runtime.ui.showMessage(buildBuildStoppedMessage(response));
+			return responses;
 		}
 	}
 
@@ -282,7 +331,7 @@ export class TaskRunner {
 				{
 					definition: role,
 					title: `${selectedPlanTask.id}: ${selectedPlanTask.title}`,
-					prompt: this.buildActivePlanTaskPrompt(selectedPlanTask, role),
+					prompt: this.buildActivePlanTaskPrompt(selectedPlanTask, role, params.retryDirective),
 				},
 			];
 		}
@@ -337,7 +386,7 @@ export class TaskRunner {
 		return task;
 	}
 
-	private buildActivePlanTaskPrompt(task: LionTask, role: string): string {
+	private buildActivePlanTaskPrompt(task: LionTask, role: string, retryDirective?: string): string {
 		const planPath = this.runtime.state.activePlanPath ?? "";
 		const taskFile = task.file ? `${planPath}/${task.file}` : "";
 		return [
@@ -345,16 +394,22 @@ export class TaskRunner {
 			`  <role>${escapeXml(role)}</role>`,
 			`  <plan path="${escapeXml(planPath)}" task_id="${escapeXml(task.id)}" task_file="${escapeXml(taskFile)}" />`,
 			`  <objective>${escapeXml(task.title)}</objective>`,
+			retryDirective
+				? ["  <retry_directive>", `    ${escapeXml(retryDirective)}`, "  </retry_directive>"].join("\n")
+				: "",
 			"  <constraints>",
 			"    <must>Use the active plan and task file as the source of truth.</must>",
+			"    <must>Call subagent_record_result before finishing. Plain final text is not accepted for Lion plan tasks.</must>",
 			"    <must_not>Ask the user for clarification.</must_not>",
 			"    <must_not>Wait for external input.</must_not>",
 			"  </constraints>",
 			"  <output>",
-			"    <must_return>Summary, files changed or inspected, validation evidence, risks, and unknowns.</must_return>",
+			"    <must_return>subagent_record_result with status, summary, files, evidence, risks, and nextStep.</must_return>",
 			"  </output>",
 			"</delegation>",
-		].join("\n");
+		]
+			.filter(Boolean)
+			.join("\n");
 	}
 
 	private applyPhasePolicy(task: PreparedTaskConfig): PreparedTaskConfig {
@@ -675,6 +730,30 @@ function buildRetryableOrchestrationFeedback(error: string): string {
 		"",
 		"Retry the current task with lion_tasks. Treat the active plan task as retryable, not blocked.",
 	].join("\n");
+}
+
+function getUnstructuredCompletedTask(response: LionToolResponse): LionTaskResult | null {
+	return (
+		response.tasks?.find((task) => {
+			return task.status === "completed" && !task.recordedResult && task.verificationStatus === "unverified";
+		}) ?? null
+	);
+}
+
+function buildBuildStoppedMessage(response: LionToolResponse): string {
+	const task = response.nextTask;
+	const result = response.tasks?.[0];
+	const lines = ["Lion build stopped."];
+	if (task) lines.push("", `Task: ${task.id}: ${task.title}`);
+	if (result) {
+		lines.push(
+			`Status: ${result.status}`,
+			`Verification: ${result.verificationStatus}`,
+			`Summary: ${result.summary || "No summary returned."}`,
+		);
+	}
+	lines.push("Next action: inspect the task result and run /lion-build again when ready.");
+	return lines.join("\n");
 }
 
 function isPlanningRole(definition: string): boolean {

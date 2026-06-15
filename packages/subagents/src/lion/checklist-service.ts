@@ -1,11 +1,12 @@
-import { existsSync, readFileSync, writeFileSync } from "node:fs";
-import { basename, join } from "node:path";
-import { getNextExecutableTask, loadLionPlan, resolvePlanPath } from "./plans/index.js";
+import { readFileSync, writeFileSync } from "node:fs";
+import { basename } from "node:path";
+import { getNextExecutableTask, loadLionPlan, recordStructuredTaskResult, resolvePlanPath } from "./plans/index.js";
 import { listReviewPlans, loadReviewPlan } from "./review-plan.js";
 import type {
 	LionChecklistKind,
 	LionChecklistProgress,
 	LionChecklistSnapshot,
+	LionPlan,
 	LionTask,
 	LionTaskStatus,
 } from "./types.js";
@@ -33,26 +34,19 @@ export interface ChecklistTaskResult {
 export class LionChecklistService {
 	read(input: ChecklistReference): LionChecklistSnapshot {
 		const resolved = this.resolve(input);
-		return this.snapshot(resolved.kind, resolved.rootPath, resolved.slug, resolved.checklistFile);
+		return this.snapshot(resolved);
 	}
 
 	startNext(input: ChecklistReference): ChecklistTaskResult {
 		const resolved = this.resolve(input);
-		const snapshot = this.snapshot(resolved.kind, resolved.rootPath, resolved.slug, resolved.checklistFile);
+		const snapshot = this.snapshot(resolved);
 		const task =
 			resolved.kind === "plan"
-				? getNextExecutableTask({
-						kind: "structured",
-						slug: resolved.slug,
-						rootPath: resolved.rootPath,
-						indexFile: "",
-						checklistFile: resolved.checklistFile,
-						tasks: snapshot.tasks,
-					})
+				? getNextExecutableTask(resolved.plan)
 				: (snapshot.tasks.find((item) => item.status === "pending") ?? null);
 		if (!task) return { checklist: snapshot, task: null };
-		const updatedTask = this.updateTask(resolved.checklistFile, task.id, "in_progress");
-		const checklist = this.snapshot(resolved.kind, resolved.rootPath, resolved.slug, resolved.checklistFile);
+		const updatedTask = this.updateTask(resolved, task.id, "in_progress");
+		const checklist = this.snapshot(this.resolve(input));
 		return { checklist, task: checklist.tasks.find((item) => item.id === updatedTask.id) ?? updatedTask };
 	}
 
@@ -60,24 +54,36 @@ export class LionChecklistService {
 		input: ChecklistReference & { taskId: string; status: LionTaskStatus; summary?: string },
 	): ChecklistTaskResult {
 		const resolved = this.resolve(input);
-		const task = this.updateTask(resolved.checklistFile, input.taskId, input.status, input.summary);
-		const checklist = this.snapshot(resolved.kind, resolved.rootPath, resolved.slug, resolved.checklistFile);
+		const task = this.updateTask(resolved, input.taskId, input.status, input.summary);
+		const checklist = this.snapshot(this.resolve(input));
 		return { checklist, task: checklist.tasks.find((item) => item.id === task.id) ?? task };
 	}
 
-	private resolve(input: ChecklistReference): {
-		kind: LionChecklistKind;
-		rootPath: string;
-		slug: string;
-		checklistFile: string;
-	} {
+	private resolve(input: ChecklistReference):
+		| {
+				kind: "plan";
+				rootPath: string;
+				slug: string;
+				checklistFile: string;
+				plan: LionPlan;
+		  }
+		| {
+				kind: "review";
+				rootPath: string;
+				slug: string;
+				checklistFile: string;
+		  } {
 		if (input.kind === "plan") {
 			const planPath = input.reference ? resolvePlanPath(input.cwd, input.reference) : input.activePlanPath;
 			if (!planPath) throw new Error("Plan checklist requires an active plan or reference.");
 			const plan = loadLionPlan(planPath);
-			const checklistFile = plan.checklistFile ?? join(plan.rootPath, "checklist.json");
-			if (!existsSync(checklistFile)) throw new Error(`Plan checklist not found: ${checklistFile}`);
-			return { kind: "plan", rootPath: plan.rootPath, slug: plan.slug, checklistFile };
+			return {
+				kind: "plan",
+				rootPath: plan.rootPath,
+				slug: plan.slug,
+				checklistFile: plan.checklistFile ?? plan.indexFile,
+				plan,
+			};
 		}
 
 		const reviewReference = input.reference ?? input.activePlanPath;
@@ -87,18 +93,34 @@ export class LionChecklistService {
 	}
 
 	private snapshot(
-		kind: LionChecklistKind,
-		rootPath: string,
-		slug: string,
-		checklistFile: string,
+		resolved:
+			| {
+					kind: "plan";
+					rootPath: string;
+					slug: string;
+					checklistFile: string;
+					plan: LionPlan;
+			  }
+			| {
+					kind: "review";
+					rootPath: string;
+					slug: string;
+					checklistFile: string;
+			  },
 	): LionChecklistSnapshot {
-		const record = this.readRecord(checklistFile);
+		const record =
+			resolved.kind === "plan"
+				? {
+						review: undefined,
+						tasks: resolved.plan.tasks,
+					}
+				: this.readRecord(resolved.checklistFile);
 		const tasks = record.tasks.map((task) => normalizeTask(task));
 		return {
-			kind,
-			slug: record.review || slug || basename(rootPath),
-			rootPath,
-			checklistFile,
+			kind: resolved.kind,
+			slug: record.review || resolved.slug || basename(resolved.rootPath),
+			rootPath: resolved.rootPath,
+			checklistFile: resolved.checklistFile,
 			tasks,
 			progress: computeProgress(tasks),
 			updatedAt: tasks.reduce<string | null>((latest, task) => {
@@ -108,8 +130,34 @@ export class LionChecklistService {
 		};
 	}
 
-	private updateTask(checklistFile: string, taskId: string, status: LionTaskStatus, summary?: string): LionTask {
-		const record = this.readRecord(checklistFile);
+	private updateTask(
+		resolved:
+			| {
+					kind: "plan";
+					rootPath: string;
+					slug: string;
+					checklistFile: string;
+					plan: LionPlan;
+			  }
+			| {
+					kind: "review";
+					rootPath: string;
+					slug: string;
+					checklistFile: string;
+			  },
+		taskId: string,
+		status: LionTaskStatus,
+		summary?: string,
+	): LionTask {
+		if (resolved.kind === "plan") {
+			recordStructuredTaskResult(resolved.plan, taskId, status, summary);
+			const updatedPlan = loadLionPlan(resolved.rootPath);
+			const task = updatedPlan.tasks.find((item) => item.id === taskId);
+			if (!task) throw new Error(`Task ${taskId} not found in plan`);
+			return normalizeTask(task);
+		}
+
+		const record = this.readRecord(resolved.checklistFile);
 		const task = record.tasks.find((item) => item.id === taskId);
 		if (!task) throw new Error(`Task ${taskId} not found in checklist`);
 		task.status = status;
@@ -117,7 +165,7 @@ export class LionChecklistService {
 		task.updated_at = new Date().toISOString();
 		record.completed = record.tasks.filter((item) => item.status === "complete").length;
 		record.total_tasks = record.tasks.length;
-		writeFileSync(checklistFile, JSON.stringify(record, null, 2), "utf-8");
+		writeFileSync(resolved.checklistFile, JSON.stringify(record, null, 2), "utf-8");
 		return normalizeTask(task);
 	}
 

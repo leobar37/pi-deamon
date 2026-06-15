@@ -223,6 +223,10 @@ export function updateStructuredTaskStatus(plan: LionPlan, taskId: string, statu
 	const checklistFile = join(plan.rootPath, "checklist.json");
 	if (existsSync(checklistFile)) {
 		new LionChecklistFile(checklistFile).updateTaskStatus(taskId, status);
+		return;
+	}
+	if (plan.kind === "structured" && existsSync(plan.rootPath) && statSync(plan.rootPath).isDirectory()) {
+		new StructuredLionPlanFile(plan.rootPath).updateTaskStatus(plan, taskId, status);
 	}
 }
 
@@ -237,6 +241,10 @@ export function recordStructuredTaskResult(
 	const checklistFile = plan.checklistFile ?? join(plan.rootPath, "checklist.json");
 	if (existsSync(checklistFile)) {
 		new LionChecklistFile(checklistFile).recordTaskResult(taskId, status, summary);
+		return;
+	}
+	if (plan.kind === "structured" && existsSync(plan.rootPath) && statSync(plan.rootPath).isDirectory()) {
+		new StructuredLionPlanFile(plan.rootPath).recordTaskResult(plan, taskId, status, summary);
 		return;
 	}
 	updateStructuredTaskStatus(plan, taskId, status);

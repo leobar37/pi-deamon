@@ -5,19 +5,29 @@ import { createLionCore, type LionCore } from "./core.js";
 import type { LionState } from "./types.js";
 
 const LION_STATE_FILE = ".pi/lion/state.json";
-const LION_DOCUMENT_VERSION = 4;
+const LION_DOCUMENT_VERSION = 5;
 
 export interface PersistedLionDocument {
 	version: number;
-	sessionId: string | null;
 	state: LionState;
 	core: LionCore;
 	updatedAt: number;
+	// sessionId is no longer used for ownership checks. Kept optional for
+	// backward compatibility when reading older version 4 documents.
+	sessionId?: string | null;
 }
 
 export interface LionStateStoreResult {
 	state: LionState;
 	core: LionCore;
+	updatedAt: number;
+}
+
+export interface LionWriteResult {
+	ok: boolean;
+	updatedAt?: number;
+	conflict?: boolean;
+	error?: string;
 }
 
 /**
@@ -32,23 +42,16 @@ export function readLionState(cwd: string, ctx?: ExtensionContext): LionStateSto
 	if (existsSync(path)) {
 		try {
 			const raw = readFileSync(path, "utf-8");
-			const doc = JSON.parse(raw) as PersistedLionDocument | Omit<PersistedLionDocument, "sessionId">;
+			const doc = JSON.parse(raw) as PersistedLionDocument;
 			if (
-				doc.version === LION_DOCUMENT_VERSION &&
-				isValidDocumentSession(doc) &&
+				(doc.version === LION_DOCUMENT_VERSION || doc.version === 4) &&
 				isValidState(doc.state) &&
-				isValidCore(doc.core) &&
-				isCurrentSessionDocument(doc, ctx)
+				isValidCore(doc.core)
 			) {
-				return { state: doc.state, core: doc.core };
+				return { state: doc.state, core: doc.core, updatedAt: doc.updatedAt };
 			}
-			if (
-				doc.version === 3 &&
-				isValidState(doc.state) &&
-				isValidCore(doc.core) &&
-				isSafeOwnerlessDocument(doc, ctx)
-			) {
-				return { state: doc.state, core: doc.core };
+			if (doc.version === 3 && isValidState(doc.state) && isValidCore(doc.core)) {
+				return { state: doc.state, core: doc.core, updatedAt: doc.updatedAt ?? Date.now() };
 			}
 		} catch {
 			// Corrupted file — fall through to legacy or initial state
@@ -60,8 +63,8 @@ export function readLionState(cwd: string, ctx?: ExtensionContext): LionStateSto
 		const legacy = readLegacyLionState(ctx);
 		if (legacy) {
 			// Migrate to new file format for next time
-			writeLionState(cwd, legacy.state, legacy.core, ctx.sessionManager.getSessionId());
-			return legacy;
+			writeLionState(cwd, legacy.state, legacy.core);
+			return { ...legacy, updatedAt: Date.now() };
 		}
 	}
 
@@ -70,30 +73,70 @@ export function readLionState(cwd: string, ctx?: ExtensionContext): LionStateSto
 
 /**
  * Writes Lion state atomically to disk.
+ *
+ * If `expectedUpdatedAt` is provided, the write succeeds only when the current
+ * file either does not exist or has the same `updatedAt`. This prevents lost
+ * updates when multiple runtime instances share the same working directory.
  */
-export function writeLionState(cwd: string, state: LionState, core: LionCore, sessionId: string | null = null): void {
+export function writeLionState(
+	cwd: string,
+	state: LionState,
+	core: LionCore,
+	expectedUpdatedAt?: number,
+): LionWriteResult {
 	const path = getLionStatePath(cwd);
 	const dir = dirname(path);
 	if (!existsSync(dir)) {
 		mkdirSync(dir, { recursive: true });
 	}
 
+	let currentUpdatedAt: number | null = null;
+	// Optimistic concurrency check.
+	if (expectedUpdatedAt !== undefined && existsSync(path)) {
+		try {
+			const currentRaw = readFileSync(path, "utf-8");
+			const currentDoc = JSON.parse(currentRaw) as PersistedLionDocument;
+			if (isValidState(currentDoc.state) && isValidCore(currentDoc.core)) {
+				currentUpdatedAt = currentDoc.updatedAt;
+			}
+			if (currentUpdatedAt !== null && currentUpdatedAt !== expectedUpdatedAt) {
+				return {
+					ok: false,
+					conflict: true,
+					error: `Lion state was modified by another session (expected ${expectedUpdatedAt}, found ${currentUpdatedAt}).`,
+				};
+			}
+		} catch {
+			// If the current file is unreadable, proceed with the write so that
+			// a corrupted file does not permanently block state updates.
+		}
+	} else if (existsSync(path)) {
+		try {
+			const currentRaw = readFileSync(path, "utf-8");
+			const currentDoc = JSON.parse(currentRaw) as PersistedLionDocument;
+			if (isValidState(currentDoc.state) && isValidCore(currentDoc.core)) {
+				currentUpdatedAt = currentDoc.updatedAt;
+			}
+		} catch {
+			// If the current file is unreadable, proceed with a fresh timestamp.
+		}
+	}
+
+	const updatedAt = Math.max(Date.now(), (currentUpdatedAt ?? 0) + 1);
 	const doc: PersistedLionDocument = {
 		version: LION_DOCUMENT_VERSION,
-		sessionId,
 		state,
 		core,
-		updatedAt: Date.now(),
+		updatedAt,
 	};
 
 	const tempPath = `${path}.tmp`;
 	try {
 		writeFileSync(tempPath, `${JSON.stringify(doc, null, 2)}\n`, "utf-8");
 		renameSync(tempPath, path);
+		return { ok: true, updatedAt };
 	} catch (err) {
 		const message = err instanceof Error ? err.message : String(err);
-		console.error(`[lion] failed to persist state: ${message}`);
-		// Best effort: clean up temp file
 		try {
 			if (existsSync(tempPath)) {
 				unlinkSync(tempPath);
@@ -101,6 +144,7 @@ export function writeLionState(cwd: string, state: LionState, core: LionCore, se
 		} catch {
 			/* ignore cleanup errors */
 		}
+		return { ok: false, error: message };
 	}
 }
 
@@ -158,7 +202,7 @@ function readLegacyLionState(ctx: ExtensionContext): LionStateStoreResult | null
 				}
 			: createLionCore();
 
-	return { state: state as LionState, core };
+	return { state: state as LionState, core, updatedAt: Date.now() };
 }
 
 // ============================================================================
@@ -185,21 +229,4 @@ function isValidCore(value: unknown): value is LionCore {
 	if (!value || typeof value !== "object") return false;
 	const c = value as Record<string, unknown>;
 	return Array.isArray(c.runHistory) && (c.activeRun === null || typeof c.activeRun === "object");
-}
-
-function isValidDocumentSession(value: unknown): value is PersistedLionDocument {
-	if (!value || typeof value !== "object") return false;
-	const doc = value as Record<string, unknown>;
-	return doc.sessionId === null || typeof doc.sessionId === "string";
-}
-
-function isCurrentSessionDocument(doc: PersistedLionDocument, ctx?: ExtensionContext): boolean {
-	if (!ctx) return true;
-	if (doc.sessionId === null) return !doc.state.active;
-	return doc.sessionId === ctx.sessionManager.getSessionId();
-}
-
-function isSafeOwnerlessDocument(doc: Omit<PersistedLionDocument, "sessionId">, ctx?: ExtensionContext): boolean {
-	if (!ctx) return true;
-	return !doc.state.active;
 }

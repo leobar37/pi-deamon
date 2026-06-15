@@ -7,6 +7,7 @@ import {
 	type ThreadPromptImage,
 	type ThreadPromptMode,
 } from "../api/session-control.js";
+import { taskChangedEventFromToolResult } from "../tasks/tool-events.js";
 import type { DashboardSessionSource, DashboardThreadState } from "../transport/types.js";
 import type { SubAgentEvent, SubAgentInstanceState } from "../types.js";
 import type { LionBuildResult } from "./types.js";
@@ -193,6 +194,10 @@ export class MainSessionBridge implements DashboardSessionSource {
 					isError: event.isError,
 					timestamp: now,
 				});
+				{
+					const taskEvent = taskChangedEventFromToolResult(event, now);
+					if (taskEvent) this.emit(taskEvent);
+				}
 				break;
 		}
 

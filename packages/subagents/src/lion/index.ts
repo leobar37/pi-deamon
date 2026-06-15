@@ -5,7 +5,7 @@ import { resolveConfiguredModel } from "../config-manager.js";
 import { registerLionCommands } from "./commands.js";
 import { LionRuntime } from "./runtime.js";
 import { getLionStrategy } from "./strategies/index.js";
-import { registerLionTools } from "./tools.js";
+import { getActiveLionTools, isLionToolCallAllowed, LION_TOOL_NAMES, registerLionTools } from "./tools.js";
 import { stopLionSubagentWidget } from "./ui/subagents-widget.js";
 import { createRunId } from "./utils.js";
 
@@ -32,6 +32,20 @@ export function lionExtension(pi: ExtensionAPI): void {
 		} catch (err) {
 			console.error("[lion] dashboard start failed:", err);
 		}
+	}
+
+	function syncLionTools(): void {
+		const active = new Set(pi.getActiveTools());
+		for (const tool of LION_TOOL_NAMES) {
+			active.delete(tool);
+		}
+
+		const available = new Set(pi.getAllTools().map((tool) => tool.name));
+		for (const tool of getActiveLionTools(runtime)) {
+			if (available.has(tool)) active.add(tool);
+		}
+
+		pi.setActiveTools([...active]);
 	}
 
 	pi.on("session_start", async (_event, ctx) => {
@@ -64,6 +78,7 @@ export function lionExtension(pi: ExtensionAPI): void {
 		}
 		restore(ctx);
 		runtime.attachMainSession(ctx);
+		syncLionTools();
 
 		// In web mode the dashboard should be available, but the user chooses
 		// the Lion strategy through the UI selector. Only activate Lion here
@@ -81,6 +96,7 @@ export function lionExtension(pi: ExtensionAPI): void {
 	pi.on("session_tree", async (_event, ctx) => {
 		restore(ctx);
 		runtime.attachMainSession(ctx);
+		syncLionTools();
 		if (runtime.state.active) {
 			await ensureDashboard();
 		}
@@ -97,6 +113,15 @@ export function lionExtension(pi: ExtensionAPI): void {
 	pi.on("tool_execution_start", async (event, ctx) => runtime.recordMainSessionEvent(event, ctx));
 	pi.on("tool_execution_end", async (event, ctx) => runtime.recordMainSessionEvent(event, ctx));
 	pi.on("tool_call", async (event) => {
+		if (LION_TOOL_NAMES.includes(event.toolName as (typeof LION_TOOL_NAMES)[number])) {
+			if (isLionToolCallAllowed(runtime, event.toolName as (typeof LION_TOOL_NAMES)[number])) return undefined;
+			syncLionTools();
+			return {
+				block: true,
+				reason: "Lion tools are gated by the active Lion command, strategy, and phase.",
+			};
+		}
+
 		if (!runtime.state.active) return undefined;
 		return runtime.delegationGuard.handleToolCall(event);
 	});
@@ -117,10 +142,12 @@ export function lionExtension(pi: ExtensionAPI): void {
 
 	// Start dashboard when Lion activates via events from the bus
 	runtime.events.on("lion.activate.complete", () => {
+		syncLionTools();
 		ensureDashboard().catch((err) => console.error("[lion] dashboard ensure failed:", err));
 	});
 
 	pi.on("before_agent_start", async (event) => {
+		syncLionTools();
 		if (!runtime.state.active) return;
 		const strategy = getLionStrategy(runtime.state.strategy);
 		return { systemPrompt: `${event.systemPrompt}\n\n${strategy.buildMainPrompt(runtime.state)}` };

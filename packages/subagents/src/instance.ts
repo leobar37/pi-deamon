@@ -16,6 +16,7 @@ import { type DashboardCommand, getAgentSessionCommands } from "./api/session-co
 import type { SubAgentEventBus } from "./event-bus.js";
 import { buildSubAgentInstructions, createSubAgentSession } from "./session-factory.js";
 import { SubAgentSummarizer } from "./summarizer.js";
+import { taskChangedEventFromToolResult } from "./tasks/tool-events.js";
 import type {
 	BashResult,
 	ConversationSummary,
@@ -399,6 +400,11 @@ export class SubAgentInstance {
 				};
 				this.logEvent(toolEvent);
 				this.eventBus.emit(toolEvent);
+				const taskEvent = taskChangedEventFromToolResult(event, now);
+				if (taskEvent) {
+					this.logEvent(taskEvent);
+					this.eventBus.emit(taskEvent);
+				}
 				if (this.config.verboseTools) {
 					const legacyEvent: SubAgentEvent = {
 						type: "tool.execute",

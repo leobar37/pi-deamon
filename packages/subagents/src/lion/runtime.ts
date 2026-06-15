@@ -53,7 +53,7 @@ export class LionRuntime {
 	#widgetTimer: ReturnType<typeof setInterval> | null;
 	#configManager: SubAgentRuntimeConfigManager | null;
 	#cwd: string;
-	#sessionId: string | null;
+	#lastStateUpdatedAt: number | null;
 	dashboard: LionDashboard | null;
 
 	constructor(pi: ExtensionAPI, cwd: string) {
@@ -77,7 +77,7 @@ export class LionRuntime {
 		this.#runLogger = null;
 		this.#unsubscribeRunLogger = null;
 		this.#configManager = null;
-		this.#sessionId = null;
+		this.#lastStateUpdatedAt = null;
 	}
 
 	get pi(): ExtensionAPI {
@@ -242,14 +242,15 @@ export class LionRuntime {
 
 	restore(ctx: ExtensionContext): void {
 		this.rememberUiContext(ctx);
-		this.#sessionId = ctx.sessionManager.getSessionId();
 		const saved = readLionState(this.#cwd, ctx);
 		if (saved) {
 			this.#state = normalizeInactiveStrategy(saved.state);
 			this.#core = saved.core;
+			this.#lastStateUpdatedAt = saved.updatedAt;
 		} else {
 			this.#state = createInitialLionState();
 			this.#core = createLionCore();
+			this.#lastStateUpdatedAt = null;
 		}
 		this.#activeRunId = this.#core.activeRun?.runId ?? null;
 		this.mainSession.attach(ctx);
@@ -263,8 +264,26 @@ export class LionRuntime {
 	recordMainSessionEvent(event: Parameters<MainSessionBridge["record"]>[0], ctx: ExtensionContext): void {
 		this.mainSession.record(event, ctx);
 	}
-	persist(): void {
-		writeLionState(this.#cwd, this.#state, this.#core, this.#sessionId);
+	persist(ctx?: ExtensionContext): boolean {
+		const result = writeLionState(this.#cwd, this.#state, this.#core, this.#lastStateUpdatedAt ?? undefined);
+		if (result.ok) {
+			if (result.updatedAt === undefined) {
+				this.logError("Lion state persistence failed", new Error("write did not return an updatedAt token"));
+				return false;
+			}
+			this.#lastStateUpdatedAt = result.updatedAt;
+			return true;
+		}
+
+		const context = result.conflict ? "Lion state conflict" : "Lion state persistence failed";
+		const detail = result.error ?? "Another session may have modified the state file.";
+		this.logError(context, new Error(detail));
+		if (ctx) {
+			this.ui.showMessage(
+				`${context}: ${detail}\n\nCurrent plan remains active in memory, but it may not survive a restart.`,
+			);
+		}
+		return false;
 	}
 
 	queueFeedback(ctx: ExtensionContext, content: string, details: Record<string, unknown>): void {
@@ -484,6 +503,13 @@ export class LionRuntime {
 		this.#state = { ...this.#state, phase: "planning", activeTaskId: null, lastBuild: result };
 		this.mainSession.notifyRunComplete(result);
 		this.logState("apply_build_result", { result });
+	}
+	deactivate(): void {
+		this.#state = createInitialLionState();
+		this.#core = createLionCore();
+		this.#activeRunId = null;
+		this.#lastStateUpdatedAt = null;
+		this.logState("deactivate");
 	}
 	rememberUiContext(ctx: ExtensionContext): void {
 		if (ctx.hasUI) this.#lastUiContext = ctx;

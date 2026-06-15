@@ -27,7 +27,9 @@ export class PlanActivator {
 
 		const plan = loadLionPlan(resolution.planPath);
 		this.runtime.activatePlan(plan);
-		this.runtime.persist();
+		if (!this.runtime.persist(ctx)) {
+			throw new Error("Failed to persist Lion plan activation.");
+		}
 		bus.emit(
 			LionEvents.planLoaded({
 				runId,

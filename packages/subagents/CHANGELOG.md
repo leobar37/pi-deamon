@@ -30,6 +30,10 @@
 
 ### Fixed
 
+- Fixed Lion durable plan state being discarded when a new session/turn starts in the same project. Lion state is now project-scoped; active plans persist across sessions until explicitly deactivated or completed.
+- Added optimistic concurrency (`updatedAt` CAS) to Lion state persistence to detect conflicting writes from multiple runtime instances on the same project.
+- Added failure surfacing for Lion state persistence so commands/tools warn when the state file cannot be written.
+- Added `/lion-deactivate` command to fully reset Lion to inactive strategy `none`.
 - Fixed dashboard-created sessions reporting under the selected project while running from the backend process working directory by exposing and validating each thread's effective cwd.
 - Fixed main-thread dashboard prompts so slash commands such as `/lion-build` execute instead of being sent as plain user text.
 - Fixed file-backed Lion state leaking active plan mode into newly opened sessions in the same working directory.

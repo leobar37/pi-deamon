@@ -10,6 +10,7 @@ import {
 	SessionManager,
 	type SettingsManager,
 } from "@earendil-works/pi-coding-agent";
+import { taskChangedEventFromToolResult } from "../tasks/tool-events.js";
 import type { DashboardThreadState } from "../transport/types.js";
 import type { SubAgentEvent, SubAgentState } from "../types.js";
 import { formatDashboardCommands, type ThreadPromptImage, type ThreadPromptMode } from "./session-control.js";
@@ -215,6 +216,10 @@ export class StandaloneSessionManager {
 			sessionEvent: event as unknown as Record<string, unknown>,
 			timestamp: Date.now(),
 		});
+		if (event.type === "tool_execution_end") {
+			const taskEvent = taskChangedEventFromToolResult(event);
+			if (taskEvent) this.emit?.(taskEvent);
+		}
 
 		const state = this.inferState(info.session);
 		this.emitState(info, state);

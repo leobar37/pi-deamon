@@ -1,5 +1,5 @@
 import { execFile } from "node:child_process";
-import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { buildCodeReviewTodo, buildPlanCodeReviewTodo, collectCodeReviewGitContext } from "./code-review.js";
 import { loadLionPlan, resolvePlanPath } from "./plans/index.js";
 import { buildPlanReviewPrompt } from "./prompts/index.js";
@@ -10,6 +10,10 @@ import { TaskRunner } from "./task-runner.js";
 import { createRunId, formatPlanSummary } from "./utils.js";
 
 export function registerLionCommands(pi: ExtensionAPI, runtime: LionRuntime): void {
+	function persistOrStop(ctx: ExtensionContext): boolean {
+		return runtime.persist(ctx);
+	}
+
 	pi.registerCommand("lion-activate", {
 		description: "Activate Lion planning/orchestration mode",
 		handler: async (args, ctx) => {
@@ -20,7 +24,7 @@ export function registerLionCommands(pi: ExtensionAPI, runtime: LionRuntime): vo
 
 			if (!input) {
 				runtime.activatePlanning();
-				runtime.persist();
+				if (!persistOrStop(ctx)) return;
 				runtime.ui.updateStatus(ctx, runtime.state);
 				// Ensure a persistent subagent controller exists from activation
 				runtime.ensureController(ctx);
@@ -62,7 +66,7 @@ export function registerLionCommands(pi: ExtensionAPI, runtime: LionRuntime): vo
 			const planPath = resolvePlanPath(ctx.cwd, input);
 			if (!planPath) {
 				runtime.activatePlanning();
-				runtime.persist();
+				if (!persistOrStop(ctx)) return;
 				runtime.ui.updateStatus(ctx, runtime.state);
 				// Ensure a persistent subagent controller exists from activation
 				runtime.ensureController(ctx);
@@ -96,7 +100,7 @@ export function registerLionCommands(pi: ExtensionAPI, runtime: LionRuntime): vo
 
 			const plan = loadLionPlan(planPath);
 			runtime.activatePlan(plan);
-			runtime.persist();
+			if (!persistOrStop(ctx)) return;
 			// Ensure a persistent subagent controller exists from activation
 			runtime.ensureController(ctx);
 			runtime.attachMainSession(ctx);
@@ -151,7 +155,7 @@ export function registerLionCommands(pi: ExtensionAPI, runtime: LionRuntime): vo
 			runtime.emit({ type: "lion.activate.start", timestamp: Date.now(), runId, input });
 			runtime.logState("command_lion_simple", { runId, input });
 			runtime.activateSimple();
-			runtime.persist();
+			if (!persistOrStop(ctx)) return;
 			runtime.ensureController(ctx);
 			runtime.attachMainSession(ctx);
 			runtime.ui.updateStatus(ctx, runtime.state);
@@ -218,7 +222,7 @@ export function registerLionCommands(pi: ExtensionAPI, runtime: LionRuntime): vo
 				checklistFile: reviewPlan.checklistFile,
 				tasks: reviewPlan.tasks,
 			});
-			runtime.persist();
+			if (!persistOrStop(ctx)) return;
 			runtime.ensureController(ctx);
 			runtime.attachMainSession(ctx);
 			runtime.ui.updateStatus(ctx, runtime.state);
@@ -298,7 +302,7 @@ export function registerLionCommands(pi: ExtensionAPI, runtime: LionRuntime): vo
 				checklistFile: reviewPlan.checklistFile,
 				tasks: reviewPlan.tasks,
 			});
-			runtime.persist();
+			if (!persistOrStop(ctx)) return;
 			runtime.ensureController(ctx);
 			runtime.attachMainSession(ctx);
 			runtime.ui.updateStatus(ctx, runtime.state);
@@ -496,7 +500,7 @@ export function registerLionCommands(pi: ExtensionAPI, runtime: LionRuntime): vo
 			const runId = createRunId();
 			runtime.logState("command_lion_build", { runId, planPath: activePlanPath, strategy });
 			runtime.setPhase("building");
-			runtime.persist();
+			if (!persistOrStop(ctx)) return;
 			runtime.ui.updateStatus(ctx, runtime.state);
 
 			const content = matchStrategyOnly(strategy, {
@@ -596,6 +600,20 @@ export function registerLionCommands(pi: ExtensionAPI, runtime: LionRuntime): vo
 				runtime.logError("lion-dashboard", err);
 				runtime.ui.showMessage(`Failed to open Lion dashboard: ${error}`);
 			}
+		},
+	});
+
+	pi.registerCommand("lion-deactivate", {
+		description: "Deactivate Lion and clear the active plan/strategy",
+		handler: async (_args, ctx) => {
+			if (!runtime.state.active) {
+				runtime.ui.showMessage("Lion is already inactive.");
+				return;
+			}
+			runtime.deactivate();
+			if (!persistOrStop(ctx)) return;
+			runtime.ui.updateStatus(ctx, runtime.state);
+			runtime.ui.showMessage("Lion deactivated.\n\nNo active plan or strategy.");
 		},
 	});
 }
