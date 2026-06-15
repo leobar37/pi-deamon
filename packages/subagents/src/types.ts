@@ -288,6 +288,7 @@ export interface SubAgentEventMap {
 		taskId: string;
 		definitionName: string;
 		cwd: string;
+		kind?: "main" | "standalone" | "subagent";
 		parentThreadId?: string;
 		parentToolCallId?: string;
 		runId?: string;
@@ -551,6 +552,8 @@ export interface SubAgentRunListFilters {
 	runId?: string;
 	definitionName?: string;
 	sessionId?: string;
+	parentThreadId?: string;
+	parentToolCallId?: string;
 }
 
 export interface SubAgentRunStore {

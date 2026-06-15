@@ -13,6 +13,7 @@ function createCtx(): ExtensionContext {
 			getSessionId: () => "session-1",
 			getSessionName: () => "Main",
 			getSessionFile: () => "/tmp/session.jsonl",
+			getCwd: () => "/tmp/project",
 			getEntries: () => [],
 			getLeafId: () => undefined,
 		},

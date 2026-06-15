@@ -17,7 +17,7 @@ export const SubAgentStateSchema = z.enum([
 	"timed_out",
 ]);
 
-export const DashboardThreadKindSchema = z.enum(["main", "subagent"]);
+export const DashboardThreadKindSchema = z.enum(["main", "standalone", "subagent"]);
 
 export const LionChecklistKindSchema = z.enum(["plan", "review"]);
 
@@ -65,6 +65,15 @@ export const ThreadCreateResultSchema = z.object({
 	createdAt: z.number(),
 	cwd: z.string(),
 });
+
+export const ThreadListInputSchema = z
+	.object({
+		parentThreadId: z.string().trim().min(1).optional(),
+		parentToolCallId: z.string().trim().min(1).optional(),
+		runId: z.string().trim().min(1).optional(),
+		includeHistory: z.boolean().optional(),
+	})
+	.optional();
 
 export const ThreadModelInputSchema = z.object({
 	threadId: z.string(),

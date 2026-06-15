@@ -1,16 +1,19 @@
 import { useLionChecklist } from "../hooks/use-lion-checklist.ts";
 import { useLionState } from "../hooks/use-lion-state.ts";
-import type { SubAgentInstanceState, SubAgentRunRecord } from "../types.ts";
+import type { LionChecklistSnapshot, SubAgentInstanceState, SubAgentRunRecord } from "../types.ts";
 import { useSubAgentStore } from "../store/use-subagent-store.ts";
 import { MarkdownRenderer } from "./blocks/MarkdownRenderer";
 import { ChecklistProgressBlock } from "./ChecklistProgressBlock.tsx";
 import { isLionUiActive } from "./LionModeBadge.tsx";
+import { X } from "lucide-react";
 
 interface AgentRunSidebarProps {
 	agent?: SubAgentInstanceState;
 	run?: SubAgentRunRecord;
 	isLoading?: boolean;
 	isOpen?: boolean;
+	presentation?: "sidebar" | "drawer";
+	onClose?: () => void;
 }
 
 function formatTime(value?: number | null): string {
@@ -49,7 +52,14 @@ async function copyText(text: string): Promise<void> {
 	}
 }
 
-export function AgentRunSidebar({ agent, run, isLoading, isOpen = true }: AgentRunSidebarProps) {
+export function AgentRunSidebar({
+	agent,
+	run,
+	isLoading,
+	isOpen = true,
+	presentation = "sidebar",
+	onClose,
+}: AgentRunSidebarProps) {
 	const { data: lionState } = useLionState();
 	const activePlanReference = lionState?.activePlanPath ?? undefined;
 	const agents = useSubAgentStore((state) => state.agents);
@@ -66,16 +76,96 @@ export function AgentRunSidebar({ agent, run, isLoading, isOpen = true }: AgentR
 	});
 	const runProgress = isMain && isLionActive && isPlanStrategy && agent && lionState?.phase === "building" ? getRunProgress(agents, agent.instanceId) : null;
 
+	const content = (
+		<AgentRunSidebarContent
+			agent={agent}
+			run={run}
+			isLoading={isLoading}
+			isMain={isMain}
+			showStatus={showStatus}
+			planChecklist={planChecklist}
+			runProgress={runProgress}
+			input={input}
+			systemPrompt={systemPrompt}
+			output={output}
+			showClose={presentation === "drawer"}
+			onClose={onClose}
+		/>
+	);
+
+	if (presentation === "drawer") {
+		return (
+			<div className={`fixed inset-0 z-50 ${isOpen ? "block" : "hidden"}`}>
+				<button
+					type="button"
+					className="absolute inset-0 bg-black/45"
+					aria-label="Close session details"
+					onClick={onClose}
+				/>
+				<aside className="absolute right-0 top-0 flex h-full w-[340px] max-w-[calc(100vw-1rem)] flex-col border-l border-border-subtle bg-bg-elevated shadow-2xl">
+					{content}
+				</aside>
+			</div>
+		);
+	}
+
 	return (
 		<aside
 			className={`hidden shrink-0 flex-col border-l bg-bg-elevated lg:flex transition-all duration-300 ease-in-out overflow-hidden ${
 				isOpen ? "w-[340px] border-border-subtle" : "w-0 border-transparent"
 			}`}
 		>
-			<div className="min-w-[340px] flex-1 flex flex-col">
-				<div className="border-b border-border-subtle px-4 py-3">
-				<div className="text-xs uppercase tracking-wide text-text-tertiary">{isMain ? "Session" : "Run"}</div>
-				<div className="mt-1 truncate text-sm font-medium text-text-primary">{run?.description ?? agent?.description ?? agent?.definitionName ?? "Subagent"}</div>
+			{content}
+		</aside>
+	);
+}
+
+function AgentRunSidebarContent({
+	agent,
+	run,
+	isLoading,
+	isMain,
+	showStatus,
+	planChecklist,
+	runProgress,
+	input,
+	systemPrompt,
+	output,
+	showClose,
+	onClose,
+}: {
+	agent?: SubAgentInstanceState;
+	run?: SubAgentRunRecord;
+	isLoading?: boolean;
+	isMain: boolean;
+	showStatus: boolean;
+	planChecklist?: LionChecklistSnapshot;
+	runProgress: RunProgress | null;
+	input: string;
+	systemPrompt: string;
+	output: string;
+	showClose: boolean;
+	onClose?: () => void;
+}) {
+	return (
+		<div className="flex min-w-[340px] flex-1 flex-col">
+			<div className="border-b border-border-subtle px-4 py-3">
+				<div className="flex items-start justify-between gap-3">
+					<div className="min-w-0">
+						<div className="text-xs uppercase tracking-wide text-text-tertiary">{isMain ? "Session" : "Run"}</div>
+						<div className="mt-1 truncate text-sm font-medium text-text-primary">{run?.description ?? agent?.description ?? agent?.definitionName ?? "Subagent"}</div>
+					</div>
+					{showClose ? (
+						<button
+							type="button"
+							onClick={onClose}
+							className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md border border-border-subtle text-text-secondary transition hover:border-border-hover hover:bg-bg-hover hover:text-text-primary"
+							aria-label="Close session details"
+						>
+							<X size={16} aria-hidden="true" />
+						</button>
+					) : null}
+				</div>
 				<div className="mt-2 grid grid-cols-2 gap-2 text-xs text-text-secondary">
 					{showStatus ? (
 						<div>
@@ -152,9 +242,8 @@ export function AgentRunSidebar({ agent, run, isLoading, isOpen = true }: AgentR
 					<div>Updated: {formatTime(run?.updatedAt ?? agent?.lastActivityAt)}</div>
 					<div>Completed: {formatTime(run?.completedAt ?? agent?.endTime)}</div>
 				</div>
-				</div>
 			</div>
-		</aside>
+		</div>
 	);
 }
 
@@ -201,7 +290,7 @@ function getRunProgress(agents: SubAgentInstanceState[], mainThreadId: string): 
 	const runAgents = subagents.filter((item) => item.runId === latestRunId);
 	const completed = runAgents.filter((item) => item.state === "completed").length;
 	const failed = runAgents.filter((item) => item.state === "failed" || item.state === "timed_out" || item.state === "cancelled").length;
-	const queued = runAgents.filter((item) => item.state === "queued" || item.state === "created" || item.state === "starting").length;
+	const queued = runAgents.filter((item) => item.state === "created" || item.state === "starting").length;
 	const running = runAgents.filter((item) => item.state === "running" || item.state === "completing" || item.state === "paused").length;
 	const total = runAgents.length;
 	const finished = completed + failed;

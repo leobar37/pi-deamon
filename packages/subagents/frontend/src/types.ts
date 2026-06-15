@@ -10,15 +10,14 @@ export type SubAgentState =
 	| "blocked"
 	| "failed"
 	| "cancelled"
-	| "timed_out"
-	| "queued";
+	| "timed_out";
 
 export interface SubAgentInstanceState {
 	instanceId: string;
 	taskId: string;
 	definitionName: string;
 	cwd: string;
-	kind?: "main" | "subagent";
+	kind?: "main" | "standalone" | "subagent";
 	parentThreadId?: string;
 	parentToolCallId?: string;
 	runId?: string;

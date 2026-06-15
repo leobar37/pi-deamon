@@ -254,43 +254,27 @@ export function syncDashboardQueries(event: SubAgentEvent): void {
 	if (!instanceId) return;
 
 	if (event.type === "instance.created") {
-		const created = buildCreatedThread(event);
-		queryClient.setQueryData<SubAgentInstanceState[]>(["agents"], (current) => upsertThread(current, created));
-		queryClient.setQueryData(["agent", instanceId], created);
-		queryClient.invalidateQueries({ queryKey: ["agents"] });
+		void queryClient.invalidateQueries({ refetchType: "active" });
 		return;
 	}
 
 	if (event.type === "instance.state") {
-		const nextState = readThreadState(event);
-		if (!nextState) return;
-		queryClient.setQueryData<SubAgentInstanceState[]>(["agents"], (current) => upsertThread(current, nextState));
-		queryClient.setQueryData(["agent", instanceId], nextState);
-		queryClient.invalidateQueries({ queryKey: ["agents"] });
+		if (!readThreadState(event)) return;
+		void queryClient.invalidateQueries({ refetchType: "active" });
 		return;
 	}
 
 	if (event.type === "lifecycle.change") {
 		const current = event.current;
 		if (typeof current !== "string") return;
-		queryClient.setQueryData<SubAgentInstanceState[]>(["agents"], (threads) =>
-			updateThread(threads, instanceId, { state: current as SubAgentInstanceState["state"] }));
-		queryClient.setQueryData<SubAgentInstanceState>(["agent", instanceId], (thread) =>
-			thread ? { ...thread, state: current as SubAgentInstanceState["state"] } : thread);
-		queryClient.invalidateQueries({ queryKey: ["agents"] });
+		void queryClient.invalidateQueries({ refetchType: "active" });
 		return;
 	}
 
 	if (event.type === "task.end" || event.type === "error") {
-		const nextState: SubAgentInstanceState["state"] = event.type === "error" ? "failed" : readTaskEndState(event);
-		queryClient.setQueryData<SubAgentInstanceState[]>(["agents"], (threads) =>
-			updateThread(threads, instanceId, { state: nextState, currentTool: null, currentToolStartedAt: null }));
-		queryClient.setQueryData<SubAgentInstanceState>(["agent", instanceId], (thread) =>
-			thread ? { ...thread, state: nextState, currentTool: null, currentToolStartedAt: null } : thread);
+		if (event.type === "task.end") readTaskEndState(event);
 		setTimeout(() => {
-			queryClient.invalidateQueries({ queryKey: ["agents"] });
-			queryClient.invalidateQueries({ queryKey: ["agent", instanceId] });
-			queryClient.invalidateQueries({ queryKey: ["agent-run", instanceId] });
+			void queryClient.invalidateQueries({ refetchType: "active" });
 		}, 50);
 	}
 }
@@ -298,35 +282,6 @@ export function syncDashboardQueries(event: SubAgentEvent): void {
 export function syncMessageQuery(instanceId: string): void {
 	const messages = useSessionMessagesStore.getState().getMessages(instanceId);
 	setThreadMessagesCache(queryClient, instanceId, messages);
-}
-
-function buildCreatedThread(event: SubAgentEvent): SubAgentInstanceState {
-	const taskId = typeof event.taskId === "string" ? event.taskId : "unknown";
-	const definitionName = typeof event.definitionName === "string" ? event.definitionName : "subagent";
-	const cwd = typeof event.cwd === "string" ? event.cwd : "";
-	const now = Date.now();
-	return {
-		instanceId: event.instanceId ?? "unknown",
-		taskId,
-		definitionName,
-		cwd,
-		kind: event.kind === "main" ? "main" : "subagent",
-		parentThreadId: typeof event.parentThreadId === "string" ? event.parentThreadId : undefined,
-		parentToolCallId: typeof event.parentToolCallId === "string" ? event.parentToolCallId : undefined,
-		runId: typeof event.runId === "string" ? event.runId : undefined,
-		runIndex: typeof event.runIndex === "number" ? event.runIndex : undefined,
-		description: typeof event.description === "string" ? event.description : "",
-		state: "created",
-		startTime: null,
-		endTime: null,
-		turnCount: 0,
-		lastActivityAt: now,
-		currentTool: null,
-		error: null,
-		toolCount: 0,
-		currentToolStartedAt: null,
-		durationMs: 0,
-	};
 }
 
 function readThreadState(event: SubAgentEvent): SubAgentInstanceState | null {
@@ -349,23 +304,4 @@ function readTaskEndState(event: SubAgentEvent): SubAgentInstanceState["state"] 
 		}
 	}
 	return "failed";
-}
-
-function upsertThread(
-	threads: SubAgentInstanceState[] | undefined,
-	thread: SubAgentInstanceState,
-): SubAgentInstanceState[] {
-	const current = threads ?? [];
-	const index = current.findIndex((candidate) => candidate.instanceId === thread.instanceId);
-	if (index < 0) return [thread, ...current];
-	return current.map((candidate) => (candidate.instanceId === thread.instanceId ? { ...candidate, ...thread } : candidate));
-}
-
-function updateThread(
-	threads: SubAgentInstanceState[] | undefined,
-	instanceId: string,
-	patch: Partial<SubAgentInstanceState>,
-): SubAgentInstanceState[] | undefined {
-	if (!threads) return threads;
-	return threads.map((thread) => (thread.instanceId === instanceId ? { ...thread, ...patch } : thread));
 }

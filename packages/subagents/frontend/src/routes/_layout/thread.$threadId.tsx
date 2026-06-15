@@ -1,6 +1,6 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { AgentDetail } from "../../components/AgentDetail.tsx";
-import { CanvasSessionPreview } from "../../components/CanvasSessionPreview.tsx";
+import { SessionWorkspace, type SessionWorkspaceVariant } from "../../components/SessionWorkspace.tsx";
 import { navigateToThread } from "../../navigation.ts";
 import { useSubAgentStore } from "../../store/use-subagent-store.ts";
 
@@ -11,11 +11,10 @@ export const Route = createFileRoute("/_layout/thread/$threadId")({
 function ThreadRoute() {
 	const { threadId } = Route.useParams();
 	const mainThread = useSubAgentStore((s) => s.agents.find((agent) => agent.kind === "main")) ?? null;
-	const isCanvasPreview =
-		typeof window !== "undefined" && new URLSearchParams(window.location.search).get("canvas") === "1";
+	const variant = getSessionWorkspaceVariant();
 
-	if (isCanvasPreview) {
-		return <CanvasSessionPreview threadId={threadId} />;
+	if (variant !== "full") {
+		return <SessionWorkspace threadId={threadId} variant={variant} />;
 	}
 
 	return (
@@ -24,4 +23,12 @@ function ThreadRoute() {
 			onBack={() => navigateToThread(mainThread?.instanceId ?? null)}
 		/>
 	);
+}
+
+function getSessionWorkspaceVariant(): SessionWorkspaceVariant {
+	if (typeof window === "undefined") return "full";
+	const params = new URLSearchParams(window.location.search);
+	if (params.get("canvas") === "1") return "canvas";
+	if (params.get("embed") === "1") return "embed";
+	return "full";
 }

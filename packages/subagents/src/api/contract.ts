@@ -26,6 +26,7 @@ import {
 	ThreadCreateInputSchema,
 	ThreadCreateResultSchema,
 	ThreadIdInputSchema,
+	ThreadListInputSchema,
 	ThreadModelInputSchema,
 	ThreadModelResultSchema,
 	ThreadPromptInputSchema,
@@ -40,7 +41,7 @@ import {
  */
 export const subagentsContract = oc.router({
 	threads: {
-		list: oc.output(z.array(DashboardThreadStateSchema)),
+		list: oc.input(ThreadListInputSchema).output(z.array(DashboardThreadStateSchema)),
 
 		create: oc.input(ThreadCreateInputSchema).output(ThreadCreateResultSchema),
 

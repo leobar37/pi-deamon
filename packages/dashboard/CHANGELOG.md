@@ -20,6 +20,7 @@
 
 - The right session inspector is now hidden entirely when no session is focused instead of showing a "No focused session" placeholder.
 - "Add session" buttons now show a loading spinner while the backend thread is being created.
+- Dashboard frontend development servers now start from port `5713` instead of Vite's default `5173`.
 
 ### Fixed
 

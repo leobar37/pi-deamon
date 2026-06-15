@@ -11,7 +11,11 @@ type SubagentFilter = "all" | "running" | "failed" | "completed";
 interface SubagentListPanelProps {
 	activeThreadId: string | null;
 	agentsOverride?: SubAgentInstanceState[];
+	parentThreadId?: string | null;
+	runId?: string | null;
 	initiallyOpen?: boolean;
+	presentation?: "rail" | "drawer";
+	onSelectThread?: (threadId: string) => void;
 }
 
 const FILTERS: Array<{ id: SubagentFilter; label: string }> = [
@@ -45,15 +49,24 @@ const itemMotion = {
 
 const quickEase = [0.22, 1, 0.36, 1] as const;
 
-export function SubagentListPanel({ activeThreadId, agentsOverride, initiallyOpen = false }: SubagentListPanelProps) {
+export function SubagentListPanel({
+	activeThreadId,
+	agentsOverride,
+	parentThreadId,
+	runId,
+	initiallyOpen = false,
+	presentation = "rail",
+	onSelectThread,
+}: SubagentListPanelProps) {
 	const [open, setOpen] = useState(initiallyOpen);
 	const [filter, setFilter] = useState<SubagentFilter>("all");
 	const reduceMotion = useReducedMotion();
 	const storeAgents = useSubAgentStore((s) => s.agents);
 	const agents = agentsOverride ?? storeAgents;
-	const groups = useMemo(() => groupSubagents(agents, filter), [agents, filter]);
-	const total = useMemo(() => agents.filter((agent) => agent.kind === "subagent").length, [agents]);
-	const counts = useMemo(() => countSubagents(agents), [agents]);
+	const scopedAgents = useMemo(() => scopeSubagents(agents, { parentThreadId, runId }), [agents, parentThreadId, runId]);
+	const groups = useMemo(() => groupSubagents(scopedAgents, filter), [scopedAgents, filter]);
+	const total = useMemo(() => scopedAgents.filter((agent) => agent.kind === "subagent").length, [scopedAgents]);
+	const counts = useMemo(() => countSubagents(scopedAgents), [scopedAgents]);
 	const visibleCount = groups.reduce((sum, group) => sum + group.threads.length, 0);
 	const motionTransition: Transition = reduceMotion ? { duration: 0 } : { duration: 0.18, ease: quickEase };
 
@@ -134,7 +147,11 @@ export function SubagentListPanel({ activeThreadId, agentsOverride, initiallyOpe
 										active={thread.instanceId === activeThreadId}
 										reduceMotion={reduceMotion}
 										onSelect={() => {
-											navigateToThread(thread.instanceId);
+											if (onSelectThread) {
+												onSelectThread(thread.instanceId);
+											} else {
+												navigateToThread(thread.instanceId);
+											}
 											setOpen(false);
 										}}
 									/>
@@ -146,6 +163,47 @@ export function SubagentListPanel({ activeThreadId, agentsOverride, initiallyOpe
 			</div>
 		</motion.aside>
 	);
+
+	if (presentation === "drawer") {
+		return (
+			<>
+				<div className="absolute left-3 top-12 z-30">
+					<button
+						type="button"
+						onClick={() => setOpen(true)}
+						className="group relative flex h-8 w-8 items-center justify-center rounded-md border border-border-subtle bg-bg-elevated text-text-secondary shadow-lg transition duration-150 hover:border-border-hover hover:bg-bg-hover hover:text-text-primary active:scale-95"
+						aria-label="Open subagent widget"
+						aria-expanded={open}
+					>
+						<Users size={15} aria-hidden="true" />
+						<span className="absolute -right-1.5 -top-1.5 flex h-4 min-w-4 items-center justify-center rounded bg-bg-surface px-1 text-[10px] font-medium text-text-secondary ring-1 ring-border-subtle">
+							{total}
+						</span>
+						{counts.running > 0 ? (
+							<span className="absolute -bottom-0.5 -right-0.5 h-1.5 w-1.5 rounded-full bg-accent ring-2 ring-bg-elevated" />
+						) : null}
+					</button>
+				</div>
+				<AnimatePresence>
+					{open ? (
+						<motion.div className="fixed inset-0 z-50 flex" initial={reduceMotion ? false : "hidden"} animate="visible" exit="exit">
+							{panel}
+							<motion.button
+								type="button"
+								className="flex-1 bg-black/45"
+								aria-label="Close subagent widget"
+								onClick={() => setOpen(false)}
+								initial={{ opacity: 0 }}
+								animate={{ opacity: 1 }}
+								exit={{ opacity: 0 }}
+								transition={{ duration: reduceMotion ? 0 : 0.14 }}
+							/>
+						</motion.div>
+					) : null}
+				</AnimatePresence>
+			</>
+		);
+	}
 
 	return (
 		<>
@@ -323,6 +381,18 @@ export function groupSubagents(agents: SubAgentInstanceState[], filter: Subagent
 		.sort((a, b) => b.lastActivityAt - a.lastActivityAt);
 }
 
+function scopeSubagents(
+	agents: SubAgentInstanceState[],
+	scope: { parentThreadId?: string | null; runId?: string | null },
+): SubAgentInstanceState[] {
+	return agents.filter((agent) => {
+		if (agent.kind !== "subagent") return true;
+		if (scope.parentThreadId && agent.parentThreadId !== scope.parentThreadId) return false;
+		if (scope.runId && agent.runId !== scope.runId) return false;
+		return true;
+	});
+}
+
 function countSubagents(agents: SubAgentInstanceState[]): Record<SubagentFilter, number> {
 	const subagents = agents.filter((agent) => agent.kind === "subagent");
 	return {
@@ -334,7 +404,7 @@ function countSubagents(agents: SubAgentInstanceState[]): Record<SubagentFilter,
 }
 
 function getStatusConfig(state: SubAgentState): { label: string; color: string; bg: string; icon: typeof Activity } {
-	if (state === "running" || state === "starting" || state === "queued" || state === "completing") {
+	if (state === "running" || state === "starting" || state === "completing") {
 		return { label: "Running", color: "text-accent", bg: "bg-accent-muted", icon: Loader2 };
 	}
 	if (state === "completed") {
@@ -357,7 +427,7 @@ function formatRunLabel(group: SubagentGroup): string {
 
 function matchesFilter(state: SubAgentState, filter: SubagentFilter): boolean {
 	if (filter === "all") return true;
-	if (filter === "running") return state === "running" || state === "starting" || state === "queued";
+	if (filter === "running") return state === "running" || state === "starting" || state === "completing";
 	if (filter === "failed") return state === "failed" || state === "timed_out";
 	return state === "completed";
 }

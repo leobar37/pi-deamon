@@ -3,7 +3,7 @@ import type { DashboardCommand, DashboardModel, ThreadPromptImage, ThreadPromptM
 import type { LionEvent } from "../lion/types.js";
 import type { SubAgentEvent, SubAgentInstanceState } from "../types.js";
 
-export type DashboardThreadKind = "main" | "subagent";
+export type DashboardThreadKind = "main" | "standalone" | "subagent";
 
 export interface DashboardLionState {
 	active: boolean;

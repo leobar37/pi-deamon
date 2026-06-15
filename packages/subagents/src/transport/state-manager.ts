@@ -1,4 +1,10 @@
-import type { SubAgentEvent, SubAgentInstanceState, SubAgentRunRecord, SubAgentState } from "../types.js";
+import type {
+	SubAgentEvent,
+	SubAgentInstanceState,
+	SubAgentRunListFilters,
+	SubAgentRunRecord,
+	SubAgentState,
+} from "../types.js";
 import type { DashboardThreadState } from "./types.js";
 
 export interface VirtualInstance extends DashboardThreadState {
@@ -20,9 +26,9 @@ export class DashboardStateManager {
 	private liveInstances = new Map<string, SubAgentInstanceState>();
 	private virtualInstances = new Map<string, VirtualInstance>();
 	private eventsByInstance = new Map<string, SubAgentEvent[]>();
-	private runStore: { list(): Promise<SubAgentRunRecord[]> };
+	private runStore: { list(filters?: SubAgentRunListFilters): Promise<SubAgentRunRecord[]> };
 
-	constructor(_cwd: string, runStore?: { list(): Promise<SubAgentRunRecord[]> }) {
+	constructor(_cwd: string, runStore?: { list(filters?: SubAgentRunListFilters): Promise<SubAgentRunRecord[]> }) {
 		this.runStore = runStore ?? { list: async () => [] };
 	}
 
@@ -194,9 +200,9 @@ export class DashboardStateManager {
 	/**
 	 * Load virtual instances from runStore, adding any that are not already tracked.
 	 */
-	async loadFromRunStore(): Promise<void> {
+	async loadFromRunStore(filters: SubAgentRunListFilters = {}): Promise<void> {
 		try {
-			const records = await this.runStore.list();
+			const records = await this.runStore.list(filters);
 			for (const record of records) {
 				if (this.liveInstances.has(record.instanceId)) continue;
 				if (this.virtualInstances.has(record.instanceId)) continue;

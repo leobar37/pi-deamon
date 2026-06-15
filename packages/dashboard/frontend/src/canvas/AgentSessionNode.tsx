@@ -9,7 +9,8 @@ export const AgentSessionNode = memo(function AgentSessionNode({ data }: NodePro
 	const { session, backendUrl, focused, onFocus, onOpen, runtime, onAbort } = data;
 	const title = session.name || `Session ${session.id.slice(0, 8)}`;
 	const threadId = session.threadId ?? session.id;
-	const iframeUrl = buildThreadUrl(backendUrl, threadId);
+	const iframeUrl = buildThreadUrl(backendUrl, threadId, "canvas");
+	const standaloneUrl = buildThreadUrl(backendUrl, threadId, "full");
 	const runtimeLabel = runtime?.state === "idle" ? "Idle" : runtime?.state ? runtime.state.charAt(0).toUpperCase() + runtime.state.slice(1) : "Unknown";
 
 	const handleResizeStart = useCallback(() => {
@@ -71,7 +72,7 @@ export const AgentSessionNode = memo(function AgentSessionNode({ data }: NodePro
 					</button>
 				) : null}
 				<a
-					href={iframeUrl}
+					href={standaloneUrl}
 					target="_blank"
 					rel="noreferrer"
 					title="Open in standalone tab"
@@ -94,8 +95,11 @@ export const AgentSessionNode = memo(function AgentSessionNode({ data }: NodePro
 	);
 });
 
-function buildThreadUrl(backendUrl: string, threadId: string): string {
+function buildThreadUrl(backendUrl: string, threadId: string, variant: "full" | "canvas"): string {
 	const url = new URL(`/thread/${encodeURIComponent(threadId)}`, backendUrl);
+	if (variant === "canvas") {
+		url.searchParams.set("canvas", "1");
+	}
 	if (typeof window !== "undefined" && new URLSearchParams(window.location.search).get("mock") === "1") {
 		url.searchParams.set("mock", "1");
 	}

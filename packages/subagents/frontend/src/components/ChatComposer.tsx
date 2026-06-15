@@ -26,7 +26,7 @@ interface RecentPrompt {
 	images?: DashboardImageAttachment[];
 }
 
-const FOLLOW_UP_STATES = new Set<SubAgentState>(["running", "starting", "completing", "queued"]);
+const FOLLOW_UP_STATES = new Set<SubAgentState>(["running", "starting", "completing"]);
 
 export function resolveComposerMode(state: SubAgentState | undefined): ComposerMode {
 	return state && FOLLOW_UP_STATES.has(state) ? "follow_up" : "prompt";

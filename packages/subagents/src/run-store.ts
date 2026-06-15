@@ -126,6 +126,8 @@ function matchesFilters(record: SubAgentRunRecord, filters: SubAgentRunListFilte
 	if (filters.runId && record.runId !== filters.runId) return false;
 	if (filters.definitionName && record.definitionName !== filters.definitionName) return false;
 	if (filters.sessionId && record.sessionId !== filters.sessionId) return false;
+	if (filters.parentThreadId && record.parentThreadId !== filters.parentThreadId) return false;
+	if (filters.parentToolCallId && record.parentToolCallId !== filters.parentToolCallId) return false;
 	return true;
 }
 

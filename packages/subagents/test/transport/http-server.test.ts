@@ -188,7 +188,7 @@ describe("HttpServerTransport", () => {
 		await transport.start();
 		await waitForServer();
 
-		const res = await callRpc(transport.port, "/threads/list");
+		const res = await callRpc(transport.port, "/threads/list", { includeHistory: true });
 		expect(res.status).toBe(200);
 		const body = await res.json();
 		expect(Array.isArray(body.json)).toBe(true);
@@ -221,7 +221,7 @@ describe("HttpServerTransport", () => {
 			instanceId: createBody.json.threadId,
 			definitionName: "standalone",
 			cwd: selectedCwd,
-			kind: "main",
+			kind: "standalone",
 		});
 	});
 
@@ -524,7 +524,7 @@ describe("HttpServerTransport", () => {
 		await transport.start();
 		await waitForServer();
 
-		const res = await callRpc(transport.port, "/threads/list");
+		const res = await callRpc(transport.port, "/threads/list", { includeHistory: true });
 		expect(res.status).toBe(200);
 		const body = (await res.json()) as { json: Array<Record<string, unknown>> };
 		expect(body.json).toHaveLength(1);
@@ -541,6 +541,34 @@ describe("HttpServerTransport", () => {
 			turnCount: 1,
 			toolCount: 2,
 		});
+	});
+
+	it("does not serve historical subagent runs without a current main session by default", async () => {
+		const runStore = new SubAgentRunStore(tmpDir);
+		await runStore.start({
+			sessionId: "session-1",
+			taskId: "task-1",
+			instanceId: "instance-1",
+			definitionName: "executor",
+			cwd: tmpDir,
+			parentThreadId: "main:old-session",
+			runId: "run-a",
+			prompt: "Input brief",
+			startedAt: 100,
+		});
+
+		transport = new HttpServerTransport({
+			controller: controller as any,
+			port: 0,
+			host: "127.0.0.1",
+		});
+		await transport.start();
+		await waitForServer();
+
+		const res = await callRpc(transport.port, "/threads/list");
+		expect(res.status).toBe(200);
+		const body = (await res.json()) as { json: Array<Record<string, unknown>> };
+		expect(body.json).toEqual([]);
 	});
 
 	it("filters persisted subagent runs to the current main session", async () => {
@@ -650,7 +678,7 @@ describe("HttpServerTransport", () => {
 			timestamp: 150,
 		} as any);
 
-		const res = await callRpc(transport.port, "/threads/list");
+		const res = await callRpc(transport.port, "/threads/list", { includeHistory: true });
 		expect(res.status).toBe(200);
 		const body = (await res.json()) as { json: Array<Record<string, unknown>> };
 		expect(body.json[0]).toMatchObject({

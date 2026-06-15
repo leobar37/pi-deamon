@@ -7,6 +7,7 @@ import { CanvasSessionPreview } from "../src/components/CanvasSessionPreview";
 import { ChatComposer, resolveComposerMode } from "../src/components/ChatComposer";
 import { LionModeBadge } from "../src/components/LionModeBadge";
 import { MessageItem } from "../src/components/MessageItem";
+import { SessionWorkspace } from "../src/components/SessionWorkspace";
 import { groupSubagents, SubagentListPanel } from "../src/components/SubagentListPanel";
 import { TaskSidebarSection } from "../src/components/TaskSidebarSection";
 import { useSubAgentStore } from "../src/store/use-subagent-store";
@@ -49,6 +50,7 @@ const runningAgent: SubAgentInstanceState = {
 	kind: "subagent",
 	description: "Running executor",
 	state: "running",
+	parentThreadId: "main:session-1",
 	runId: "run-a",
 	runIndex: 0,
 	currentTool: "edit",
@@ -63,6 +65,7 @@ const failedAgent: SubAgentInstanceState = {
 	kind: "subagent",
 	description: "Failed reviewer",
 	state: "failed",
+	parentThreadId: "main:session-1",
 	runId: "run-a",
 	runIndex: 1,
 	error: "Timed out",
@@ -77,6 +80,7 @@ const completedAgent: SubAgentInstanceState = {
 	kind: "subagent",
 	description: "Completed analyzer",
 	state: "completed",
+	parentThreadId: "main:session-1",
 	runId: "run-b",
 	runIndex: 0,
 	lastActivityAt: 200,
@@ -259,6 +263,37 @@ describe("Lion dashboard UI", () => {
 		expect(html).not.toContain("fixed left-4 top-4");
 	});
 
+	it("renders the full session workspace with chat, composer, and session sidebar", () => {
+		useSubAgentStore.getState().setAgents([mainAgent]);
+		const html = renderWithQueryClient(
+			<SessionWorkspace threadId={mainAgent.instanceId} variant="full" onBack={() => undefined} />,
+		);
+
+		expect(html).toContain("No messages yet");
+		expect(html).toContain("Message thread");
+		expect(html).toContain("Session");
+		expect(html).toContain("Session ID");
+	});
+
+	it("renders canvas workspace controls for subagents and run details", () => {
+		useSubAgentStore.getState().setAgents([mainAgent, runningAgent]);
+		const html = renderWithQueryClient(<SessionWorkspace threadId={mainAgent.instanceId} variant="canvas" />);
+
+		expect(html).toContain("No messages yet");
+		expect(html).toContain("Message thread");
+		expect(html).toContain("Open subagent widget");
+		expect(html).toContain("Details");
+		expect(html).not.toContain("CanvasSessionPreview");
+	});
+
+	it("does not render an invasive subagent panel when canvas has no subagents", () => {
+		useSubAgentStore.getState().setAgents([mainAgent]);
+		const html = renderWithQueryClient(<SessionWorkspace threadId={mainAgent.instanceId} variant="canvas" />);
+
+		expect(html).not.toContain("Open subagent widget");
+		expect(html).toContain("Details");
+	});
+
 	it("marks the active subagent in the persistent list", () => {
 		const html = renderToString(
 			<SubagentListPanel activeThreadId="subagent-running" agentsOverride={[runningAgent, completedAgent]} initiallyOpen />,
@@ -302,7 +337,7 @@ describe("Lion dashboard UI", () => {
 		expect(resolveComposerMode("running")).toBe("follow_up");
 		expect(resolveComposerMode("starting")).toBe("follow_up");
 		expect(resolveComposerMode("completing")).toBe("follow_up");
-		expect(resolveComposerMode("queued")).toBe("follow_up");
+		expect(resolveComposerMode("created")).toBe("prompt");
 		expect(resolveComposerMode("completed")).toBe("prompt");
 		expect(resolveComposerMode("blocked")).toBe("prompt");
 		expect(resolveComposerMode("timed_out")).toBe("prompt");

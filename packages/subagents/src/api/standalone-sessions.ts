@@ -76,6 +76,7 @@ export class StandaloneSessionManager {
 			taskId: instanceId,
 			definitionName: "standalone",
 			cwd: info.state.cwd,
+			kind: "standalone",
 			timestamp: Date.now(),
 		});
 
@@ -255,7 +256,7 @@ export class StandaloneSessionManager {
 			toolCount: 0,
 			currentToolStartedAt: null,
 			durationMs: Date.now() - info.createdAt,
-			kind: "main",
+			kind: "standalone",
 			isLive: true,
 			sessionId: info.sessionId,
 			sessionFile: info.session.sessionFile,

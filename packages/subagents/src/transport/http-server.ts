@@ -1,4 +1,5 @@
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync } from "node:fs";
+import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { AuthStorage, ModelRegistry, SettingsManager } from "@earendil-works/pi-coding-agent";
 import { RPCHandler } from "@orpc/server/fetch";
@@ -285,10 +286,10 @@ export class HttpServerTransport implements SubAgentTransport {
 		return response;
 	}
 
-	private serveStaticFile(filename: string, contentType: string): Response {
+	private async serveStaticFile(filename: string, contentType: string): Promise<Response> {
 		try {
 			const path = join(this.staticDir, filename);
-			const content = readFileSync(path);
+			const content = await readFile(path);
 			return new Response(content, {
 				headers: {
 					"Content-Type": contentType,
@@ -300,7 +301,7 @@ export class HttpServerTransport implements SubAgentTransport {
 		}
 	}
 
-	private serveAsset(pathname: string): Response {
+	private serveAsset(pathname: string): Promise<Response> {
 		const filename = pathname.slice(1); // remove leading /
 		const ext = filename.split(".").pop() ?? "";
 		const contentType = this.resolveContentType(ext);

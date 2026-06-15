@@ -15,6 +15,7 @@
 - Added `threads.create` oRPC endpoint and `StandaloneSessionManager` to create real, persistent agent sessions directly from the dashboard, independent of Lion runs.
 - Added optional `cwd` support to `threads.create` so dashboard-created sessions can start in a selected project directory.
 - Added thread lifecycle controls for dashboard runtimes: `threads.resume`, `threads.cancel`, and `threads.kill`.
+- Added `SessionWorkspace` as the canonical thread UI for full, canvas, and embedded session surfaces.
 
 ### Changed
 

@@ -4,8 +4,8 @@ import { once } from "node:events";
 import process from "node:process";
 
 const HOST = "127.0.0.1";
-const START_PORT = 5173;
-const MAX_PORT = 5199;
+const START_PORT = 5713;
+const MAX_PORT = 5799;
 
 async function isPortAvailable(port: number): Promise<boolean> {
 	const server = createServer();

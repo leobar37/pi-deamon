@@ -14,6 +14,10 @@ interface DashboardLayoutProps {
 export function DashboardLayout({ activeThreadId, children }: DashboardLayoutProps) {
 	const { data: fetchedAgents } = useAgents();
 	const setAgents = useSubAgentStore((s) => s.setAgents);
+	const activeThread = fetchedAgents?.find((agent) => agent.instanceId === activeThreadId);
+	const subagentParentThreadId = activeThread?.kind === "main"
+		? activeThread.instanceId
+		: activeThread?.parentThreadId ?? null;
 
 	useSseEvents();
 
@@ -26,7 +30,7 @@ export function DashboardLayout({ activeThreadId, children }: DashboardLayoutPro
 	return (
 		<div className="h-screen bg-bg-base text-text-primary overflow-hidden">
 			<main className="flex h-full min-w-0">
-				<SubagentListPanel activeThreadId={activeThreadId} />
+				<SubagentListPanel activeThreadId={activeThreadId} parentThreadId={subagentParentThreadId} />
 				{children}
 			</main>
 			<ChecklistDrawer />

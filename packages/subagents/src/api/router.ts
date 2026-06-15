@@ -1,7 +1,7 @@
 import { join } from "node:path";
 import { SessionManager } from "@earendil-works/pi-coding-agent";
 import { implement, ORPCError } from "@orpc/server";
-import type { LionChecklistKind, LionStrategyName } from "../lion/types.js";
+import type { LionStrategyName } from "../lion/types.js";
 import { isTaskStoreError } from "../tasks/store.js";
 import type { TaskRecord, TaskStoreError, TaskStoreResult } from "../tasks/types.js";
 import type { VirtualInstance } from "../transport/state-manager.js";
@@ -134,14 +134,32 @@ async function getStandaloneThreads(ctx: SubagentsApiContext): Promise<Dashboard
 	return ctx.standaloneSessions.list().map((info) => info.state);
 }
 
-async function getSubagentThreads(ctx: SubagentsApiContext): Promise<DashboardThreadState[]> {
+interface SubagentThreadFilters {
+	parentThreadId?: string;
+	parentToolCallId?: string;
+	runId?: string;
+	includeHistory?: boolean;
+}
+
+async function getSubagentThreads(
+	ctx: SubagentsApiContext,
+	filters: SubagentThreadFilters = {},
+): Promise<DashboardThreadState[]> {
 	const currentMainThreadId = ctx.mainSession?.getThread()?.instanceId;
+	const parentThreadId = filters.parentThreadId ?? currentMainThreadId;
 	const controllerStates = ctx.controller.getInstanceStates();
 	for (const state of controllerStates) {
 		ctx.stateManager.registerLiveInstance(state);
 	}
-	await ctx.stateManager.loadFromRunStore();
-	const runRecords = filterThreadsForMainSession(await ctx.runStore.list(), currentMainThreadId);
+	if (!parentThreadId && !filters.includeHistory) return [];
+
+	const runFilters = {
+		parentThreadId,
+		parentToolCallId: filters.parentToolCallId,
+		runId: filters.runId,
+	};
+	await ctx.stateManager.loadFromRunStore(runFilters);
+	const runRecords = filterSubagentThreads(await ctx.runStore.list(runFilters), filters);
 	const byInstanceId = new Map<string, DashboardThreadState>();
 	const runsByInstanceId = new Map(runRecords.map((record) => [record.instanceId, record]));
 
@@ -149,7 +167,7 @@ async function getSubagentThreads(ctx: SubagentsApiContext): Promise<DashboardTh
 		byInstanceId.set(record.instanceId, projectRunRecord(record));
 	}
 
-	for (const state of filterThreadsForMainSession(ctx.stateManager.getAllInstances(), currentMainThreadId)) {
+	for (const state of filterSubagentThreads(ctx.stateManager.getAllInstances(), { ...filters, parentThreadId })) {
 		const runRecord = runsByInstanceId.get(state.instanceId);
 		byInstanceId.set(state.instanceId, runRecord ? mergeRunRecordIntoThread(state, runRecord) : state);
 	}
@@ -157,12 +175,16 @@ async function getSubagentThreads(ctx: SubagentsApiContext): Promise<DashboardTh
 	return Array.from(byInstanceId.values()).sort((a, b) => b.lastActivityAt - a.lastActivityAt);
 }
 
-function filterThreadsForMainSession<T extends { parentThreadId?: string }>(
+function filterSubagentThreads<T extends { parentThreadId?: string; parentToolCallId?: string; runId?: string }>(
 	threads: T[],
-	currentMainThreadId: string | undefined,
+	filters: SubagentThreadFilters,
 ): T[] {
-	if (!currentMainThreadId) return threads;
-	return threads.filter((thread) => thread.parentThreadId === currentMainThreadId);
+	return threads.filter((thread) => {
+		if (filters.parentThreadId && thread.parentThreadId !== filters.parentThreadId) return false;
+		if (filters.parentToolCallId && thread.parentToolCallId !== filters.parentToolCallId) return false;
+		if (filters.runId && thread.runId !== filters.runId) return false;
+		return true;
+	});
 }
 
 async function findRunRecord(ctx: SubagentsApiContext, threadId: string): Promise<SubAgentRunRecord | undefined> {
@@ -448,8 +470,31 @@ async function selectThreadModel(
 	if (resumable) {
 		try {
 			const session = await ctx.sessionCache.getOrCreate(resumable.record, resumable.sessionFile);
-			return selectThreadModel(ctx, session.instanceId, provider, modelId);
+			const model = session.session.modelRegistry
+				.getAvailable()
+				.find((candidate) => candidate.provider === provider && candidate.id === modelId);
+			if (!model) {
+				throw new ORPCError("BAD_REQUEST", { message: "Model is unavailable or not authenticated" });
+			}
+			await session.session.setModel(model);
+			const state = ctx.stateManager.getInstance(session.instanceId);
+			if (state) {
+				ctx.emitEvent({
+					type: "instance.state",
+					instanceId: session.instanceId,
+					taskId: session.taskId,
+					state: {
+						...state,
+						modelProvider: model.provider,
+						modelId: model.id,
+						lastActivityAt: Date.now(),
+					},
+					timestamp: Date.now(),
+				});
+			}
+			return { threadId, provider, modelId, status: "selected" as const, selectedAt: Date.now() };
 		} catch (error) {
+			if (error instanceof ORPCError) throw error;
 			throw new ORPCError("SERVICE_UNAVAILABLE", {
 				message: error instanceof Error ? error.message : "Session not resumable",
 			});
@@ -631,9 +676,9 @@ export function createSubagentsRouter(ctx: SubagentsApiContext) {
 
 	return impl.router({
 		threads: {
-			list: impl.threads.list.handler(async () => {
+			list: impl.threads.list.handler(async ({ input }) => {
 				const main = ctx.mainSession?.getThread();
-				const subagents = await getSubagentThreads(ctx);
+				const subagents = await getSubagentThreads(ctx, input ?? {});
 				const standalones = await getStandaloneThreads(ctx);
 				const threads = main ? [main, ...standalones, ...subagents] : [...standalones, ...subagents];
 				return threads;
@@ -909,14 +954,11 @@ export function createSubagentsRouter(ctx: SubagentsApiContext) {
 
 			checklist: impl.lion.checklist.handler(async ({ input }) => {
 				const kind = input.kind;
-				if (kind !== "plan" && kind !== "review") {
-					throw new ORPCError("BAD_REQUEST", { message: "Invalid checklist kind" });
-				}
 				const reference = input.reference;
 				const state = ctx.lionState?.() ?? DEFAULT_LION_STATE;
 				try {
 					return ctx.checklistService.read({
-						kind: kind as LionChecklistKind,
+						kind,
 						reference,
 						activePlanPath: state.activePlanPath,
 						cwd: ctx.cwd,

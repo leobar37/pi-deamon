@@ -14,7 +14,6 @@ const STATE_CONFIG: Record<
 	failed: { label: "Failed", color: "text-error" },
 	cancelled: { label: "Cancelled", color: "text-text-muted" },
 	timed_out: { label: "Timed Out", color: "text-error" },
-	queued: { label: "Queued", color: "text-text-muted" },
 };
 
 interface StatusBadgeProps {
