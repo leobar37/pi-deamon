@@ -167,10 +167,6 @@ export default function goalV2Extension(pi: ExtensionAPI) {
 
 		add("get_goal");
 
-		if (mode === "idle") {
-			add("create_goal");
-		}
-
 		if (mode === "drafting" && !isLionBuilding(ctx)) {
 			add("propose_goal_draft");
 			add("goal_question");
@@ -338,6 +334,16 @@ export default function goalV2Extension(pi: ExtensionAPI) {
 		}
 	}
 
+	function lastAssistantStopReason(messages: Array<{ role?: string; stopReason?: string }>): string | null {
+		for (let i = messages.length - 1; i >= 0; i--) {
+			const message = messages[i];
+			if (message?.role === "assistant") {
+				return message.stopReason ?? null;
+			}
+		}
+		return null;
+	}
+
 	function reconstructState(ctx: ExtensionContext): void {
 		let lastState: PersistedGoalState | undefined;
 		for (const entry of ctx.sessionManager.getBranch()) {
@@ -491,12 +497,25 @@ export default function goalV2Extension(pi: ExtensionAPI) {
 		core.continuationQueued = false;
 	});
 
-	pi.on("agent_end", async (_event, ctx) => {
+	pi.on("agent_end", async (event, ctx) => {
 		if (!core.goal) return;
 		let changed = false;
 
 		if (core.goal.status === "active" && accountElapsed(core)) {
 			changed = true;
+		}
+
+		const stopReason = lastAssistantStopReason(event.messages);
+		if (core.goal.status === "active" && (stopReason === "aborted" || stopReason === "error")) {
+			setGoalStatus(core, "paused");
+			await recordGoalStatus(ctx, `Goal paused because the agent turn ended with stopReason=${stopReason}`);
+			persist("status");
+			refreshUI(ctx);
+			syncGoalTools(ctx);
+			showGoalMessage(
+				`Goal paused after ${stopReason === "aborted" ? "an abort" : "an error"}\n\n${goalSummary(core.goal)}`,
+			);
+			return;
 		}
 
 		if (changed) {
@@ -522,8 +541,7 @@ export default function goalV2Extension(pi: ExtensionAPI) {
 				core.goal?.status === "active" ||
 				core.goal?.status === "paused" ||
 				core.goal?.status === "blocked") &&
-				["update_goal", "record_goal_progress", "abort_goal"].includes(event.toolName)) ||
-			(core.mode === "idle" && event.toolName === "create_goal");
+				["update_goal", "record_goal_progress", "abort_goal"].includes(event.toolName));
 
 		if (allowed && !isLionBuilding(ctx)) return undefined;
 		syncGoalTools(ctx);

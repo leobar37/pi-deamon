@@ -79,7 +79,7 @@ async function testDraftingFlow(): Promise<void> {
 	const ctx = fakeCtx(pi);
 
 	await pi.emit("session_start", {}, ctx);
-	assert.deepEqual(pi.activeTools.sort(), ["bash", "create_goal", "get_goal", "read"]);
+	assert.deepEqual(pi.activeTools.sort(), ["bash", "get_goal", "read"]);
 
 	await pi.commands.get("goal")?.handler("ship the feature", ctx);
 	assert.equal(pi.userMessages.length, 1);
@@ -106,7 +106,7 @@ async function testGoalToolsActivateOnlyAfterGoalCommand(): Promise<void> {
 	const ctx = fakeCtx(pi);
 
 	await pi.emit("session_start", {}, ctx);
-	assert.deepEqual(pi.activeTools.sort(), ["bash", "create_goal", "get_goal", "read"]);
+	assert.deepEqual(pi.activeTools.sort(), ["bash", "get_goal", "read"]);
 
 	await pi.commands.get("goal")?.handler("set ship the feature", ctx);
 	assert.deepEqual(pi.activeTools.sort(), [
@@ -186,6 +186,41 @@ async function testGoalToolsActivateDuringFileBackedLionPlanning(): Promise<void
 	}
 }
 
+async function testAbortedAgentEndPausesGoalWithoutContinuation(): Promise<void> {
+	const cwd = mkdtempSync(join(tmpdir(), "goal-v2-aborted-"));
+	try {
+		const pi = fakePi();
+		goalV2Extension(pi.api);
+		const ctx = fakeCtx(pi, cwd);
+
+		await pi.commands.get("goal")?.handler("set ship the feature", ctx);
+		const continuationCount = pi.messages.filter(
+			(message) => message.content.customType === "goal-v2-continuation",
+		).length;
+
+		await pi.emit(
+			"agent_end",
+			{
+				type: "agent_end",
+				messages: [{ role: "assistant", stopReason: "aborted" }],
+			},
+			ctx,
+		);
+
+		const latestGoalEntry = [...pi.entries].reverse().find((entry) => entry.customType === "goal-v2")?.data as
+			| { goal: Goal }
+			| undefined;
+		assert.equal(latestGoalEntry?.goal.status, "paused");
+		assert.equal(
+			pi.messages.filter((message) => message.content.customType === "goal-v2-continuation").length,
+			continuationCount,
+		);
+		assert.ok(pi.messages.some((message) => message.content.content?.includes("Goal paused after an abort")));
+	} finally {
+		rmSync(cwd, { recursive: true, force: true });
+	}
+}
+
 async function testGoalToolCallBlockedWhenInactive(): Promise<void> {
 	const pi = fakePi();
 	goalV2Extension(pi.api);
@@ -199,6 +234,15 @@ async function testGoalToolCallBlockedWhenInactive(): Promise<void> {
 
 	assert.equal(result?.block, true);
 	assert.match(String(result?.reason ?? ""), /gated/);
+
+	const createResult = await pi.emit(
+		"tool_call",
+		{ type: "tool_call", toolName: "create_goal", toolCallId: "tool-2", input: {} },
+		ctx,
+	);
+
+	assert.equal(createResult?.block, true);
+	assert.match(String(createResult?.reason ?? ""), /gated/);
 }
 
 async function testToolErrorsRecordedAsProgress(): Promise<void> {
@@ -476,6 +520,7 @@ await testGoalToolsActivateOnlyAfterGoalCommand();
 await testGoalToolsStayInactiveDuringLionBuild();
 await testGoalToolsStayInactiveDuringFileBackedLionBuild();
 await testGoalToolsActivateDuringFileBackedLionPlanning();
+await testAbortedAgentEndPausesGoalWithoutContinuation();
 await testGoalToolCallBlockedWhenInactive();
 await testToolErrorsRecordedAsProgress();
 await testNonErrorToolResultsIgnored();
