@@ -80,6 +80,12 @@
 	animation: pulse-opacity 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
 }
 
+html,
+body {
+	height: 100%;
+	margin: 0;
+}
+
 body {
 	background-color: var(--color-bg-base);
 	color: var(--color-text-primary);

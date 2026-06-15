@@ -21,51 +21,48 @@ export function SubagentRunBlock({ threads, strategy }: SubagentRunBlockProps) {
 
 	return (
 		<motion.div
-			className="my-3 border border-border-default bg-bg-elevated rounded-lg overflow-hidden"
+			className="my-2 overflow-hidden rounded-md bg-bg-elevated/45"
 			initial={{ opacity: 0, y: 8 }}
 			animate={{ opacity: 1, y: 0 }}
 			transition={{ duration: 0.18, ease: "easeOut" }}
 			layout
 		>
-			<div className="px-4 py-3 border-b border-border-subtle">
+			<div className="flex items-center justify-between gap-3 px-3 py-2">
 				<div className="flex items-center justify-between gap-3">
-					<div className="text-sm font-medium text-text-primary">Lion subagents</div>
-					<div className="rounded-md border border-border-subtle bg-bg-surface px-2 py-1 text-[11px] uppercase tracking-normal text-text-secondary">
-						{strategy}
-					</div>
+					<div className="text-xs font-medium text-text-secondary">Lion subagents</div>
 				</div>
-				<div className="text-xs text-text-muted mt-0.5">{sorted.length} delegated task{sorted.length === 1 ? "" : "s"}</div>
+				<div className="text-[11px] text-text-muted">
+					{strategy} · {sorted.length} task{sorted.length === 1 ? "" : "s"}
+				</div>
 			</div>
-			<div className="divide-y divide-border-subtle">
+			<div className="space-y-0.5 px-2 pb-2">
 				<AnimatePresence initial={false}>
 					{sorted.map((thread) => (
 						<motion.button
 							key={thread.instanceId}
 							type="button"
 							onClick={() => navigateToThread(thread.instanceId)}
-							className="w-full px-4 py-3 text-left hover:bg-bg-hover transition-colors"
+							className="grid w-full grid-cols-[minmax(0,1fr)_auto] gap-x-3 rounded px-2 py-1.5 text-left transition-colors hover:bg-bg-hover"
 							initial={{ opacity: 0, y: 6 }}
 							animate={{ opacity: 1, y: 0 }}
 							exit={{ opacity: 0, y: -4 }}
 							transition={{ duration: 0.16, ease: "easeOut" }}
 							layout
 						>
-							<div className="flex items-center justify-between gap-3">
-								<div className="flex items-center gap-2 min-w-0">
-									<StatusBadge state={thread.state} pulse={thread.state === "running"} />
-									<span className="text-sm font-medium text-text-primary truncate">
-										{thread.description || thread.definitionName}
-									</span>
-								</div>
-								<span className="text-xs text-text-muted shrink-0">{thread.definitionName}</span>
+							<div className="flex min-w-0 items-center gap-2">
+								<StatusBadge state={thread.state} pulse={thread.state === "running"} />
+								<span className="truncate text-xs font-medium text-text-primary">
+									{thread.description || thread.definitionName}
+								</span>
 							</div>
-							<div className="mt-2 flex flex-wrap items-center gap-3 text-xs text-text-muted">
+							<span className="text-[11px] text-text-muted">{thread.definitionName}</span>
+							<div className="col-span-2 mt-0.5 flex min-w-0 flex-wrap items-center gap-2 text-[11px] text-text-muted">
 								<span>{thread.turnCount} turns</span>
 								<span>{thread.toolCount} tools</span>
 								{thread.startTime ? <span>{elapsed(thread.durationMs)}</span> : null}
 								{thread.currentTool ? <span className="text-accent">Running: {thread.currentTool}</span> : null}
+								{thread.error ? <span className="truncate text-error">{thread.error}</span> : null}
 							</div>
-							{thread.error ? <div className="mt-1.5 text-xs text-error truncate">{thread.error}</div> : null}
 						</motion.button>
 					))}
 				</AnimatePresence>

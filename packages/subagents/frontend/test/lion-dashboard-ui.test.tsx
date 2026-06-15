@@ -3,6 +3,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { renderToString } from "react-dom/server";
 import { describe, expect, it } from "vitest";
 import { AgentRunSidebar } from "../src/components/AgentRunSidebar";
+import { CanvasSessionPreview } from "../src/components/CanvasSessionPreview";
 import { ChatComposer, resolveComposerMode } from "../src/components/ChatComposer";
 import { LionModeBadge } from "../src/components/LionModeBadge";
 import { MessageItem } from "../src/components/MessageItem";
@@ -323,6 +324,15 @@ describe("Lion dashboard UI", () => {
 		expect(html).not.toContain("Follow-up");
 		expect(html).not.toContain("Steer recent prompt");
 		expect(html).toContain("aria-label=\"Send\"");
+	});
+
+	it("renders a canvas preview frame for mock browser QA", () => {
+		const html = renderToString(<CanvasSessionPreview threadId="main:mock-session" />);
+
+		expect(html).toContain("Canvas preview");
+		expect(html).toContain("main:mock-session");
+		expect(html).toContain("Canvas preview for main:mock-session");
+		expect(html).toContain("/thread/main%3Amock-session?mock=1");
 	});
 
 	it("renders the main composer when only SSE is disconnected", () => {

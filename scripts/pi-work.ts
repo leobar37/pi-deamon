@@ -1,7 +1,7 @@
 #!/usr/bin/env bun
 /**
  * pi-work: run this fork of pi in TUI mode from any directory,
- * using local packages and the local goal-v2 extension.
+ * using local packages and the local goal-v2 and lion (subagent) extensions.
  * Global extensions are disabled to avoid tool name conflicts
  * (e.g. @capyup/pi-goal, @juicesharp/rpiv-todo).
  */
@@ -15,6 +15,7 @@ const SUBAGENTS_DIR = join(REPO_ROOT, "packages", "subagents");
 const SUBAGENTS_ENTRY = join(SUBAGENTS_DIR, "src", "index.ts");
 const SUBAGENTS_OUT_DIR = join(SUBAGENTS_DIR, "dist");
 const GOAL_EXT_ENTRY = join(REPO_ROOT, "packages", "extensions", "src", "extensions", "goal-v2", "index.ts");
+const LION_EXT_ENTRY = join(REPO_ROOT, "packages", "extensions", "src", "extensions", "lion", "index.ts");
 
 const args = process.argv.slice(2);
 
@@ -49,15 +50,15 @@ async function buildSubagentsBackend() {
 	console.log(`Built → ${join(SUBAGENTS_OUT_DIR, "index.js")}`);
 }
 
-console.log("[pi-work] Starting Pi TUI (local packages, global extensions)");
+console.log("[pi-work] Starting Pi TUI (local packages, global extensions disabled)");
 
 // Build only the subagents backend (no frontend, since TUI mode doesn't need it).
 await buildSubagentsBackend();
 
-// Load only the local goal-v2 extension explicitly (-e), and disable
-// global extension discovery (--no-extensions) to avoid tool name conflicts
-// with globally installed extensions (e.g. @capyup/pi-goal).
-const bunArgs = ["run", CLI_ENTRY, "--no-extensions", "-e", GOAL_EXT_ENTRY, ...args];
+// Load only the local goal-v2 and lion (subagent) extensions explicitly (-e),
+// and disable global extension discovery (--no-extensions) to avoid tool name
+// conflicts with globally installed extensions (e.g. @capyup/pi-goal).
+const bunArgs = ["run", CLI_ENTRY, "--no-extensions", "-e", GOAL_EXT_ENTRY, "-e", LION_EXT_ENTRY, ...args];
 
 const proc = Bun.spawn(["bun", ...bunArgs], {
 	stdio: ["inherit", "inherit", "inherit"],

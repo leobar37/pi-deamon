@@ -9,6 +9,13 @@ import type { CanvasProject } from "./projects/types.js";
 
 const LEFT_SIDEBAR_OPEN_KEY = "pi-dashboard:sidebar-left:open";
 const RIGHT_SIDEBAR_OPEN_KEY = "pi-dashboard:sidebar-right:open";
+const MOCK_SESSION_ID = "dashboard-mock-session";
+const MOCK_THREAD_ID = "main:mock-session";
+
+function isMockCanvasMode(): boolean {
+	if (typeof window === "undefined") return false;
+	return new URLSearchParams(window.location.search).get("mock") === "1";
+}
 
 function loadSidebarOpen(key: string, defaultValue: boolean): boolean {
 	try {
@@ -351,7 +358,72 @@ function AppContent({ backendUrl, dashboardUrl }: { backendUrl: string; dashboar
 	);
 }
 
+function MockCanvasContent() {
+	const params = new URLSearchParams(window.location.search);
+	const backendUrl = params.get("backendUrl") ?? "http://127.0.0.1:5174";
+	const dashboardUrl = window.location.origin;
+	const [focusedSessionId, setFocusedSessionId] = useState<string | null>(MOCK_SESSION_ID);
+	const runtime: CanvasSessionRuntime = {
+		id: MOCK_SESSION_ID,
+		threadId: MOCK_THREAD_ID,
+		state: "idle",
+		isLive: true,
+		isRunning: false,
+		canPrompt: true,
+		canFollowUp: true,
+		canSteer: false,
+		canAbort: false,
+		canResume: false,
+		canCancel: false,
+		canKill: false,
+		lastActivityAt: Date.now(),
+		error: null,
+		turnCount: 4,
+		toolCount: 7,
+		durationMs: 51000,
+		modelProvider: "openai-codex",
+		modelId: "gpt-5.5",
+	};
+	const session: CanvasSession = {
+		id: MOCK_SESSION_ID,
+		name: "Canvas preview",
+		createdAt: Date.now(),
+		projectId: "mock-project",
+		cwd: "/mock/project",
+		threadId: MOCK_THREAD_ID,
+		runtime,
+	};
+
+	return (
+		<div className="relative flex h-screen overflow-hidden bg-bg-base text-text-primary">
+			<main className="relative min-w-0 flex-1">
+				<AgentCanvas
+					sessions={[session]}
+					backendUrl={backendUrl}
+					dashboardUrl={dashboardUrl}
+					focusedSessionId={focusedSessionId}
+					onFocusSession={setFocusedSessionId}
+					onOpenSession={setFocusedSessionId}
+					onCreateSession={() => undefined}
+					canCreateSession={false}
+					onRemoveSession={() => undefined}
+					sessionRuntimes={{ [MOCK_SESSION_ID]: runtime }}
+					onAbortSession={() => undefined}
+				/>
+			</main>
+		</div>
+	);
+}
+
 export default function App() {
+	if (isMockCanvasMode()) {
+		return <MockCanvasContent />;
+	}
+
+	return <ConnectedApp />;
+}
+
+function ConnectedApp() {
 	const [backendUrl, setBackendUrl] = useState<string | null>(null);
 	const [dashboardUrl, setDashboardUrl] = useState<string | null>(null);
 	const [error, setError] = useState<string | null>(null);

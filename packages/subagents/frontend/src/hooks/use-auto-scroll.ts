@@ -23,7 +23,10 @@ export function useAutoScroll<T extends HTMLElement>({ dependencyKey, enabled = 
 		const element = scrollRef.current;
 		if (!element) return;
 		requestAnimationFrame(() => {
-			element.scrollTop = element.scrollHeight;
+			element.scrollTo({
+				top: element.scrollHeight,
+				behavior: window.matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth",
+			});
 			setIsSticky(true);
 			setShowJumpToLatest(false);
 			dashboardDebugLedger.recordScroll(threadId ?? "unknown", {

@@ -24,7 +24,7 @@ export function ChatView({ instanceId }: ChatViewProps) {
 	return (
 		<div className="flex h-full min-w-0 flex-col overflow-x-hidden">
 			<div className="relative min-h-0 min-w-0 flex-1 overflow-x-hidden">
-				<div ref={scrollRef} className="h-full min-w-0 space-y-2 overflow-y-auto overflow-x-hidden p-3">
+				<div ref={scrollRef} className="h-full min-w-0 space-y-2 overflow-y-auto overflow-x-hidden overscroll-contain scroll-smooth p-3">
 					{messages.length === 0 ? (
 						<div className="flex h-full items-center justify-center">
 							<EmptyMessageState thread={thread} />

@@ -39,7 +39,7 @@ export function LionModeBadge({ state }: LionModeBadgeProps) {
 
 	return (
 		<span
-			className="min-w-0 truncate rounded border border-border-subtle bg-bg px-2 py-1 text-xs text-text-secondary"
+			className="min-w-0 truncate text-xs text-text-tertiary"
 			title={label}
 		>
 			{label}

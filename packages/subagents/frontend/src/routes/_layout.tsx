@@ -8,6 +8,12 @@ export const Route = createFileRoute("/_layout")({
 function LayoutRoute() {
 	const threadMatch = useMatch({ from: "/_layout/thread/$threadId", shouldThrow: false });
 	const activeThreadId = threadMatch?.params.threadId ?? null;
+	const isCanvasPreview =
+		typeof window !== "undefined" && new URLSearchParams(window.location.search).get("canvas") === "1";
+
+	if (isCanvasPreview) {
+		return <Outlet />;
+	}
 
 	return (
 		<DashboardLayout activeThreadId={activeThreadId}>
