@@ -62,10 +62,13 @@ export function useSseEvents(instanceId?: string, enabled = true) {
 
 				const emit = () => {
 					if (cancelled) return;
-					const event = advanceMockTodoProgress();
-					dashboardDebugLedger.recordEvent(event);
-					storeRef.current.addEvent(event);
-					syncDashboardQueries(event);
+					const events = advanceMockTodoProgress();
+					dashboardDebugLedger.recordEvent(events.sessionEvent);
+					storeRef.current.addEvent(events.sessionEvent);
+					handleSessionEvent(events.sessionEvent);
+					dashboardDebugLedger.recordEvent(events.taskEvent);
+					storeRef.current.addEvent(events.taskEvent);
+					syncDashboardQueries(events.taskEvent);
 					lastEventTime = Date.now();
 					scheduleInactivityCheck();
 					mockTimeout = setTimeout(emit, 3000);

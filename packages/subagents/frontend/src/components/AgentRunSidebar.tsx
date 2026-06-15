@@ -108,7 +108,7 @@ export function AgentRunSidebar({
 				<aside
 					className={`absolute right-0 top-0 flex h-full flex-col border-l border-border-subtle bg-bg-elevated shadow-2xl ${
 						todoMockMode ? "w-[min(280px,calc(100vw-0.5rem))]" : "w-[340px] max-w-[calc(100vw-1rem)]"
-					}`}
+					} min-h-0`}
 				>
 					{content}
 				</aside>
@@ -128,13 +128,13 @@ export function AgentRunSidebar({
 				<aside
 					className={`absolute right-0 top-0 flex h-full flex-col border-l border-border-subtle bg-bg-elevated shadow-2xl ${
 						todoMockMode ? "w-[min(280px,calc(100vw-0.5rem))]" : "w-[min(340px,calc(100vw-1rem))]"
-					}`}
+					} min-h-0`}
 				>
 					{content}
 				</aside>
 			</div>
 			<aside
-				className={`hidden shrink-0 flex-col border-l bg-bg-elevated transition-all duration-300 ease-in-out overflow-hidden lg:flex ${
+				className={`hidden min-h-0 shrink-0 flex-col overflow-hidden border-l bg-bg-elevated transition-all duration-300 ease-in-out lg:flex ${
 					isOpen ? `${todoMockMode ? "w-[280px]" : "w-[340px]"} border-border-subtle` : "w-0 border-transparent"
 				}`}
 			>

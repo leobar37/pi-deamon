@@ -68,6 +68,11 @@ export const MOCK_TODO_TASKS: TaskRecord[] = [
 let mockTodoTasks: TaskRecord[] = MOCK_TODO_TASKS.map(cloneTask);
 let mockTodoStep = 0;
 
+export interface MockTodoProgressEvents {
+	sessionEvent: SubAgentEvent;
+	taskEvent: SubAgentEvent;
+}
+
 export function listMockTodoTasks(includeDeleted = false): TaskRecord[] {
 	return mockTodoTasks.filter((task) => includeDeleted || task.status !== "deleted").map(cloneTask);
 }
@@ -117,7 +122,7 @@ export function updateMockTodoTask(
 	return updatedTask ? cloneTask(updatedTask) : null;
 }
 
-export function advanceMockTodoProgress(): SubAgentEvent {
+export function advanceMockTodoProgress(): MockTodoProgressEvents {
 	const activeTask = mockTodoTasks.find((task) => task.status === "in_progress");
 	const nextPending = mockTodoTasks.find((task) => task.status === "pending");
 	const timestamp = Date.now();
@@ -130,7 +135,7 @@ export function advanceMockTodoProgress(): SubAgentEvent {
 			assignedToSession: undefined,
 		}))!;
 		mockTodoStep++;
-		return taskChangedEvent("completed", task, timestamp);
+		return mockToolProgressEvents("task_complete", "complete", task, timestamp);
 	}
 
 	if (nextPending) {
@@ -140,12 +145,12 @@ export function advanceMockTodoProgress(): SubAgentEvent {
 			assignedToSession: MOCK_TODO_AGENT.sessionId,
 		}))!;
 		mockTodoStep++;
-		return taskChangedEvent("updated", task, timestamp);
+		return mockToolProgressEvents("task_update", "update", task, timestamp);
 	}
 
 	const task = listMockTodoTasks().find((item) => item.status === "blocked") ?? listMockTodoTasks()[0];
 	mockTodoStep++;
-	return taskChangedEvent(task.status === "blocked" ? "blocked" : "updated", task, timestamp);
+	return mockToolProgressEvents("task_block", "block", task, timestamp);
 }
 
 export const MOCK_TODO_AGENT: SubAgentInstanceState = {
@@ -211,6 +216,35 @@ export const MOCK_TODO_MESSAGES: ChatMessage[] = [
 	},
 ];
 
+function mockToolProgressEvents(
+	toolName: "task_update" | "task_complete" | "task_block",
+	action: "update" | "complete" | "block",
+	task: TaskRecord,
+	timestamp: number,
+): MockTodoProgressEvents {
+	const toolCallId = `mock-${toolName}-${timestamp}`;
+	const details = { action, task };
+	return {
+		sessionEvent: {
+			type: "session.event",
+			instanceId: MOCK_TODO_AGENT.instanceId,
+			taskId: MOCK_TODO_AGENT.taskId,
+			sessionEvent: {
+				type: "tool_execution_end",
+				toolCallId,
+				toolName,
+				result: {
+					content: [{ type: "text", text: JSON.stringify(task) }],
+					details,
+				},
+				isError: false,
+			},
+			timestamp,
+		},
+		taskEvent: taskChangedEvent(taskActionFromToolDetails(action, task), task, timestamp),
+	};
+}
+
 function taskChangedEvent(action: "created" | "updated" | "completed" | "blocked" | "deleted", task: TaskRecord, timestamp: number): SubAgentEvent {
 	return {
 		type: "task.changed",
@@ -219,6 +253,13 @@ function taskChangedEvent(action: "created" | "updated" | "completed" | "blocked
 		task,
 		timestamp,
 	};
+}
+
+function taskActionFromToolDetails(action: "update" | "complete" | "block", task: TaskRecord): "updated" | "completed" | "blocked" | "deleted" {
+	if (task.status === "completed") return "completed";
+	if (task.status === "blocked") return "blocked";
+	if (task.status === "deleted") return "deleted";
+	return action === "complete" ? "completed" : action === "block" ? "blocked" : "updated";
 }
 
 function cloneTask(task: TaskRecord): TaskRecord {
