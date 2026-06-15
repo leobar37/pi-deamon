@@ -5,6 +5,8 @@ import { useAgent } from "../hooks/use-agent.ts";
 import { useAgentMessages } from "../hooks/use-agent-messages.ts";
 import { useAgentRun } from "../hooks/use-agent-run.ts";
 import { useLionState } from "../hooks/use-lion-state.ts";
+import { useSseEvents } from "../hooks/use-sse.ts";
+import { MOCK_TODO_AGENT, MOCK_TODO_MESSAGES } from "../mocks/tasks.ts";
 import { useSubAgentStore } from "../store/use-subagent-store.ts";
 import { useSessionMessagesStore } from "../store/session-messages.ts";
 import { navigateToThread } from "../navigation.ts";
@@ -30,18 +32,23 @@ export function SessionWorkspace({ threadId, variant, onBack }: SessionWorkspace
 	const { data: fetchedRun, isLoading: isRunLoading } = useAgentRun(threadId);
 	const { data: lionState } = useLionState();
 	const embedded = variant !== "full";
-	const [sidebarOpen, setSidebarOpen] = useState(!embedded);
+	const todoMockMode = isTodoMockMode();
+	const [sidebarOpen, setSidebarOpen] = useState(!embedded || todoMockMode);
+
+	useSseEvents(threadId, todoMockMode);
 
 	const setMessages = useSessionMessagesStore((s) => s.setMessages);
 	const storeAgents = useSubAgentStore((s) => s.agents);
-	const agents = storeAgents.length > 0 ? storeAgents : useSubAgentStore.getState().agents;
+	const agents = todoMockMode ? [MOCK_TODO_AGENT] : storeAgents.length > 0 ? storeAgents : useSubAgentStore.getState().agents;
 	const storeAgent = agents.find((agent) => agent.instanceId === threadId);
 
 	useEffect(() => {
-		if (fetchedMessages) {
+		if (todoMockMode) {
+			setMessages(threadId, MOCK_TODO_MESSAGES);
+		} else if (fetchedMessages) {
 			setMessages(threadId, fetchedMessages);
 		}
-	}, [fetchedMessages, threadId, setMessages]);
+	}, [fetchedMessages, threadId, setMessages, todoMockMode]);
 
 	const displayAgent: SubAgentInstanceState | undefined = storeAgent ?? fetchedAgent ?? undefined;
 	const parentThread = displayAgent?.parentThreadId
@@ -49,7 +56,8 @@ export function SessionWorkspace({ threadId, variant, onBack }: SessionWorkspace
 		: null;
 	const isMainThread = displayAgent?.kind === "main";
 	const subagentParentThreadId = isMainThread ? displayAgent?.instanceId : displayAgent?.parentThreadId;
-	const isLionActive = isLionUiActive(lionState);
+	const effectiveLionState = todoMockMode ? undefined : lionState;
+	const isLionActive = isLionUiActive(effectiveLionState);
 	const showMainNavigation = !isMainThread || isLionActive;
 	const showStateBadge = !isMainThread;
 	const showHeader = Boolean(displayAgent && (!isMainThread || showMainNavigation));
@@ -71,7 +79,7 @@ export function SessionWorkspace({ threadId, variant, onBack }: SessionWorkspace
 				<SessionHeader
 					agent={displayAgent}
 					parentThread={parentThread}
-					lionState={lionState}
+					lionState={effectiveLionState}
 					showMainNavigation={showMainNavigation}
 					showStateBadge={showStateBadge}
 					sidebarOpen={sidebarOpen}
@@ -122,6 +130,11 @@ export function SessionWorkspace({ threadId, variant, onBack }: SessionWorkspace
 			</div>
 		</div>
 	);
+}
+
+function isTodoMockMode(): boolean {
+	if (typeof window === "undefined") return false;
+	return new URLSearchParams(window.location.search).get("mock") === "todos";
 }
 
 function SessionHeader({
@@ -181,7 +194,7 @@ function SessionHeader({
 				<button
 					type="button"
 					onClick={onToggleSidebar}
-					className="ml-auto hidden h-8 w-8 items-center justify-center rounded-md text-text-secondary transition-colors hover:bg-bg-hover hover:text-text-primary lg:flex"
+					className="ml-auto flex h-8 w-8 items-center justify-center rounded-md text-text-secondary transition-colors hover:bg-bg-hover hover:text-text-primary"
 					title={sidebarOpen ? "Close sidebar" : "Open sidebar"}
 				>
 					{sidebarOpen ? (

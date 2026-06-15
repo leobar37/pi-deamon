@@ -4,6 +4,7 @@ import { useSessionMessagesStore } from "../store/session-messages.ts";
 import type { SubAgentEvent, SubAgentInstanceState } from "../types.ts";
 import { convertAgentMessages } from "../utils/message-converter.ts";
 import { generateNextEvent } from "../mocks/sse-emitter.ts";
+import { advanceMockTodoProgress } from "../mocks/tasks.ts";
 import { dashboardDebugLedger } from "../dev/debug-ledger.ts";
 import { queryClient } from "../lib/query-client.ts";
 import { invalidateTaskQueries } from "../lib/task-query-cache.ts";
@@ -13,11 +14,13 @@ function isDev(): boolean {
 	return (import.meta as unknown as { env?: { DEV?: boolean } }).env?.DEV ?? false;
 }
 
-export function useSseEvents(instanceId?: string) {
+export function useSseEvents(instanceId?: string, enabled = true) {
 	const storeRef = useRef(useSubAgentStore.getState());
 	const abortRef = useRef<AbortController | null>(null);
 
 	useEffect(() => {
+		if (!enabled) return;
+
 		let cancelled = false;
 		let retryCount = 0;
 		let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
@@ -52,6 +55,25 @@ export function useSseEvents(instanceId?: string) {
 
 		const startMockEmitter = async () => {
 			if (!isDev()) return false;
+			if (isTodoMockMode()) {
+				storeRef.current.setConnected(true);
+				lastEventTime = Date.now();
+				scheduleInactivityCheck();
+
+				const emit = () => {
+					if (cancelled) return;
+					const event = advanceMockTodoProgress();
+					dashboardDebugLedger.recordEvent(event);
+					storeRef.current.addEvent(event);
+					syncDashboardQueries(event);
+					lastEventTime = Date.now();
+					scheduleInactivityCheck();
+					mockTimeout = setTimeout(emit, 3000);
+				};
+
+				mockTimeout = setTimeout(emit, 1800);
+				return true;
+			}
 			// Only emit for the running mock agent
 			if (instanceId && instanceId !== "subagent-task-1-abc123") return false;
 
@@ -192,11 +214,16 @@ export function useSseEvents(instanceId?: string) {
 			if (mockTimeout) clearTimeout(mockTimeout);
 			abortRef.current?.abort();
 		};
-	}, [instanceId]);
+	}, [enabled, instanceId]);
 
 	function handleSessionEvent(event: SubAgentEvent): void {
 		applySessionMessageEvent(event);
 	}
+}
+
+function isTodoMockMode(): boolean {
+	if (typeof window === "undefined") return false;
+	return new URLSearchParams(window.location.search).get("mock") === "todos";
 }
 
 export function applySessionMessageEvent(event: SubAgentEvent): void {

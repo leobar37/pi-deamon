@@ -5,6 +5,7 @@ import { useSubAgentStore } from "../store/use-subagent-store.ts";
 import { MarkdownRenderer } from "./blocks/MarkdownRenderer";
 import { ChecklistProgressBlock } from "./ChecklistProgressBlock.tsx";
 import { isLionUiActive } from "./LionModeBadge.tsx";
+import { TaskSidebarSection } from "./TaskSidebarSection.tsx";
 import { X } from "lucide-react";
 
 interface AgentRunSidebarProps {
@@ -67,7 +68,8 @@ export function AgentRunSidebar({
 	const systemPrompt = run?.systemPrompt ?? "";
 	const output = run?.summary ?? run?.error ?? "";
 	const isMain = agent?.kind === "main";
-	const isLionActive = isLionUiActive(lionState);
+	const todoMockMode = isTodoMockMode();
+	const isLionActive = !todoMockMode && isLionUiActive(lionState);
 	const showStatus = !isMain;
 	const isPlanStrategy = lionState?.strategy === "plan";
 	const { data: planChecklist } = useLionChecklist("plan", activePlanReference, {
@@ -85,6 +87,7 @@ export function AgentRunSidebar({
 			showStatus={showStatus}
 			planChecklist={planChecklist}
 			runProgress={runProgress}
+			compactTasks={todoMockMode}
 			input={input}
 			systemPrompt={systemPrompt}
 			output={output}
@@ -102,7 +105,11 @@ export function AgentRunSidebar({
 					aria-label="Close session details"
 					onClick={onClose}
 				/>
-				<aside className="absolute right-0 top-0 flex h-full w-[340px] max-w-[calc(100vw-1rem)] flex-col border-l border-border-subtle bg-bg-elevated shadow-2xl">
+				<aside
+					className={`absolute right-0 top-0 flex h-full flex-col border-l border-border-subtle bg-bg-elevated shadow-2xl ${
+						todoMockMode ? "w-[min(280px,calc(100vw-0.5rem))]" : "w-[340px] max-w-[calc(100vw-1rem)]"
+					}`}
+				>
 					{content}
 				</aside>
 			</div>
@@ -110,13 +117,30 @@ export function AgentRunSidebar({
 	}
 
 	return (
-		<aside
-			className={`hidden shrink-0 flex-col border-l bg-bg-elevated lg:flex transition-all duration-300 ease-in-out overflow-hidden ${
-				isOpen ? "w-[340px] border-border-subtle" : "w-0 border-transparent"
-			}`}
-		>
-			{content}
-		</aside>
+		<>
+			<div className={`fixed inset-0 z-50 lg:hidden ${isOpen ? "block" : "hidden"}`}>
+				<button
+					type="button"
+					className="absolute inset-0 bg-black/45"
+					aria-label="Close session details"
+					onClick={onClose}
+				/>
+				<aside
+					className={`absolute right-0 top-0 flex h-full flex-col border-l border-border-subtle bg-bg-elevated shadow-2xl ${
+						todoMockMode ? "w-[min(280px,calc(100vw-0.5rem))]" : "w-[min(340px,calc(100vw-1rem))]"
+					}`}
+				>
+					{content}
+				</aside>
+			</div>
+			<aside
+				className={`hidden shrink-0 flex-col border-l bg-bg-elevated transition-all duration-300 ease-in-out overflow-hidden lg:flex ${
+					isOpen ? `${todoMockMode ? "w-[280px]" : "w-[340px]"} border-border-subtle` : "w-0 border-transparent"
+				}`}
+			>
+				{content}
+			</aside>
+		</>
 	);
 }
 
@@ -128,6 +152,7 @@ function AgentRunSidebarContent({
 	showStatus,
 	planChecklist,
 	runProgress,
+	compactTasks,
 	input,
 	systemPrompt,
 	output,
@@ -141,6 +166,7 @@ function AgentRunSidebarContent({
 	showStatus: boolean;
 	planChecklist?: LionChecklistSnapshot;
 	runProgress: RunProgress | null;
+	compactTasks: boolean;
 	input: string;
 	systemPrompt: string;
 	output: string;
@@ -148,9 +174,21 @@ function AgentRunSidebarContent({
 	onClose?: () => void;
 }) {
 	return (
-		<div className="flex min-w-[340px] flex-1 flex-col">
-			<div className="border-b border-border-subtle px-4 py-3">
-				<div className="flex items-start justify-between gap-3">
+		<div className={`relative flex min-w-0 flex-1 flex-col ${compactTasks ? "lg:min-w-[280px]" : "lg:min-w-[340px]"}`}>
+			{compactTasks ? (
+				showClose ? (
+					<button
+						type="button"
+						onClick={onClose}
+						className="absolute right-2 top-2 z-10 flex h-6 w-6 shrink-0 items-center justify-center rounded-md border border-border-subtle bg-bg-elevated text-text-secondary transition hover:border-border-hover hover:bg-bg-hover hover:text-text-primary"
+						aria-label="Close session details"
+					>
+						<X size={13} aria-hidden="true" />
+					</button>
+				) : null
+			) : (
+				<div className="border-b border-border-subtle px-4 py-3">
+				<div className="flex items-start justify-between gap-2">
 					<div className="min-w-0">
 						<div className="text-xs uppercase tracking-wide text-text-tertiary">{isMain ? "Session" : "Run"}</div>
 						<div className="mt-1 truncate text-sm font-medium text-text-primary">{run?.description ?? agent?.description ?? agent?.definitionName ?? "Subagent"}</div>
@@ -182,9 +220,10 @@ function AgentRunSidebarContent({
 						<div>{run?.toolCount ?? agent?.toolCount ?? 0}</div>
 					</div>
 				</div>
-			</div>
+				</div>
+			)}
 
-			<div className="min-h-0 flex-1 space-y-4 overflow-y-auto p-4">
+			<div className={`min-h-0 flex-1 overflow-y-auto ${compactTasks ? "space-y-2 p-2 pt-3" : "space-y-4 p-4"}`}>
 				{isMain ? (
 					<>
 						{planChecklist ? (
@@ -199,7 +238,9 @@ function AgentRunSidebarContent({
 							</section>
 						) : null}
 
-						<SessionInfoWidget agent={agent} />
+						<TaskSidebarSection sessionId={agent?.sessionId} compact={compactTasks} />
+
+						{compactTasks ? null : <SessionInfoWidget agent={agent} />}
 					</>
 				) : (
 					<>
@@ -237,11 +278,13 @@ function AgentRunSidebarContent({
 					</>
 				)}
 
-				<div className="border-t border-border-subtle pt-3 text-xs text-text-tertiary">
-					<div>Started: {formatTime(run?.startedAt ?? agent?.startTime)}</div>
-					<div>Updated: {formatTime(run?.updatedAt ?? agent?.lastActivityAt)}</div>
-					<div>Completed: {formatTime(run?.completedAt ?? agent?.endTime)}</div>
-				</div>
+				{compactTasks ? null : (
+					<div className="border-t border-border-subtle pt-3 text-xs text-text-tertiary">
+						<div>Started: {formatTime(run?.startedAt ?? agent?.startTime)}</div>
+						<div>Updated: {formatTime(run?.updatedAt ?? agent?.lastActivityAt)}</div>
+						<div>Completed: {formatTime(run?.completedAt ?? agent?.endTime)}</div>
+					</div>
+				)}
 			</div>
 		</div>
 	);
@@ -321,6 +364,11 @@ function RunProgressCard({ progress }: { progress: RunProgress }) {
 			</div>
 		</div>
 	);
+}
+
+function isTodoMockMode(): boolean {
+	if (typeof window === "undefined") return false;
+	return new URLSearchParams(window.location.search).get("mock") === "todos";
 }
 
 function formatDuration(value: number): string {

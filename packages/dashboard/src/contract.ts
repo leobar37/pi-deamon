@@ -240,6 +240,14 @@ export const dashboardContract = oc.router({
 		get: oc.output(z.object({ uptime: z.number() })),
 	},
 
+	environment: {
+		get: oc.output(
+			z.object({
+				subagentsUrl: z.string().nullable(),
+			}),
+		),
+	},
+
 	logs: {
 		get: oc
 			.input(

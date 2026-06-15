@@ -13,10 +13,16 @@ interface SessionSidebarProps {
 	selectedProjectId: string | null;
 	focusedSessionId: string | null;
 	projectError: string | null;
+	isProjectFormOpen: boolean;
+	projectPathInput: string;
+	isCreatingProject?: boolean;
 	sessionRuntimes: Record<string, CanvasSessionRuntime>;
 	onSessionSearchChange: (value: string) => void;
 	onSelectProject: (projectId: string | null) => void;
 	onCreateProject: () => void;
+	onProjectPathChange: (value: string) => void;
+	onSubmitProjectPath: () => void;
+	onCancelProjectPath: () => void;
 	onFocusSession: (sessionId: string) => void;
 	onCreateSession: () => void;
 	canCreateSession: boolean;
@@ -48,10 +54,16 @@ export function SessionSidebar({
 	selectedProjectId,
 	focusedSessionId,
 	projectError,
+	isProjectFormOpen,
+	projectPathInput,
+	isCreatingProject,
 	sessionRuntimes,
 	onSessionSearchChange,
 	onSelectProject,
 	onCreateProject,
+	onProjectPathChange,
+	onSubmitProjectPath,
+	onCancelProjectPath,
 	onFocusSession,
 	onCreateSession,
 	canCreateSession,
@@ -116,13 +128,55 @@ export function SessionSidebar({
 					<button
 						type="button"
 						onClick={onCreateProject}
+						disabled={isCreatingProject}
 						className="flex h-7 w-7 items-center justify-center rounded-md text-text-secondary transition hover:bg-bg-hover hover:text-text-primary"
 						title="Add project"
 						aria-label="Add project"
 					>
-						<Plus size={14} aria-hidden="true" />
+						{isCreatingProject ? <LoadingSpinner size="sm" /> : <Plus size={14} aria-hidden="true" />}
 					</button>
 				</div>
+
+				{isProjectFormOpen ? (
+					<form
+						className="mb-2 rounded-md border border-border-subtle bg-bg px-2.5 py-2"
+						onSubmit={(event) => {
+							event.preventDefault();
+							onSubmitProjectPath();
+						}}
+					>
+						<label className="block text-[11px] font-semibold uppercase tracking-wide text-text-tertiary" htmlFor="project-path-input">
+							Project path
+						</label>
+						<input
+							id="project-path-input"
+							type="text"
+							value={projectPathInput}
+							onChange={(event) => onProjectPathChange(event.target.value)}
+							placeholder="/Users/name/code/project"
+							className="mt-1 w-full rounded-md border border-border-subtle bg-bg-surface px-2 py-1.5 text-xs text-text-primary outline-none transition placeholder:text-text-muted focus:border-border-hover"
+							disabled={isCreatingProject}
+							autoFocus
+						/>
+						<div className="mt-2 flex items-center justify-end gap-1.5">
+							<button
+								type="button"
+								onClick={onCancelProjectPath}
+								disabled={isCreatingProject}
+								className="rounded-md px-2 py-1 text-xs text-text-tertiary transition hover:bg-bg-hover hover:text-text-primary disabled:opacity-45"
+							>
+								Cancel
+							</button>
+							<button
+								type="submit"
+								disabled={isCreatingProject}
+								className="rounded-md border border-border-subtle px-2 py-1 text-xs font-medium text-text-secondary transition hover:border-border-hover hover:bg-bg-hover hover:text-text-primary disabled:opacity-45"
+							>
+								Add
+							</button>
+						</div>
+					</form>
+				) : null}
 
 				<div className="space-y-1">
 					<button

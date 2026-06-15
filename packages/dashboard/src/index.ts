@@ -16,4 +16,6 @@ export type {
 export { createPiSessionsSdk } from "./sdk.js";
 export { DashboardDaemon } from "./server/daemon.js";
 // Shared types
+export type { SubagentsBackendCommand, SubagentsBackendManagerOptions } from "./server/subagents-backend.js";
+export { SubagentsBackendManager } from "./server/subagents-backend.js";
 export type { DashboardConfig, DashboardSessionRuntime } from "./types.js";

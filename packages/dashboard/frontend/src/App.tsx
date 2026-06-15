@@ -3,7 +3,7 @@ import { createPiSessionsSdk } from "@local/pi-dashboard/sdk";
 import { AgentCanvas } from "./canvas/AgentCanvas.js";
 import { SessionInspector } from "./sessions/SessionInspector.js";
 import { SessionSidebar } from "./sessions/SessionSidebar.js";
-import { resolveBackendUrl, resolveDashboardUrl, getElectronApi } from "./electron.js";
+import { getDashboardEnvironment } from "./environment.js";
 import type { CanvasSession, CanvasSessionRuntime } from "./canvas/types.js";
 import type { CanvasProject } from "./projects/types.js";
 
@@ -14,7 +14,7 @@ const MOCK_THREAD_ID = "main:mock-session";
 
 function isMockCanvasMode(): boolean {
 	if (typeof window === "undefined") return false;
-	return new URLSearchParams(window.location.search).get("mock") === "1";
+	return new URLSearchParams(window.location.search).has("mock");
 }
 
 function loadSidebarOpen(key: string, defaultValue: boolean): boolean {
@@ -57,7 +57,8 @@ function matchesSessionSearch(session: CanvasSession, projects: CanvasProject[],
 }
 
 function AppContent({ backendUrl, dashboardUrl }: { backendUrl: string; dashboardUrl: string }) {
-	const isElectronDarwin = window.__PI_ELECTRON__?.platform === "darwin";
+	const environment = useMemo(() => getDashboardEnvironment(), []);
+	const isElectronDarwin = environment.kind === "electron" && environment.platform === "darwin";
 	const [focusedSessionId, setFocusedSessionId] = useState<string | null>(null);
 	const [sessions, setSessions] = useState<CanvasSession[]>([]);
 	const [sessionRuntimes, setSessionRuntimes] = useState<Record<string, CanvasSessionRuntime>>({});
@@ -69,6 +70,9 @@ function AppContent({ backendUrl, dashboardUrl }: { backendUrl: string; dashboar
 	const [createError, setCreateError] = useState<string | null>(null);
 	const [projectError, setProjectError] = useState<string | null>(null);
 	const [isLoading, setIsLoading] = useState(true);
+	const [isProjectFormOpen, setIsProjectFormOpen] = useState(false);
+	const [projectPathInput, setProjectPathInput] = useState("");
+	const [isCreatingProject, setIsCreatingProject] = useState(false);
 	const [isCreatingSession, setIsCreatingSession] = useState(false);
 	const creatingSessionRef = useRef(isCreatingSession);
 
@@ -204,29 +208,50 @@ function AppContent({ backendUrl, dashboardUrl }: { backendUrl: string; dashboar
 		[sessions],
 	);
 
+	const createProjectFromDirectory = useCallback(
+		async (directory: string) => {
+			setIsCreatingProject(true);
+			try {
+				const project = await sdk.projects.create({
+					name: directoryName(directory),
+					defaultCwd: directory,
+				});
+				setProjects((prev) => (prev.some((item) => item.id === project.id) ? prev : [project, ...prev]));
+				setSelectedProjectId(project.id);
+				setProjectPathInput("");
+				setIsProjectFormOpen(false);
+			} catch (err) {
+				const message = err instanceof Error ? err.message : String(err);
+				setProjectError(message);
+			} finally {
+				setIsCreatingProject(false);
+			}
+		},
+		[sdk],
+	);
+
 	const createProject = useCallback(async () => {
 		setProjectError(null);
-		const electronApi = getElectronApi();
-		const directory = await electronApi?.chooseProjectDirectory();
-		if (!directory) {
-			if (!electronApi) {
-				setProjectError("Project folders can only be selected from the Electron app.");
-			}
+		if (environment.kind === "web") {
+			setIsProjectFormOpen(true);
 			return;
 		}
 
-		try {
-			const project = await sdk.projects.create({
-				name: directoryName(directory),
-				defaultCwd: directory,
-			});
-			setProjects((prev) => (prev.some((item) => item.id === project.id) ? prev : [project, ...prev]));
-			setSelectedProjectId(project.id);
-		} catch (err) {
-			const message = err instanceof Error ? err.message : String(err);
-			setProjectError(message);
+		const directory = await environment.chooseProjectDirectory();
+		if (directory) {
+			await createProjectFromDirectory(directory);
 		}
-	}, [sdk]);
+	}, [createProjectFromDirectory, environment]);
+
+	const submitProjectPath = useCallback(async () => {
+		setProjectError(null);
+		const directory = projectPathInput.trim();
+		if (!directory) {
+			setProjectError("Enter a project directory path.");
+			return;
+		}
+		await createProjectFromDirectory(directory);
+	}, [createProjectFromDirectory, projectPathInput]);
 
 	const createSession = useCallback(async () => {
 		setCreateError(null);
@@ -306,10 +331,20 @@ function AppContent({ backendUrl, dashboardUrl }: { backendUrl: string; dashboar
 				selectedProjectId={selectedProjectId}
 				focusedSessionId={focusedSessionId}
 				projectError={projectError}
+				isProjectFormOpen={isProjectFormOpen}
+				projectPathInput={projectPathInput}
+				isCreatingProject={isCreatingProject}
 				sessionRuntimes={sessionRuntimes}
 				onSessionSearchChange={setSessionSearch}
 				onSelectProject={selectProject}
 				onCreateProject={createProject}
+				onProjectPathChange={setProjectPathInput}
+				onSubmitProjectPath={submitProjectPath}
+				onCancelProjectPath={() => {
+					setProjectPathInput("");
+					setProjectError(null);
+					setIsProjectFormOpen(false);
+				}}
 				onFocusSession={focusSession}
 				onCreateSession={createSession}
 				canCreateSession={canCreateSession}
@@ -361,6 +396,7 @@ function AppContent({ backendUrl, dashboardUrl }: { backendUrl: string; dashboar
 function MockCanvasContent() {
 	const params = new URLSearchParams(window.location.search);
 	const backendUrl = params.get("backendUrl") ?? "http://127.0.0.1:5174";
+	const mockMode = params.get("mock");
 	const dashboardUrl = window.location.origin;
 	const [focusedSessionId, setFocusedSessionId] = useState<string | null>(MOCK_SESSION_ID);
 	const runtime: CanvasSessionRuntime = {
@@ -386,7 +422,7 @@ function MockCanvasContent() {
 	};
 	const session: CanvasSession = {
 		id: MOCK_SESSION_ID,
-		name: "Canvas preview",
+		name: mockMode === "todos" ? "Todos session" : "Canvas preview",
 		createdAt: Date.now(),
 		projectId: "mock-project",
 		cwd: "/mock/project",
@@ -424,12 +460,13 @@ export default function App() {
 }
 
 function ConnectedApp() {
+	const environment = useMemo(() => getDashboardEnvironment(), []);
 	const [backendUrl, setBackendUrl] = useState<string | null>(null);
 	const [dashboardUrl, setDashboardUrl] = useState<string | null>(null);
 	const [error, setError] = useState<string | null>(null);
 
 	useEffect(() => {
-		Promise.all([resolveBackendUrl(), resolveDashboardUrl()])
+		Promise.all([environment.resolveBackendUrl(), environment.resolveDashboardUrl()])
 			.then(([backend, dashboard]) => {
 				if (backend && dashboard) {
 					setBackendUrl(backend);
@@ -443,7 +480,7 @@ function ConnectedApp() {
 			.catch((err) => {
 				setError(err instanceof Error ? err.message : String(err));
 			});
-	}, []);
+	}, [environment]);
 
 	if (error) {
 		return (

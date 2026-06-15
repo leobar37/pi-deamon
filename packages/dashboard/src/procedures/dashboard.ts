@@ -461,6 +461,12 @@ export function createDashboardProcedures({
 			})),
 		},
 
+		environment: {
+			get: impl.environment.get.handler(async () => ({
+				subagentsUrl: getSubagentsUrl() ?? null,
+			})),
+		},
+
 		logs: {
 			get: impl.logs.get.handler(async ({ input }) => {
 				const logs = logger.getLogs(input);

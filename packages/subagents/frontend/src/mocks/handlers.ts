@@ -11,6 +11,8 @@ import {
 	MOCK_PLAN_CHECKLIST,
 	updateMockAgentModel,
 } from "./data.ts";
+import { createMockTodoTask, getMockTodoTask, listMockTodoTasks, updateMockTodoTask } from "./tasks.ts";
+import type { TaskRecord, TaskStatus } from "../types.ts";
 import { createMockSseStream } from "./sse-emitter.ts";
 
 function orpcJson(data: unknown): ReturnType<typeof HttpResponse.json> {
@@ -180,6 +182,84 @@ export const handlers = [
 				status: "selected",
 				selectedAt: Date.now(),
 			});
+		}
+
+		if (isORPCPath(url, ["tasks", "list"])) {
+			const input = (await getORPCInput(request, url)) as { includeDeleted?: boolean } | undefined;
+			return orpcJson(listMockTodoTasks(input?.includeDeleted));
+		}
+
+		if (isORPCPath(url, ["tasks", "get"])) {
+			const input = (await getORPCInput(request, url)) as { id: string } | undefined;
+			return orpcJson(getMockTodoTask(input?.id));
+		}
+
+		if (isORPCPath(url, ["tasks", "create"])) {
+			const input = (await getORPCInput(request, url)) as
+				| {
+						title: string;
+						status?: TaskStatus;
+						assignedToSession?: string;
+						actorSessionId?: string;
+						context?: TaskRecord["context"];
+				  }
+				| undefined;
+			if (!input?.title.trim()) return new HttpResponse("Invalid task", { status: 400 });
+			const task = createMockTodoTask(input);
+			return orpcJson({ task });
+		}
+
+		if (isORPCPath(url, ["tasks", "update"])) {
+			const input = (await getORPCInput(request, url)) as
+				| {
+						id: string;
+						title?: string;
+						status?: TaskStatus;
+						assignedToSession?: string | null;
+						actorSessionId?: string;
+						context?: TaskRecord["context"];
+				  }
+				| undefined;
+			const task = updateMockTodoTask(input?.id, (current) => ({
+				...current,
+				title: input?.title ?? current.title,
+				status: input?.status ?? current.status,
+				assignedToSession:
+					input?.assignedToSession === null
+						? undefined
+						: (input?.assignedToSession ?? (input?.status === "in_progress" ? input.actorSessionId : current.assignedToSession)),
+				context: input?.context ?? current.context,
+			}));
+			if (!task) return new HttpResponse("Task not found", { status: 404 });
+			return orpcJson({ task });
+		}
+
+		if (isORPCPath(url, ["tasks", "complete"])) {
+			const input = (await getORPCInput(request, url)) as { id: string } | undefined;
+			const task = updateMockTodoTask(input?.id, (current) => ({ ...current, status: "completed", completedAt: new Date().toISOString() }));
+			if (!task) return new HttpResponse("Task not found", { status: 404 });
+			return orpcJson({ task });
+		}
+
+		if (isORPCPath(url, ["tasks", "block"])) {
+			const input = (await getORPCInput(request, url)) as { id: string; reason: string } | undefined;
+			const task = updateMockTodoTask(input?.id, (current) => ({
+				...current,
+				status: "blocked",
+				context: {
+					...current.context,
+					notes: input?.reason.trim() || current.context?.notes || "Blocked in mock mode.",
+				},
+			}));
+			if (!task) return new HttpResponse("Task not found", { status: 404 });
+			return orpcJson({ task });
+		}
+
+		if (isORPCPath(url, ["tasks", "delete"])) {
+			const input = (await getORPCInput(request, url)) as { id: string } | undefined;
+			const task = updateMockTodoTask(input?.id, (current) => ({ ...current, status: "deleted" }));
+			if (!task) return new HttpResponse("Task not found", { status: 404 });
+			return orpcJson({ task });
 		}
 
 		return new HttpResponse("Not Found", { status: 404 });

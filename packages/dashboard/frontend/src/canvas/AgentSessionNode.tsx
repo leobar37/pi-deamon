@@ -100,8 +100,11 @@ function buildThreadUrl(backendUrl: string, threadId: string, variant: "full" | 
 	if (variant === "canvas") {
 		url.searchParams.set("canvas", "1");
 	}
-	if (typeof window !== "undefined" && new URLSearchParams(window.location.search).get("mock") === "1") {
-		url.searchParams.set("mock", "1");
+	if (typeof window !== "undefined") {
+		const mockMode = new URLSearchParams(window.location.search).get("mock");
+		if (mockMode) {
+			url.searchParams.set("mock", mockMode);
+		}
 	}
 	return url.toString();
 }

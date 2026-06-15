@@ -46,6 +46,7 @@ export function ChatComposer({ instanceId, thread }: ChatComposerProps) {
 	const sendMessage = useSendThreadMessage();
 	const abortMessage = useAbortThreadMessage();
 	const selectModel = useSelectThreadModel();
+	const todoMockMode = isTodoMockMode();
 	const isStreaming = useSessionMessagesStore((state) =>
 		state.streamingByInstance.get(instanceId) ?? false,
 	);
@@ -204,7 +205,7 @@ export function ChatComposer({ instanceId, thread }: ChatComposerProps) {
 	}
 
 	return (
-		<div className="border-t border-border-subtle bg-bg-base px-3 py-2">
+		<div className={`border-t border-border-subtle bg-bg-base ${todoMockMode ? "px-2 py-1.5" : "px-3 py-2"}`}>
 			<motion.div
 				className="relative mx-auto flex max-w-5xl flex-col gap-1.5"
 				animate={shouldReduceMotion ? undefined : { y: isFocused ? -1 : 0, scale: isFocused ? 1.002 : 1 }}
@@ -262,7 +263,7 @@ export function ChatComposer({ instanceId, thread }: ChatComposerProps) {
 					onBlur={() => setIsFocused(false)}
 					onKeyDown={handleKeyDown}
 					onPaste={(event) => void handlePaste(event)}
-					className={`min-h-10 resize-none rounded-md border bg-bg-surface px-3 py-2.5 text-sm leading-normal text-text-primary outline-none transition placeholder:text-text-tertiary ${
+					className={`${todoMockMode ? "min-h-8 px-2.5 py-1.5 text-xs" : "min-h-10 px-3 py-2.5 text-sm"} resize-none rounded-md border bg-bg-surface leading-normal text-text-primary outline-none transition placeholder:text-text-tertiary ${
 						isFocused ? "border-border-hover" : "border-border-default"
 					}`}
 				/>
@@ -317,9 +318,10 @@ export function ChatComposer({ instanceId, thread }: ChatComposerProps) {
 							fallbackProvider={thread?.modelProvider}
 							fallbackModelId={thread?.modelId}
 							isOpen={modelsOpen}
+							compact={todoMockMode}
 							onClick={() => setModelsOpen((open) => !open)}
 						/>
-						<LionModeSelector />
+						{todoMockMode ? null : <LionModeSelector />}
 					</div>
 
 					<div className="flex shrink-0 items-center gap-2">
@@ -382,6 +384,11 @@ export function ChatComposer({ instanceId, thread }: ChatComposerProps) {
 	);
 }
 
+function isTodoMockMode(): boolean {
+	if (typeof window === "undefined") return false;
+	return new URLSearchParams(window.location.search).get("mock") === "todos";
+}
+
 async function readImageAttachment(file: File): Promise<DashboardImageAttachment> {
 	const dataUrl = await readFileAsDataUrl(file);
 	const base64 = dataUrl.slice(dataUrl.indexOf(",") + 1);
@@ -413,10 +420,11 @@ interface ModelButtonProps {
 	fallbackProvider?: string;
 	fallbackModelId?: string;
 	isOpen: boolean;
+	compact?: boolean;
 	onClick(): void;
 }
 
-function ModelButton({ currentModel, fallbackProvider, fallbackModelId, isOpen, onClick }: ModelButtonProps) {
+function ModelButton({ currentModel, fallbackProvider, fallbackModelId, isOpen, compact = false, onClick }: ModelButtonProps) {
 	const label = currentModel?.name ?? formatModelLabel(fallbackProvider, fallbackModelId) ?? "Model";
 	const title = currentModel ? `${currentModel.provider}/${currentModel.id}` : label;
 
@@ -424,7 +432,7 @@ function ModelButton({ currentModel, fallbackProvider, fallbackModelId, isOpen, 
 		<button
 			type="button"
 			onClick={onClick}
-			className="flex max-w-[16rem] shrink min-w-0 items-center gap-1.5 rounded-md px-2 py-1.5 text-xs text-text-secondary transition hover:bg-bg-hover hover:text-text-primary"
+			className={`${compact ? "max-w-[10rem] px-1.5 py-1 text-[11px]" : "max-w-[16rem] px-2 py-1.5 text-xs"} flex shrink min-w-0 items-center gap-1.5 rounded-md text-text-secondary transition hover:bg-bg-hover hover:text-text-primary`}
 			title={title}
 			aria-expanded={isOpen}
 		>

@@ -15,12 +15,18 @@
 - Session runtime snapshots and abort controls for dashboard-managed sessions.
 - Typed dashboard event bus with `/events` SSE streaming and `events.list` replay.
 - Declarative Pi sessions SDK for catalog, runtime, actions, batch operations, and typed event subscriptions.
+- Dashboard environment discovery endpoint for resolving the subagents backend from web clients.
+- Shared subagents backend manager for Electron and web-hosted dashboard daemons.
+- Inline project path entry for web dashboard project creation.
 
 ### Changed
 
 - The right session inspector is now hidden entirely when no session is focused instead of showing a "No focused session" placeholder.
 - "Add session" buttons now show a loading spinner while the backend thread is being created.
 - Dashboard frontend development servers now start from port `5713` instead of Vite's default `5173`.
+- The dashboard frontend now uses environment adapters so the same canvas can run through Electron IPC or the web oRPC server.
+- Electron now uses the shared subagents backend manager instead of keeping separate process-spawning logic in the main process.
+- Electron and web dashboard modes now share the default `~/.pi/dashboard.sqlite` catalog database.
 
 ### Fixed
 

@@ -34,23 +34,32 @@ bun run electron:build
 bun run electron:pack
 ```
 
-### Static file server (non-Electron)
+### Web server (non-Electron)
 
 ```ts
 import { DashboardDaemon } from "@local/pi-dashboard";
 
-const daemon = new DashboardDaemon({ port: 9393 });
+const daemon = new DashboardDaemon({
+  port: 9393,
+  subagentsBackend: {
+    command: "pi",
+    args: ["--web"],
+    env: { LION_AUTO_ACTIVATE: "true" },
+  },
+});
 const url = await daemon.start();
 console.log(`Dashboard at ${url.href}`);
 
-// The static SPA expects ?backendUrl= pointing at a subagents backend.
 await daemon.stop();
 ```
 
 The server exposes:
 
-- `/api` — minimal oRPC endpoints (`state.get`, `logs.get`)
+- `/rpc` — typed oRPC endpoints for projects, sessions, layout, state, and environment discovery
+- `/events` — dashboard event stream
 - `/` — static React SPA frontend
+
+The dashboard catalog database defaults to `~/.pi/dashboard.sqlite` in both web and Electron modes.
 
 ## Desktop architecture
 
@@ -58,12 +67,13 @@ The server exposes:
 Electron Main Process (Node.js)
 ├── Spawns: pi (coding-agent binary) --web -e extensions
 ├── Parses subagents URL from stdout: [lion] dashboard at http://...
-├── Exposes URL to renderer via contextBridge IPC
+├── Exposes native-only capabilities to renderer via contextBridge IPC
 └── Creates BrowserWindow with preload script
 
 Renderer Process (Chromium)
 ├── React SPA loads from file://frontend/dist/index.html
-├── Calls window.__PI_ELECTRON__.getBackendUrl() for the backend URL
+├── Uses oRPC HTTP for dashboard operations
+├── Calls window.__PI_ELECTRON__.getBackendUrl() only for Electron URL discovery
 └── Renders the subagents UI inside iframes on a React Flow canvas
 ```
 

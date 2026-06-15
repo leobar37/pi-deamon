@@ -3,6 +3,7 @@ import type { DashboardSessionRuntimeSchema } from "./contract.js";
 import type { DashboardDatabase } from "./db/connection.js";
 import type { CanvasNodeRepository, ProjectRepository, SessionRepository } from "./db/repositories.js";
 import type { DashboardEventBus } from "./events.js";
+import type { SubagentsBackendCommand } from "./server/subagents-backend.js";
 
 export interface DashboardConfig {
 	host?: string;
@@ -13,6 +14,11 @@ export interface DashboardConfig {
 	 * Path to the SQLite catalog database. Defaults to ~/.pi/dashboard.sqlite.
 	 */
 	databasePath?: string;
+	/**
+	 * Optional subagents backend command for web deployments that should manage
+	 * the same Pi `--web` backend Electron normally starts.
+	 */
+	subagentsBackend?: SubagentsBackendCommand;
 }
 
 export interface DashboardContext extends Record<PropertyKey, unknown> {

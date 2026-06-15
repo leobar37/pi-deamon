@@ -21,6 +21,7 @@ import type { DashboardConfig, DashboardContext } from "../types.js";
 import { DashboardEventStream } from "./events.js";
 import { createFetchHandler, type HttpServer, startHttpServer } from "./http-server.js";
 import { serveStaticFile } from "./static.js";
+import { SubagentsBackendManager } from "./subagents-backend.js";
 
 function resolveDefaultFrontendDir(moduleDir: string): string {
 	const candidates = [join(moduleDir, "..", "..", "frontend", "dist"), join(moduleDir, "..", "frontend", "dist")];
@@ -34,11 +35,18 @@ function resolveDefaultDatabasePath(): string {
 export class DashboardDaemon {
 	private handler: RPCHandler<DashboardContext> | null = null;
 	private server: HttpServer | null = null;
-	private config: Required<DashboardConfig>;
+	private config: DashboardConfig & {
+		host: string;
+		port: number;
+		frontendDir: string;
+		dev: boolean;
+		databasePath: string;
+	};
 	private startTime = 0;
 	private context: DashboardContext | null = null;
 	private subagentsUrl: string | undefined;
 	private eventStream: DashboardEventStream | null = null;
+	private subagentsBackend: SubagentsBackendManager | null = null;
 
 	constructor(config?: DashboardConfig) {
 		const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -48,6 +56,7 @@ export class DashboardDaemon {
 			frontendDir: config?.frontendDir ?? resolveDefaultFrontendDir(__dirname),
 			dev: config?.dev ?? false,
 			databasePath: config?.databasePath ?? resolveDefaultDatabasePath(),
+			subagentsBackend: config?.subagentsBackend,
 		};
 		const db = createDatabase({ path: this.config.databasePath });
 		runMigrations(db);
@@ -105,6 +114,15 @@ export class DashboardDaemon {
 
 		this.eventStream?.start();
 		this.server = await startHttpServer(fetchHandler, this.config.host, listenPort);
+		if (this.config.subagentsBackend) {
+			this.subagentsBackend = new SubagentsBackendManager({
+				onStdout: (text) => logger.info("Subagents backend stdout", { text }),
+				onStderr: (text) => logger.warn("Subagents backend stderr", { text }),
+				onUnexpectedExit: (code) => logger.error("Subagents backend exited unexpectedly", { code }),
+			});
+			this.subagentsBackend.start(this.config.subagentsBackend);
+			this.setSubagentsUrl(await this.subagentsBackend.getUrl());
+		}
 
 		return this.url!;
 	}
@@ -114,6 +132,8 @@ export class DashboardDaemon {
 
 		this.server.stop(true);
 		this.eventStream?.stop();
+		this.subagentsBackend?.kill();
+		this.subagentsBackend = null;
 		this.server = null;
 		this.handler = null;
 		this.startTime = 0;

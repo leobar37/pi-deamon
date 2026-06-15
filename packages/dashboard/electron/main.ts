@@ -8,158 +8,31 @@
  */
 
 import { app, BrowserWindow, dialog, ipcMain } from "electron";
-import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { createDashboardClient } from "../src/api/dashboard-client.js";
 import { DashboardDaemon } from "../src/server/daemon.js";
+import { SubagentsBackendManager, type SubagentsBackendCommand } from "../src/server/subagents-backend.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
-const DASHBOARD_URL_REGEX = /\[lion\] dashboard at (https?:\/\/[^\s]+)/;
 const HEALTHCHECK_TIMEOUT_MS = 30000;
 const HEALTHCHECK_INTERVAL_MS = 200;
-const KILL_TIMEOUT_MS = 3000;
-const MAX_STDOUT_BUFFER_SIZE = 8192;
 const DEV_RENDERER_URL = process.env.PI_DASHBOARD_RENDERER_URL;
 
 let mainWindow: BrowserWindow | null = null;
 let dashboardDaemon: DashboardDaemon | null = null;
-let dashboardClient: ReturnType<typeof createDashboardClient> | null = null;
-
-class BackendManager {
-	private process: ChildProcessWithoutNullStreams | null = null;
-	private urlPromise: Promise<string> | null = null;
-	private urlResolve: ((url: string) => void) | null = null;
-	private urlReject: ((err: Error) => void) | null = null;
-	private resolvedUrl: string | null = null;
-	private stdoutBuffer = "";
-
-	getUrl(): Promise<string> {
-		if (this.resolvedUrl) {
-			return Promise.resolve(this.resolvedUrl);
-		}
-		if (this.urlPromise) {
-			return this.urlPromise;
-		}
-		this.urlPromise = new Promise<string>((resolve, reject) => {
-			this.urlResolve = resolve;
-			this.urlReject = reject;
-		});
-		return this.urlPromise;
-	}
-
-	private resolveUrl(url: string): void {
-		if (this.resolvedUrl) return;
-		this.resolvedUrl = url;
-		this.urlResolve?.(url);
-		this.urlResolve = null;
-		this.urlReject = null;
-	}
-
-	private rejectUrl(err: Error): void {
-		if (this.resolvedUrl) return;
-		this.urlReject?.(err);
-		this.urlResolve = null;
-		this.urlReject = null;
-		this.urlPromise = null;
-	}
-
-	private appendStdout(text: string): void {
-		this.stdoutBuffer += text;
-		if (this.stdoutBuffer.length > MAX_STDOUT_BUFFER_SIZE) {
-			this.stdoutBuffer = this.stdoutBuffer.slice(-MAX_STDOUT_BUFFER_SIZE);
-		}
-	}
-
-	private parseUrl(): string | null {
-		const match = DASHBOARD_URL_REGEX.exec(this.stdoutBuffer);
-		return match ? match[1].replace(/\/$/, "") : null;
-	}
-
-	start(): void {
-		if (this.process) {
-			return;
-		}
-
-		const backendCommand = getBackendCommand();
-		const proc = spawn(backendCommand.command, backendCommand.args, {
-			stdio: ["ignore", "pipe", "pipe"],
-			env: {
-				...process.env,
-				LION_AUTO_ACTIVATE: "true",
-			},
-		});
-
-		this.process = proc;
-
-		proc.stdout.on("data", (data: Buffer) => {
-			const text = data.toString("utf-8");
-			this.appendStdout(text);
-			process.stdout.write(`[backend] ${text}`);
-
-			const url = this.parseUrl();
-			if (url) {
-				this.resolveUrl(url);
-			}
-		});
-
-		proc.stderr.on("data", (data: Buffer) => {
-			process.stderr.write(`[backend] ${data.toString("utf-8")}`);
-		});
-
-		proc.on("error", (err) => {
-			this.rejectUrl(new Error(`Failed to start backend: ${err.message}`));
-		});
-
-		proc.on("exit", (code) => {
-			if (!this.resolvedUrl) {
-				this.rejectUrl(new Error(`Backend exited with code ${code} before becoming ready`));
-			} else {
-				console.error(`[backend] Backend exited unexpectedly with code ${code}`);
-				this.handleUnexpectedExit();
-			}
-		});
-	}
-
-	kill(): void {
-		const proc = this.process;
-		if (!proc) return;
-
-		try {
-			proc.kill("SIGTERM");
-		} catch {
-			// ignore
-		}
-
-		setTimeout(() => {
-			try {
-				proc.kill("SIGKILL");
-			} catch {
-				// ignore
-			}
-		}, KILL_TIMEOUT_MS);
-
-		this.process = null;
-	}
-
-	private handleUnexpectedExit(): void {
-		// In a future iteration we could restart the backend. For now, log and
-		// let the user know that the agent backend is gone.
-		this.process = null;
-		this.resolvedUrl = null;
-		this.urlPromise = null;
-	}
-}
-
-const backendManager = new BackendManager();
+const backendManager = new SubagentsBackendManager({
+	onStdout: (text) => process.stdout.write(`[backend] ${text}`),
+	onStderr: (text) => process.stderr.write(`[backend] ${text}`),
+	onUnexpectedExit: (code) => console.error(`[backend] Backend exited unexpectedly with code ${code}`),
+});
 
 /**
  * Determine how to start the backend.
  * In dev: runs the coding-agent CLI through Bun with the local extensions dir.
  * In packaged: uses `process.resourcesPath` where electron-builder places extraResources.
  */
-function getBackendCommand(): { command: string; args: string[] } {
+function getBackendCommand(): SubagentsBackendCommand {
 	const isPackaged = app.isPackaged;
 	const extensionsDir = isPackaged
 		? join(process.resourcesPath, "extensions")
@@ -167,11 +40,12 @@ function getBackendCommand(): { command: string; args: string[] } {
 	const args = ["--web", "--no-extensions", "-e", extensionsDir];
 
 	if (isPackaged) {
-		return { command: join(process.resourcesPath, "pi"), args };
+		return { command: join(process.resourcesPath, "pi"), args, env: { LION_AUTO_ACTIVATE: "true" } };
 	}
 	return {
 		command: "bun",
 		args: [join(__dirname, "..", "..", "..", "coding-agent", "src", "cli.ts"), ...args],
+		env: { LION_AUTO_ACTIVATE: "true" },
 	};
 }
 
@@ -272,61 +146,6 @@ ipcMain.handle("choose-project-directory", async () => {
 	return result.canceled ? null : result.filePaths[0] ?? null;
 });
 
-ipcMain.handle("dashboard:create-project", async (_event, input: { name: string; defaultCwd: string }) => {
-	if (!dashboardClient) throw new Error("Dashboard client is not ready");
-	return dashboardClient.projects.create(input);
-});
-
-ipcMain.handle("dashboard:list-projects", async () => {
-	if (!dashboardClient) throw new Error("Dashboard client is not ready");
-	return dashboardClient.projects.list();
-});
-
-ipcMain.handle("dashboard:update-project", async (_event, input: { id: string; name?: string }) => {
-	if (!dashboardClient) throw new Error("Dashboard client is not ready");
-	return dashboardClient.projects.update(input);
-});
-
-ipcMain.handle("dashboard:delete-project", async (_event, input: { id: string }) => {
-	if (!dashboardClient) throw new Error("Dashboard client is not ready");
-	return dashboardClient.projects.delete(input);
-});
-
-ipcMain.handle("dashboard:create-session", async (_event, input: { projectId: string; name?: string }) => {
-	if (!dashboardClient) throw new Error("Dashboard client is not ready");
-	return dashboardClient.sessions.create(input);
-});
-
-ipcMain.handle("dashboard:list-sessions", async (_event, input: { projectId?: string }) => {
-	if (!dashboardClient) throw new Error("Dashboard client is not ready");
-	return dashboardClient.sessions.list(input);
-});
-
-ipcMain.handle("dashboard:update-session", async (_event, input: { id: string; name?: string }) => {
-	if (!dashboardClient) throw new Error("Dashboard client is not ready");
-	return dashboardClient.sessions.update(input);
-});
-
-ipcMain.handle("dashboard:delete-session", async (_event, input: { id: string }) => {
-	if (!dashboardClient) throw new Error("Dashboard client is not ready");
-	return dashboardClient.sessions.delete(input);
-});
-
-ipcMain.handle("dashboard:get-session-status", async (_event, input: { id: string }) => {
-	if (!dashboardClient) throw new Error("Dashboard client is not ready");
-	return dashboardClient.sessions.status(input);
-});
-
-ipcMain.handle("dashboard:update-layout", async (_event, input: { sessionId: string; x: number; y: number; width: number; height: number }) => {
-	if (!dashboardClient) throw new Error("Dashboard client is not ready");
-	return dashboardClient.layout.update(input);
-});
-
-ipcMain.handle("dashboard:get-layout", async (_event, input: { sessionId: string }) => {
-	if (!dashboardClient) throw new Error("Dashboard client is not ready");
-	return dashboardClient.layout.get(input);
-});
-
 if (!DEV_RENDERER_URL) {
 	const gotLock = app.requestSingleInstanceLock();
 	if (!gotLock) {
@@ -356,15 +175,12 @@ if (!DEV_RENDERER_URL) {
 app.whenReady().then(async () => {
 	try {
 		console.log("[electron] Starting dashboard backend...");
-		dashboardDaemon = new DashboardDaemon({
-			databasePath: join(app.getPath("userData"), "dashboard.sqlite"),
-		});
+		dashboardDaemon = new DashboardDaemon();
 		const dashboardUrl = await dashboardDaemon.start();
 		console.log(`[electron] Dashboard backend URL: ${dashboardUrl}`);
-		dashboardClient = createDashboardClient(dashboardUrl.toString());
 
 		console.log("[electron] Starting subagents backend...");
-		backendManager.start();
+		backendManager.start(getBackendCommand());
 		const subagentsUrl = await backendManager.getUrl();
 		console.log(`[electron] Subagents backend URL resolved: ${subagentsUrl}`);
 		dashboardDaemon.setSubagentsUrl(subagentsUrl);
