@@ -31,10 +31,6 @@ brief and pause. Do not write files in that mode.
 
 You may write or update files inside `.plans/`.
 
-In structured mode, you may also create or refresh a project-local helper at:
-
-- `./planner-checklist.js`
-
 You must not modify application source code while planning.
 
 In initiative-overview mode, do not generate execution-ready implementation
@@ -143,11 +139,6 @@ Artifacts:
 - `.plans/<plan-name>/requirements.md`
 - `.plans/<plan-name>/task-index.md`
 - `.plans/<plan-name>/tasks/*.md`
-- `.plans/<plan-name>/checklist.json`
-
-Project-local helper:
-
-- `./planner-checklist.js`
 
 Use these references:
 
@@ -155,7 +146,6 @@ Use these references:
 - `references/requirements-template.md`
 - `references/task-index-template.md`
 - `references/task-template.md`
-- `references/checklist-template.json`
 
 In structured mode:
 
@@ -168,8 +158,8 @@ In structured mode:
   is mandatory
 - prefer fewer, larger agent-sized tasks over many small tasks; merge work that
   shares one objective, validation path, or review surface
-- `checklist.json` acts as the durable execution state for task progress
-- `./planner-checklist.js` should exist in the current project root so execution commands can use it without hardcoded global paths
+- task file frontmatter is the durable execution state for task progress
+- do not create `checklist.json` or `planner-checklist.js`; they are legacy artifacts
 - there should be at least two durable tasks worth tracking independently
 
 If the proposed structured plan collapses to one durable task, switch back to
@@ -253,43 +243,6 @@ If an overview folder already exists:
 - mark added, removed, split, and merged features in `feature-index.md`
 - refresh dependency and parallelization guidance from current verified context
 
-## Checklist CLI
-
-The planner skill ships a small Node CLI for checklist operations:
-
-- `scripts/planner-checklist.js`
-
-Treat this CLI as the primary interface for checklist state.
-
-In structured mode, copy or refresh it into the current project root as:
-
-- `./planner-checklist.js`
-
-- Use the CLI to inspect checklist state instead of reading `checklist.json` directly when tracking execution.
-- Use the CLI to update task state instead of manually editing checklist contents.
-- If you need to understand available commands, run the script with no arguments to see usage.
-- Do not read the script itself unless the CLI behavior is unclear or appears broken.
-
-Use it to:
-
-- list all tasks
-- list remaining (non-completed) tasks
-- list next executable tasks
-- mark tasks as `in_progress`, `blocked`, or `completed`
-- reset tasks back to `pending`
-
-Example usage:
-
-- `node ./planner-checklist.js`
-- `node ./planner-checklist.js list <plan-name>`
-- `node ./planner-checklist.js remaining <plan-name>`
-- `node ./planner-checklist.js next <plan-name>`
-- `node ./planner-checklist.js start <plan-name> T-001`
-- `node ./planner-checklist.js reset <plan-name> T-001`
-
-When copied locally, the helper should resolve plans relative to the current
-working directory, which should be the project root.
-
 ## Direct Write
 
 After analysis, clarification (if needed), and mode selection:
@@ -340,8 +293,8 @@ In structured mode, also verify:
 - task contents emphasize objective, expected outcome, preservation constraints,
   validation, and final report expectations instead of implementation recipes
 - there are at least two durable tasks that justify a structured plan
-- `checklist.json` matches the task files and dependency graph
-- `./planner-checklist.js` exists in the current project root or is created alongside the plan
+- task frontmatter matches the task files and dependency graph
+- no `checklist.json` or `planner-checklist.js` legacy artifact is created
 
 In initiative-overview mode, also verify:
 

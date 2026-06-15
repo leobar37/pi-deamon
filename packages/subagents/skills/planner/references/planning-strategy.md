@@ -134,15 +134,6 @@ In `structured` mode, write:
 - `.plans/<plan-name>/requirements.md`
 - `.plans/<plan-name>/task-index.md`
 - `.plans/<plan-name>/tasks/*.md`
-- `.plans/<plan-name>/checklist.json`
-
-Also ensure the project-local helper exists:
-
-- `./planner-checklist.js`
-
-The bundled helper source lives at:
-
-- `scripts/planner-checklist.js`
 
 Use these templates:
 
@@ -150,7 +141,6 @@ Use these templates:
 - `references/requirements-template.md`
 - `references/task-index-template.md`
 - `references/task-template.md`
-- `references/checklist-template.json`
 
 In `initiative-overview` mode, write:
 
@@ -208,10 +198,8 @@ In structured mode:
 - assign stable requirement IDs such as `FR-001` and `NFR-001`
 - ensure each task file references requirement IDs it covers
 - use declarative outcome file names such as `03-api-contract-compatibility.md`
-- generate `checklist.json` with task IDs, file paths, statuses, and dependencies
-- treat the checklist CLI as the operational interface for task state during execution
-- copy or refresh the bundled checklist CLI into the current project root as `./planner-checklist.js`
-- expect the helper to resolve plan paths from the project root where it is executed
+- store task state in task file frontmatter (`status`, `dependencies`, `requirements`, `updated_at`)
+- do not create `checklist.json` or `planner-checklist.js`; they are legacy artifacts
 - confirm that there are at least two independently delegable tasks before
   keeping the structured shape
 - merge small tasks that share the same objective, validation path, or review
@@ -275,9 +263,8 @@ In structured mode, also require:
 - at least two independently delegable tasks are present
 - each task says what to achieve, what to preserve, how to validate, and what
   the implementing agent should report back
-- `checklist.json` stays aligned with task IDs, dependencies, and file names
-- the checklist can be operated through the CLI without requiring direct JSON inspection
-- `./planner-checklist.js` resolves plans relative to the current project root without hardcoded global paths
+- task frontmatter stays aligned with task IDs, dependencies, and file names
+- execution state can be read from task Markdown without requiring JSON inspection
 
 In initiative-overview mode, also require:
 

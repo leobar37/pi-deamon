@@ -10,7 +10,7 @@ Use this structure for `.plans/<plan-name>/task-index.md` in structured mode.
 - Mode: Structured
 - Slug: `[plan-name]`
 - Requirements File: `requirements.md`
-- Checklist File: `checklist.json`
+- Task State: `tasks/*.md` frontmatter
 
 ## Requirements Coverage
 

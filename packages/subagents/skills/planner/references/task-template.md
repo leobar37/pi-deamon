@@ -15,7 +15,16 @@ Avoid generic names such as:
 - `backend-stuff.md`
 
 ```markdown
-# [Task ID] [Task Title]
+---
+id: T-001
+title: [Task Title]
+status: pending
+dependencies: []
+requirements:
+  - FR-001
+---
+
+# T-001 [Task Title]
 
 ## Objective
 
@@ -79,4 +88,4 @@ Notes:
 - Include likely files as orientation, not as a mandatory edit script.
 - Only include implementation decisions when they are required constraints from prior analysis.
 - Write each task so an execution command such as `/build-plan` can use it as a clean execution unit.
-- Keep the task ID and dependencies stable so they can be mirrored in `checklist.json`.
+- Keep the task ID and dependency frontmatter stable; Lion uses task Markdown as the execution state.
