@@ -1,0 +1,810 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Subagentes: Estado Actual del Sistema</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <style>
+    :root { --c-fg: #0f172a; --c-bg: #f8fafc; --c-border: #cbd5e1; }
+    @media (prefers-color-scheme: dark) {
+      :root { --c-fg: #f1f5f9; --c-bg: #0f172a; --c-border: #334155; }
+    }
+    body { background: var(--c-bg); color: var(--c-fg); font-family: ui-sans-serif, system-ui, -apple-system, sans-serif; }
+    .diagram-box { rx: 8; }
+    .arrow { fill: none; stroke-width: 1.8; stroke-linecap: round; marker-end: url(#arrowhead); }
+    .arrow-thin { fill: none; stroke-width: 1.3; stroke-linecap: round; marker-end: url(#arrowhead-thin); }
+    .dashed { stroke-dasharray: 6,4; }
+    .group-box { fill: none; stroke-width: 1.5; rx: 12; stroke-dasharray: 8,4; }
+    .label { font-size: 11px; font-weight: 600; }
+    .sublabel { font-size: 9.5px; opacity: 0.7; }
+    .title { font-size: 13px; font-weight: 700; }
+    .badge { font-size: 9px; font-weight: 700; }
+    code { font-family: ui-monospace, SFMono-Regular, monospace; font-size: 0.85em; background: rgba(148,163,184,0.15); padding: 1px 5px; border-radius: 4px; }
+    pre { font-family: ui-monospace, SFMono-Regular, monospace; font-size: 12px; }
+    .pill { display: inline-block; padding: 2px 8px; border-radius: 999px; font-size: 11px; font-weight: 600; }
+    table { border-collapse: collapse; width: 100%; }
+    th, td { text-align: left; padding: 8px 12px; border-bottom: 1px solid var(--c-border); font-size: 13px; }
+    th { font-weight: 600; opacity: 0.8; }
+  </style>
+</head>
+<body class="min-h-screen">
+
+<div class="max-w-7xl mx-auto px-6 py-10">
+
+  <!-- ============================================================ -->
+  <!-- HEADER -->
+  <!-- ============================================================ -->
+  <header class="mb-10">
+    <div class="flex items-center gap-3 mb-3">
+      <span class="pill bg-violet-500/15 text-violet-400">packages/core/src/lion</span>
+      <span class="pill bg-emerald-500/15 text-emerald-400">packages/core</span>
+      <span class="pill bg-amber-500/15 text-amber-400">packages/core/frontend</span>
+      <span class="pill bg-sky-500/15 text-sky-400">packages/dashboard</span>
+    </div>
+    <h1 class="text-3xl font-bold tracking-tight mb-2">Subagentes: Estado Actual del Sistema</h1>
+    <p class="text-base opacity-70 max-w-4xl">
+      Mapa de como funcionan los subagentes hoy en <code>pi-mono</code>: la extension legacy
+      <code>subagents</code> esta deshabilitada y todo el flujo de delegacion vive dentro de
+      <strong>Lion</strong>, como orquestador de planeacion, ejecucion y revision con contratos
+      estructurados de evidencia.
+    </p>
+  </header>
+
+  <!-- ============================================================ -->
+  <!-- TLDR -->
+  <!-- ============================================================ -->
+  <section class="mb-12">
+    <div class="rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 p-5 shadow-sm">
+      <div class="flex items-start gap-4">
+        <div class="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-amber-500/15 text-amber-500 font-bold">i</div>
+        <div class="text-sm leading-relaxed">
+          <p class="font-semibold mb-1">Cambio reciente importante</p>
+          <p class="opacity-80">
+            La extension <code>packages/core/src/extensions/subagents/index.ts</code> es ahora
+            <strong>no-op</strong> por diseño: Lion ya provee delegacion estructurada
+            (<code>executor</code>, <code>reviewer</code>, <code>validator</code>, etc.) con
+            orquestacion basada en planes. Mantener ambas crearia herramientas duplicadas.
+            <span class="opacity-60"> Ver <code>feat(core)!: rename subagents and merge extensions</code>.</span>
+          </p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============================================================ -->
+  <!-- DIAGRAMA 1: PANORAMA GENERAL -->
+  <!-- ============================================================ -->
+  <section class="mb-14">
+    <div class="flex items-center gap-3 mb-4">
+      <span class="inline-flex items-center justify-center w-7 h-7 rounded-full bg-violet-500/15 text-violet-400 text-sm font-bold">1</span>
+      <h2 class="text-xl font-semibold">Panorama general</h2>
+    </div>
+
+    <svg viewBox="0 0 980 520" class="w-full bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-700 shadow-sm">
+      <defs>
+        <marker id="arrowhead" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto">
+          <polygon points="0 0, 10 3.5, 0 7" fill="#94a3b8"/>
+        </marker>
+        <marker id="arrowhead-violet" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto">
+          <polygon points="0 0, 10 3.5, 0 7" fill="#8b5cf6"/>
+        </marker>
+        <marker id="arrowhead-emerald" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto">
+          <polygon points="0 0, 10 3.5, 0 7" fill="#10b981"/>
+        </marker>
+        <marker id="arrowhead-amber" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto">
+          <polygon points="0 0, 10 3.5, 0 7" fill="#f59e0b"/>
+        </marker>
+      </defs>
+
+      <!-- USER -->
+      <rect x="20" y="30" width="110" height="64" class="diagram-box" fill="#e2e8f0" stroke="#94a3b8"/>
+      <text x="75" y="55" class="title" text-anchor="middle" fill="#0f172a">Usuario</text>
+      <text x="75" y="73" class="sublabel" text-anchor="middle">comandos slash y prompt</text>
+      <text x="75" y="86" class="badge" text-anchor="middle" fill="#475569">/lion-*</text>
+
+      <!-- MAIN SESSION (orchestrator) -->
+      <rect x="170" y="20" width="170" height="90" class="diagram-box" fill="#ede9fe" stroke="#8b5cf6"/>
+      <text x="255" y="45" class="title" text-anchor="middle" fill="#5b21b6">Main Session</text>
+      <text x="255" y="62" class="label" text-anchor="middle" fill="#5b21b6">coding-agent</text>
+      <text x="255" y="77" class="sublabel" text-anchor="middle">LionRuntime.ExtensionAPI</text>
+      <text x="255" y="92" class="badge" text-anchor="middle" fill="#8b5cf6">ORQUESTADOR</text>
+
+      <!-- LION RUNTIME -->
+      <rect x="380" y="20" width="210" height="90" class="diagram-box" fill="#ddd6fe" stroke="#7c3aed"/>
+      <text x="485" y="42" class="title" text-anchor="middle" fill="#5b21b6">LionRuntime</text>
+      <text x="485" y="58" class="label" text-anchor="middle" fill="#6d28d9">core/src/lion/runtime.ts</text>
+      <text x="485" y="74" class="sublabel" text-anchor="middle" fill="#6d28d9">estado + eventos + jobs</text>
+      <text x="485" y="88" class="sublabel" text-anchor="middle" fill="#6d28d9">Estrategias: simple | plan | review</text>
+
+      <!-- TASK RUNNER -->
+      <rect x="630" y="20" width="170" height="90" class="diagram-box" fill="#fae8ff" stroke="#a855f7"/>
+      <text x="715" y="42" class="title" text-anchor="middle" fill="#7e22ce">TaskRunner</text>
+      <text x="715" y="58" class="label" text-anchor="middle" fill="#7e22ce">lion_tasks</text>
+      <text x="715" y="74" class="sublabel" text-anchor="middle" fill="#86198f">phase policy + decoration</text>
+      <text x="715" y="88" class="sublabel" text-anchor="middle" fill="#86198f">strategy: parallel|sequential|chain</text>
+
+      <!-- TASK EXECUTOR -->
+      <rect x="630" y="140" width="170" height="80" class="diagram-box" fill="#fce7f3" stroke="#ec4899"/>
+      <text x="715" y="162" class="title" text-anchor="middle" fill="#be185d">TaskExecutor</text>
+      <text x="715" y="178" class="label" text-anchor="middle" fill="#be185d">core/task-executor.ts</text>
+      <text x="715" y="194" class="sublabel" text-anchor="middle" fill="#9d174d">orquesta Definition</text>
+      <text x="715" y="208" class="sublabel" text-anchor="middle" fill="#9d174d">abort + cleanup</text>
+
+      <!-- SUBAGENT CONTROLLER -->
+      <rect x="380" y="140" width="210" height="80" class="diagram-box" fill="#d1fae5" stroke="#10b981"/>
+      <text x="485" y="162" class="title" text-anchor="middle" fill="#047857">SubAgentController</text>
+      <text x="485" y="178" class="label" text-anchor="middle" fill="#047857">core/controller.ts</text>
+      <text x="485" y="194" class="sublabel" text-anchor="middle" fill="#065f46">registry + lifecycle</text>
+      <text x="485" y="208" class="sublabel" text-anchor="middle" fill="#065f46">RPC proxy (bash, compact, etc.)</text>
+
+      <!-- INSTANCES (3 cards row) -->
+      <g>
+        <rect x="170" y="270" width="130" height="90" class="diagram-box" fill="#dcfce7" stroke="#22c55e"/>
+        <text x="235" y="294" class="title" text-anchor="middle" fill="#15803d">Executor</text>
+        <text x="235" y="310" class="label" text-anchor="middle" fill="#15803d">canEdit+write+exec</text>
+        <text x="235" y="324" class="sublabel" text-anchor="middle" fill="#166534">kimi-coding</text>
+        <text x="235" y="338" class="sublabel" text-anchor="middle" fill="#166534">thinking: high</text>
+        <text x="235" y="352" class="badge" text-anchor="middle" fill="#22c55e">implementa</text>
+
+        <rect x="330" y="270" width="130" height="90" class="diagram-box" fill="#dbeafe" stroke="#3b82f6"/>
+        <text x="395" y="294" class="title" text-anchor="middle" fill="#1d4ed8">Planner</text>
+        <text x="395" y="310" class="label" text-anchor="middle" fill="#1d4ed8">read-only</text>
+        <text x="395" y="324" class="sublabel" text-anchor="middle" fill="#1e40af">kimi-coding</text>
+        <text x="395" y="338" class="sublabel" text-anchor="middle" fill="#1e40af">thinking: medium</text>
+        <text x="395" y="352" class="badge" text-anchor="middle" fill="#3b82f6">planea</text>
+
+        <rect x="490" y="270" width="130" height="90" class="diagram-box" fill="#fef3c7" stroke="#eab308"/>
+        <text x="555" y="294" class="title" text-anchor="middle" fill="#a16207">Analyzer</text>
+        <text x="555" y="310" class="label" text-anchor="middle" fill="#a16207">solo lectura</text>
+        <text x="555" y="324" class="sublabel" text-anchor="middle" fill="#854d0e">deepseek flash</text>
+        <text x="555" y="338" class="sublabel" text-anchor="middle" fill="#854d0e">thinking: low</text>
+        <text x="555" y="352" class="badge" text-anchor="middle" fill="#eab308">investiga</text>
+
+        <rect x="650" y="270" width="130" height="90" class="diagram-box" fill="#fee2e2" stroke="#ef4444"/>
+        <text x="715" y="294" class="title" text-anchor="middle" fill="#b91c1c">Reviewer</text>
+        <text x="715" y="310" class="label" text-anchor="middle" fill="#b91c1c">read+bash</text>
+        <text x="715" y="324" class="sublabel" text-anchor="middle" fill="#991b1b">deepseek-v4-pro</text>
+        <text x="715" y="338" class="sublabel" text-anchor="middle" fill="#991b1b">skill: code-review</text>
+        <text x="715" y="352" class="badge" text-anchor="middle" fill="#ef4444">valida</text>
+      </g>
+
+      <!-- SubAgentInstance under each -->
+      <text x="235" y="375" class="sublabel" text-anchor="middle" fill="#64748b">+1 SubAgentInstance</text>
+      <text x="395" y="375" class="sublabel" text-anchor="middle" fill="#64748b">+1 SubAgentInstance</text>
+      <text x="555" y="375" class="sublabel" text-anchor="middle" fill="#64748b">+1 SubAgentInstance</text>
+      <text x="715" y="375" class="sublabel" text-anchor="middle" fill="#64748b">+1 SubAgentInstance</text>
+
+      <!-- EVENT BUS -->
+      <rect x="380" y="400" width="210" height="56" class="diagram-box" fill="#0f172a" stroke="#475569"/>
+      <text x="485" y="423" class="title" text-anchor="middle" fill="#e2e8f0">SubAgentEventBus</text>
+      <text x="485" y="440" class="sublabel" text-anchor="middle" fill="#cbd5e1">instance.* · tool.* · task.*</text>
+      <text x="485" y="453" class="sublabel" text-anchor="middle" fill="#cbd5e1">turn.* · progress.update</text>
+
+      <!-- FRONTEND -->
+      <rect x="820" y="140" width="140" height="120" class="diagram-box" fill="#f0fdf4" stroke="#16a34a"/>
+      <text x="890" y="162" class="title" text-anchor="middle" fill="#15803d">Frontend</text>
+      <text x="890" y="178" class="label" text-anchor="middle" fill="#15803d">TanStack Start</text>
+      <text x="890" y="195" class="sublabel" text-anchor="middle" fill="#166534">SubagentListPanel</text>
+      <text x="890" y="208" class="sublabel" text-anchor="middle" fill="#166534">AgentRunSidebar</text>
+      <text x="890" y="221" class="sublabel" text-anchor="middle" fill="#166534">SubagentListItem</text>
+      <text x="890" y="235" class="sublabel" text-anchor="middle" fill="#166534">useSubAgentStore</text>
+      <text x="890" y="248" class="badge" text-anchor="middle" fill="#16a34a">SSE / oRPC</text>
+
+      <!-- ARROWS -->
+      <!-- user -> main -->
+      <path d="M 130 62 L 168 62" class="arrow" marker-end="url(#arrowhead)"/>
+      <!-- main -> lion -->
+      <path d="M 340 55 L 378 55" class="arrow" marker-end="url(#arrowhead-violet)" stroke="#8b5cf6"/>
+      <!-- lion -> taskrunner -->
+      <path d="M 590 55 L 628 55" class="arrow" marker-end="url(#arrowhead-violet)" stroke="#8b5cf6"/>
+      <!-- taskrunner -> taskexecutor -->
+      <path d="M 715 110 L 715 138" class="arrow" marker-end="url(#arrowhead)" stroke="#ec4899"/>
+      <!-- taskexecutor -> controller -->
+      <path d="M 628 180 L 592 180" class="arrow" marker-end="url(#arrowhead)" stroke="#10b981"/>
+      <!-- controller -> instances -->
+      <path d="M 485 220 L 235 268" class="arrow" stroke="#10b981" marker-end="url(#arrowhead-emerald)"/>
+      <path d="M 485 220 L 395 268" class="arrow" stroke="#10b981" marker-end="url(#arrowhead-emerald)"/>
+      <path d="M 485 220 L 555 268" class="arrow" stroke="#10b981" marker-end="url(#arrowhead-emerald)"/>
+      <path d="M 485 220 L 715 268" class="arrow" stroke="#10b981" marker-end="url(#arrowhead-emerald)"/>
+      <!-- instances -> event bus -->
+      <path d="M 485 360 L 485 398" class="arrow dashed" stroke="#94a3b8" marker-end="url(#arrowhead)"/>
+      <!-- event bus -> frontend -->
+      <path d="M 590 428 L 820 220" class="arrow dashed" stroke="#94a3b8" marker-end="url(#arrowhead)"/>
+      <!-- main session bridge loop back -->
+      <path d="M 255 110 L 255 0 L 255 0" class="arrow-thin dashed" stroke="#a16207" marker-end="url(#arrowhead-amber)"/>
+    </svg>
+
+    <p class="text-sm opacity-70 mt-4 max-w-4xl">
+      El usuario emite un slash command. La sesion principal de coding-agent tiene inyectado Lion
+      como <code>ExtensionAPI</code>. <code>LionRuntime</code> mantiene el estado y delega a
+      <code>TaskRunner</code>, quien arma un <code>ExecutionPlan</code>. <code>TaskExecutor</code>
+      lo despacha respetando la estrategia (sequential, parallel, chain) y para cada tarea crea
+      un <code>SubAgentInstance</code> contra una <code>SubAgentDefinition</code> registrada. El
+      bus de eventos conecta todo con el frontend React via oRPC/SSE.
+    </p>
+  </section>
+
+  <!-- ============================================================ -->
+  <!-- DIAGRAMA 2: REGISTRO DE DEFINICIONES -->
+  <!-- ============================================================ -->
+  <section class="mb-14">
+    <div class="flex items-center gap-3 mb-4">
+      <span class="inline-flex items-center justify-center w-7 h-7 rounded-full bg-emerald-500/15 text-emerald-400 text-sm font-bold">2</span>
+      <h2 class="text-xl font-semibold">Definiciones builtin</h2>
+    </div>
+    <p class="text-sm opacity-70 mb-4 max-w-4xl">
+      <code>core/definitions/index.ts</code> exporta <code>BUILTIN_DEFINITIONS</code> que se cargan
+      al iniciar Lion. Cada definicion es una <code>SubAgentDefinition</code> inmutable con
+      capacidades, modelo por defecto y fallbacks, nivel de pensamiento y un
+      <code>instructionBuilder</code> que decora el system prompt.
+    </p>
+
+    <div class="overflow-x-auto rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 shadow-sm">
+      <table>
+        <thead>
+          <tr class="bg-slate-50 dark:bg-slate-800/60">
+            <th>Definition</th>
+            <th>Capabilities</th>
+            <th>Modelo</th>
+            <th>Fallback</th>
+            <th>Thinking</th>
+            <th>Tools</th>
+            <th>Rol</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td><code class="bg-emerald-500/15 text-emerald-400">executor</code></td>
+            <td>edit · write · execute</td>
+            <td>kimi-coding/kimi-for-coding</td>
+            <td>deepseek/deepseek-v4-pro</td>
+            <td>high</td>
+            <td>verbose</td>
+            <td>Implementa cambios concretos</td>
+          </tr>
+          <tr>
+            <td><code class="bg-sky-500/15 text-sky-400">planner</code></td>
+            <td>solo research</td>
+            <td>kimi-coding/kimi-for-coding</td>
+            <td>deepseek/deepseek-v4-flash</td>
+            <td>medium</td>
+            <td>read · glob · grep · bash</td>
+            <td>Produce plan decision-complete</td>
+          </tr>
+          <tr>
+            <td><code class="bg-amber-500/15 text-amber-400">analyzer</code></td>
+            <td>solo research</td>
+            <td>deepseek/deepseek-v4-flash</td>
+            <td>—</td>
+            <td>low</td>
+            <td>read · glob · grep · bash</td>
+            <td>Mapea codigo, riesgos, evidencia</td>
+          </tr>
+          <tr>
+            <td><code class="bg-red-500/15 text-red-400">reviewer</code></td>
+            <td>bash (no edit)</td>
+            <td>deepseek/deepseek-v4-pro</td>
+            <td>kimi-coding/kimi-for-coding</td>
+            <td>medium</td>
+            <td>read · glob · grep · bash + skill code-review</td>
+            <td>Review con evidencia y false-positives</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+    <p class="text-xs opacity-60 mt-3 max-w-3xl">
+      Hay tambien el <code>validator</code> como rol virtual en runtime (apunta a reviewer sin
+      skill), manejado por el <code>TaskRunner</code> cuando infiere el role desde la definicion.
+      Ver <code>inferRoleFromDefinition</code> en <code>task-runner.ts</code>.
+    </p>
+  </section>
+
+  <!-- ============================================================ -->
+  <!-- DIAGRAMA 3: ESTRATEGIAS Y PHASE POLICY -->
+  <!-- ============================================================ -->
+  <section class="mb-14">
+    <div class="flex items-center gap-3 mb-4">
+      <span class="inline-flex items-center justify-center w-7 h-7 rounded-full bg-violet-500/15 text-violet-400 text-sm font-bold">3</span>
+      <h2 class="text-xl font-semibold">Estrategias Lion y phase policy</h2>
+    </div>
+
+    <p class="text-sm opacity-70 mb-4 max-w-4xl">
+      El estado de Lion combina <strong>strategy</strong> (none | simple | plan | review) con
+      <strong>phase</strong> (planning | building). El <code>TaskRunner.applyPhasePolicy</code>
+      aplica esta matriz antes de mandar cualquier tarea, forçando capabilities y tools por
+      contexto. Esto evita que la fase de planning ejecute cambios o que un ejecutor lea plan files
+      en simple mode.
+    </p>
+
+    <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+      <!-- SIMPLE -->
+      <div class="rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 p-4 shadow-sm">
+        <div class="flex items-center justify-between mb-2">
+          <h3 class="font-semibold">Simple</h3>
+          <span class="pill bg-emerald-500/15 text-emerald-400">building</span>
+        </div>
+        <p class="text-sm opacity-70 mb-3">
+          Sin plan durable. <code>decorateTaskPrompt</code> inyecta <code>&lt;lion_context mode=&quot;simple&quot;&gt;</code> ligero.
+        </p>
+        <ul class="text-xs space-y-1">
+          <li><span class="pill bg-slate-500/15">executor</span> tareas ad-hoc</li>
+          <li><span class="pill bg-slate-500/15">analyzer/planner/reviewer</span> bajo demanda</li>
+          <li>Sin <code>.plans/</code> requerido</li>
+        </ul>
+      </div>
+
+      <!-- PLAN -->
+      <div class="rounded-xl border border-violet-300 dark:border-violet-700 bg-violet-50/40 dark:bg-violet-950/30 p-4 shadow-sm">
+        <div class="flex items-center justify-between mb-2">
+          <h3 class="font-semibold text-violet-700 dark:text-violet-300">Plan</h3>
+          <div class="flex gap-1">
+            <span class="pill bg-violet-500/15 text-violet-400">planning</span>
+            <span class="pill bg-violet-500/15 text-violet-400">building</span>
+          </div>
+        </div>
+        <p class="text-sm opacity-70 mb-3">
+          Plan durable bajo <code>.plans/&lt;slug&gt;/</code> con <code>context.md</code>,
+          <code>requirements.md</code>, <code>task-index.md</code>, <code>checklist.json</code> y
+          <code>tasks/*.md</code>.
+        </p>
+        <p class="text-xs mb-2"><strong>planning</strong> &rarr; solo <code>analyzer/planner/reviewer/validator</code>, read-only</p>
+        <p class="text-xs"><strong>building</strong> &rarr; <code>source: &quot;active_plan_next_task&quot;</code> ejecuta el siguiente pendiente (executor role) y graba resultado via <code>subagent_record_result</code></p>
+      </div>
+
+      <!-- REVIEW -->
+      <div class="rounded-xl border border-rose-300 dark:border-rose-700 bg-rose-50/40 dark:bg-rose-950/30 p-4 shadow-sm">
+        <div class="flex items-center justify-between mb-2">
+          <h3 class="font-semibold text-rose-700 dark:text-rose-300">Review</h3>
+          <div class="flex gap-1">
+            <span class="pill bg-rose-500/15 text-rose-400">planning</span>
+            <span class="pill bg-rose-500/15 text-rose-400">building</span>
+          </div>
+        </div>
+        <p class="text-sm opacity-70 mb-3">
+          Plan durable bajo <code>.reviews/</code> con la skill <code>code-review</code> cargada en
+          cada tarea.
+        </p>
+        <p class="text-xs mb-2"><strong>planning</strong> &rarr; analyzer + planner (read-only)</p>
+        <p class="text-xs"><strong>building</strong> &rarr; reviewer + validator; executor prohibido; editing deshabilitado</p>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============================================================ -->
+  <!-- DIAGRAMA 4: ARBOL DE FLUJO lion_tasks -->
+  <!-- ============================================================ -->
+  <section class="mb-14">
+    <div class="flex items-center gap-3 mb-4">
+      <span class="inline-flex items-center justify-center w-7 h-7 rounded-full bg-sky-500/15 text-sky-400 text-sm font-bold">4</span>
+      <h2 class="text-xl font-semibold">Flujo del tool <code>lion_tasks</code></h2>
+    </div>
+
+    <svg viewBox="0 0 980 480" class="w-full bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-700 shadow-sm">
+      <defs>
+        <marker id="arrowflow" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto">
+          <polygon points="0 0, 10 3.5, 0 7" fill="#94a3b8"/>
+        </marker>
+        <marker id="arroworange" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto">
+          <polygon points="0 0, 10 3.5, 0 7" fill="#f97316"/>
+        </marker>
+      </defs>
+
+      <!-- START -->
+      <rect x="20" y="20" width="160" height="50" class="diagram-box" fill="#1e293b" stroke="#475569"/>
+      <text x="100" y="42" class="title" text-anchor="middle" fill="#e2e8f0">lion_tasks()</text>
+      <text x="100" y="58" class="sublabel" text-anchor="middle" fill="#cbd5e1">llamado por orchestrator</text>
+
+      <!-- DECISION: source? -->
+      <polygon points="220,45 360,10 500,45 360,80" class="diagram-box" fill="#fef3c7" stroke="#f59e0b"/>
+      <text x="360" y="42" class="title" text-anchor="middle" fill="#92400e">¿source?</text>
+      <text x="360" y="58" class="sublabel" text-anchor="middle" fill="#a16207">active_plan_next_task</text>
+      <text x="360" y="71" class="sublabel" text-anchor="middle" fill="#a16207">vs tasks[]</text>
+
+      <!-- BRANCH LEFT: plan -->
+      <rect x="60" y="130" width="170" height="50" class="diagram-box" fill="#ddd6fe" stroke="#7c3aed"/>
+      <text x="145" y="152" class="title" text-anchor="middle" fill="#5b21b6">checklistService.startNext()</text>
+      <text x="145" y="168" class="sublabel" text-anchor="middle" fill="#6d28d9">selecciona task liberado</text>
+
+      <!-- BRANCH RIGHT: custom -->
+      <rect x="540" y="130" width="170" height="50" class="diagram-box" fill="#bae6fd" stroke="#0284c7"/>
+      <text x="625" y="152" class="title" text-anchor="middle" fill="#0369a1">resolveRequestedTasks</text>
+      <text x="625" y="168" class="sublabel" text-anchor="middle" fill="#0284c7">explicit tasks[]</text>
+
+      <!-- DECORATE -->
+      <rect x="270" y="220" width="200" height="50" class="diagram-box" fill="#fae8ff" stroke="#a855f7"/>
+      <text x="370" y="242" class="title" text-anchor="middle" fill="#7e22ce">decorateTaskPrompt</text>
+      <text x="370" y="258" class="sublabel" text-anchor="middle" fill="#86198f">injects &lt;lion_context&gt;</text>
+
+      <!-- PHASE POLICY -->
+      <rect x="540" y="220" width="170" height="50" class="diagram-box" fill="#fde68a" stroke="#d97706"/>
+      <text x="625" y="242" class="title" text-anchor="middle" fill="#92400e">applyPhasePolicy</text>
+      <text x="625" y="258" class="sublabel" text-anchor="middle" fill="#b45309">caps + disabledTools</text>
+
+      <!-- EXECUTOR -->
+      <rect x="270" y="320" width="200" height="50" class="diagram-box" fill="#fce7f3" stroke="#ec4899"/>
+      <text x="370" y="342" class="title" text-anchor="middle" fill="#be185d">TaskExecutor.execute</text>
+      <text x="370" y="358" class="sublabel" text-anchor="middle" fill="#9d174d">ExecutionPlan</text>
+
+      <!-- CONTROLLER / INSTANCES -->
+      <rect x="540" y="320" width="170" height="50" class="diagram-box" fill="#d1fae5" stroke="#10b981"/>
+      <text x="625" y="342" class="title" text-anchor="middle" fill="#047857">createInstance(task)</text>
+      <text x="625" y="358" class="sublabel" text-anchor="middle" fill="#065f46">+ start()</text>
+
+      <!-- GATE -->
+      <polygon points="370,400 270,440 470,440" class="diagram-box" fill="#fecaca" stroke="#ef4444"/>
+      <text x="370" y="430" class="title" text-anchor="middle" fill="#b91c1c">completion gate</text>
+
+      <!-- EVENTS -->
+      <rect x="540" y="400" width="170" height="50" class="diagram-box" fill="#0f172a" stroke="#475569"/>
+      <text x="625" y="422" class="title" text-anchor="middle" fill="#e2e8f0">Event Bus / SSE</text>
+      <text x="625" y="438" class="sublabel" text-anchor="middle" fill="#cbd5e1">emit lion.* events</text>
+
+      <!-- ARROWS -->
+      <path d="M 180 45 L 218 45" class="arrow" marker-end="url(#arrowflow)"/>
+      <path d="M 290 80 L 145 128" class="arrow" marker-end="url(#arrowflow)"/>
+      <path d="M 430 80 L 625 128" class="arrow" marker-end="url(#arrowflow)"/>
+      <path d="M 145 180 L 320 220" class="arrow" marker-end="url(#arrowflow)"/>
+      <path d="M 625 180 L 625 218" class="arrow" marker-end="url(#arrowflow)"/>
+      <path d="M 470 245 L 538 245" class="arrow" marker-end="url(#arrowflow)"/>
+      <path d="M 625 270 L 625 318" class="arrow" marker-end="url(#arrowflow)"/>
+      <path d="M 470 345 L 538 345" class="arrow" marker-end="url(#arrowflow)"/>
+      <path d="M 370 370 L 370 398" class="arrow" stroke="#ef4444" marker-end="url(#arroworange)"/>
+      <path d="M 415 345 L 540 422" class="arrow" stroke="#f59e0b" marker-end="url(#arroworange)"/>
+    </svg>
+
+    <p class="text-sm opacity-70 mt-4 max-w-4xl">
+      Cada llamada a <code>lion_tasks</code> pasa por seis pasos: <strong>seleccion</strong> del
+      origen (plan o tareas explicitas), <strong>decoration</strong> del prompt segun estrategia,
+      <strong>phase policy</strong> que ajusta capabilities y tools, <strong>construction</strong>
+      del <code>ExecutionPlan</code>, <strong>dispatch</strong> por el ejecutor y finalmente el
+      <strong>completion gate</strong> que exige <code>subagent_record_result</code> con un
+      <code>verificationStatus</code> (verified | blocked | retryable | unverified) antes de marcar
+      el checklist como &quot;complete&quot;.
+    </p>
+  </section>
+
+  <!-- ============================================================ -->
+  <!-- DIAGRAMA 5: LIFECYCLE & ESTADOS -->
+  <!-- ============================================================ -->
+  <section class="mb-14">
+    <div class="flex items-center gap-3 mb-4">
+      <span class="inline-flex items-center justify-center w-7 h-7 rounded-full bg-rose-500/15 text-rose-400 text-sm font-bold">5</span>
+      <h2 class="text-xl font-semibold">Lifecycle de un SubAgentInstance</h2>
+    </div>
+
+    <svg viewBox="0 0 980 200" class="w-full bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-700 shadow-sm">
+      <defs>
+        <marker id="arrws" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto">
+          <polygon points="0 0, 8 3, 0 6" fill="#94a3b8"/>
+        </marker>
+      </defs>
+
+      <!-- NODES -->
+      <g>
+        <rect x="20" y="80" width="120" height="50" class="diagram-box" fill="#f1f5f9" stroke="#94a3b8"/>
+        <text x="80" y="105" class="label" text-anchor="middle" fill="#475569">created</text>
+        <text x="80" y="120" class="sublabel" text-anchor="middle" fill="#64748b">queued</text>
+
+        <rect x="170" y="80" width="120" height="50" class="diagram-box" fill="#fef9c3" stroke="#eab308"/>
+        <text x="230" y="105" class="label" text-anchor="middle" fill="#a16207">starting</text>
+        <text x="230" y="120" class="sublabel" text-anchor="middle" fill="#854d0e">cargando skill</text>
+
+        <rect x="320" y="80" width="120" height="50" class="diagram-box" fill="#bae6fd" stroke="#0284c7"/>
+        <text x="380" y="105" class="label" text-anchor="middle" fill="#0369a1">running</text>
+        <text x="380" y="120" class="sublabel" text-anchor="middle" fill="#0284c7">tool.* events</text>
+
+        <rect x="470" y="80" width="120" height="50" class="diagram-box" fill="#fae8ff" stroke="#a855f7"/>
+        <text x="530" y="105" class="label" text-anchor="middle" fill="#7e22ce">completing</text>
+        <text x="530" y="120" class="sublabel" text-anchor="middle" fill="#86198f">summary emit</text>
+
+        <rect x="620" y="80" width="130" height="50" class="diagram-box" fill="#dcfce7" stroke="#22c55e"/>
+        <text x="685" y="105" class="label" text-anchor="middle" fill="#15803d">completed</text>
+        <text x="685" y="120" class="sublabel" text-anchor="middle" fill="#166534">structuredResult</text>
+
+        <rect x="780" y="20" width="120" height="50" class="diagram-box" fill="#fee2e2" stroke="#ef4444"/>
+        <text x="840" y="45" class="label" text-anchor="middle" fill="#b91c1c">failed</text>
+        <text x="840" y="60" class="sublabel" text-anchor="middle" fill="#991b1b">timeout/cancel</text>
+
+        <rect x="780" y="140" width="120" height="50" class="diagram-box" fill="#e0e7ff" stroke="#6366f1"/>
+        <text x="840" y="165" class="label" text-anchor="middle" fill="#3730a3">blocked</text>
+        <text x="840" y="180" class="sublabel" text-anchor="middle" fill="#4338ca">paused/gate</text>
+      </g>
+
+      <!-- arrows -->
+      <path d="M 140 105 L 168 105" class="arrow" marker-end="url(#arrws)"/>
+      <path d="M 290 105 L 318 105" class="arrow" marker-end="url(#arrws)"/>
+      <path d="M 440 105 L 468 105" class="arrow" marker-end="url(#arrws)"/>
+      <path d="M 590 105 L 618 105" class="arrow" marker-end="url(#arrws)"/>
+
+      <path d="M 685 80 L 840 68" class="arrow" stroke="#ef4444" marker-end="url(#arrws)"/>
+      <path d="M 685 130 L 840 145" class="arrow" stroke="#6366f1" marker-end="url(#arrws)"/>
+
+      <!-- label -->
+      <text x="20" y="195" class="sublabel" fill="#64748b">
+        Cada estado refleja un <code>SubAgentState</code> emitido por el bus. El frontend mapea a <code>LionVisibleSubagentStatus</code> con un &quot;stalled&quot; intermedio.
+      </text>
+    </svg>
+  </section>
+
+  <!-- ============================================================ -->
+  <!-- DIAGRAMA 6: FRONTEND & DASHBOARD -->
+  <!-- ============================================================ -->
+  <section class="mb-14">
+    <div class="flex items-center gap-3 mb-4">
+      <span class="inline-flex items-center justify-center w-7 h-7 rounded-full bg-sky-500/15 text-sky-400 text-sm font-bold">6</span>
+      <h2 class="text-xl font-semibold">Visualizacion: dashboard + frontend</h2>
+    </div>
+
+    <svg viewBox="0 0 980 460" class="w-full bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-700 shadow-sm">
+      <defs>
+        <marker id="arrdash" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto">
+          <polygon points="0 0, 8 3, 0 6" fill="#94a3b8"/>
+        </marker>
+        <marker id="arrind" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto">
+          <polygon points="0 0, 8 3, 0 6" fill="#0ea5e9"/>
+        </marker>
+      </defs>
+
+      <!-- ELECTRON APP WRAPPER -->
+      <rect x="20" y="20" width="940" height="420" class="group-box" stroke="#94a3b8"/>
+      <text x="50" y="45" class="title" fill="#64748b">Electron App (Dashboard)</text>
+
+      <!-- DASHBOARD BACKEND -->
+      <rect x="50" y="80" width="180" height="100" class="diagram-box" fill="#fef3c7" stroke="#eab308"/>
+      <text x="140" y="105" class="title" text-anchor="middle" fill="#a16207">DashboardDaemon</text>
+      <text x="140" y="121" class="label" text-anchor="middle" fill="#a16207">HTTP + oRPC</text>
+      <text x="140" y="136" class="sublabel" text-anchor="middle" fill="#854d0e">state.get · logs.get</text>
+      <text x="140" y="150" class="sublabel" text-anchor="middle" fill="#854d0e">static SPA</text>
+      <text x="140" y="168" class="badge" text-anchor="middle" fill="#ca8a04">backend layer</text>
+
+      <!-- ELECTRON MAIN -->
+      <rect x="50" y="220" width="180" height="100" class="diagram-box" fill="#fde68a" stroke="#d97706"/>
+      <text x="140" y="245" class="title" text-anchor="middle" fill="#92400e">Electron main.ts</text>
+      <text x="140" y="261" class="label" text-anchor="middle" fill="#a16207">spawnChild()</text>
+      <text x="140" y="276" class="sublabel" text-anchor="middle" fill="#a16207">spawna pi --web</text>
+      <text x="140" y="290" class="sublabel" text-anchor="middle" fill="#a16207">parsea [lion] URL</text>
+      <text x="140" y="308" class="badge" text-anchor="middle" fill="#ea580c">child process</text>
+
+      <!-- CANVAS -->
+      <rect x="280" y="80" width="280" height="160" class="diagram-box" fill="#0f172a" stroke="#475569"/>
+      <text x="420" y="105" class="title" text-anchor="middle" fill="#e2e8f0">React Flow canvas</text>
+      <text x="420" y="121" class="label" text-anchor="middle" fill="#cbd5e1">Dashboard frontend (React 19)</text>
+
+      <!-- NODES (iframes) -->
+      <g>
+        <rect x="300" y="140" width="115" height="55" class="diagram-box" fill="#e0e7ff" stroke="#6366f1"/>
+        <text x="357" y="162" class="label" text-anchor="middle" fill="#3730a3">iframe 1</text>
+        <text x="357" y="176" class="sublabel" text-anchor="middle" fill="#4338ca">session A</text>
+        <text x="357" y="188" class="badge" text-anchor="middle" fill="#6366f1">/thread/<idA></text>
+
+        <rect x="430" y="140" width="115" height="55" class="diagram-box" fill="#e0e7ff" stroke="#6366f1"/>
+        <text x="487" y="162" class="label" text-anchor="middle" fill="#3730a3">iframe 2</text>
+        <text x="487" y="176" class="sublabel" text-anchor="middle" fill="#4338ca">session B</text>
+        <text x="487" y="188" class="badge" text-anchor="middle" fill="#6366f1">/thread/<idB></text>
+
+        <rect x="365" y="205" width="115" height="30" class="diagram-box" fill="#1e293b" stroke="#475569"/>
+        <text x="422" y="223" class="sublabel" text-anchor="middle" fill="#cbd5e1">+ más iframes</text>
+      </g>
+
+      <!-- CORE FRONTEND -->
+      <rect x="600" y="40" width="340" height="220" class="diagram-box" fill="#dbeafe" stroke="#3b82f6"/>
+      <text x="770" y="65" class="title" text-anchor="middle" fill="#1d4ed8">Core Frontend (TanStack Start)</text>
+      <text x="770" y="80" class="label" text-anchor="middle" fill="#1d4ed8">/thread/&lt;threadId&gt;</text>
+
+      <g>
+        <rect x="615" y="100" width="150" height="55" class="diagram-box" fill="#bfdbfe" stroke="#2563eb"/>
+        <text x="690" y="120" class="label" text-anchor="middle" fill="#1d4ed8">SubagentListPanel</text>
+        <text x="690" y="134" class="sublabel" text-anchor="middle" fill="#1e40af">rail / drawer</text>
+        <text x="690" y="148" class="sublabel" text-anchor="middle" fill="#1e40af">filtros · run group</text>
+
+        <rect x="775" y="100" width="150" height="55" class="diagram-box" fill="#bfdbfe" stroke="#2563eb"/>
+        <text x="850" y="120" class="label" text-anchor="middle" fill="#1d4ed8">AgentRunSidebar</text>
+        <text x="850" y="134" class="sublabel" text-anchor="middle" fill="#1e40af">input · output · sysprompt</text>
+        <text x="850" y="148" class="sublabel" text-anchor="middle" fill="#1e40af">plan progress</text>
+
+        <rect x="615" y="170" width="150" height="55" class="diagram-box" fill="#bfdbfe" stroke="#2563eb"/>
+        <text x="690" y="190" class="label" text-anchor="middle" fill="#1d4ed8">TaskSidebarSection</text>
+        <text x="690" y="204" class="sublabel" text-anchor="middle" fill="#1e40af">CRUD + TanStack Query</text>
+        <text x="690" y="218" class="sublabel" text-anchor="middle" fill="#1e40af">progress bar</text>
+
+        <rect x="775" y="170" width="150" height="55" class="diagram-box" fill="#bfdbfe" stroke="#2563eb"/>
+        <text x="850" y="190" class="label" text-anchor="middle" fill="#1d4ed8">useSubAgentStore</text>
+        <text x="850" y="204" class="sublabel" text-anchor="middle" fill="#1e40af">zustand event reducer</text>
+        <text x="850" y="218" class="sublabel" text-anchor="middle" fill="#1e40af">dedup + upsert</text>
+      </g>
+
+      <!-- CORE BACKEND -->
+      <rect x="600" y="290" width="340" height="130" class="diagram-box" fill="#ede9fe" stroke="#8b5cf6"/>
+      <text x="770" y="315" class="title" text-anchor="middle" fill="#5b21b6">Core Backend (Bun HTTP)</text>
+      <text x="770" y="331" class="label" text-anchor="middle" fill="#6d28d9">HttpServerTransport</text>
+
+      <g>
+        <rect x="615" y="345" width="100" height="35" class="diagram-box" fill="#ddd6fe" stroke="#7c3aed"/>
+        <text x="665" y="362" class="label" text-anchor="middle" fill="#5b21b6">oRPC</text>
+        <text x="665" y="374" class="sublabel" text-anchor="middle" fill="#6d28d9">threads.*</text>
+
+        <rect x="725" y="345" width="100" height="35" class="diagram-box" fill="#ddd6fe" stroke="#7c3aed"/>
+        <text x="775" y="362" class="label" text-anchor="middle" fill="#5b21b6">SSE</text>
+        <text x="775" y="374" class="sublabel" text-anchor="middle" fill="#6d28d9">stream events</text>
+
+        <rect x="835" y="345" width="100" height="35" class="diagram-box" fill="#ddd6fe" stroke="#7c3aed"/>
+        <text x="885" y="362" class="label" text-anchor="middle" fill="#5b21b6">Standalone</text>
+        <text x="885" y="374" class="sublabel" text-anchor="middle" fill="#6d28d9">sessions</text>
+      </g>
+
+      <!-- ARROWS -->
+      <path d="M 230 130 L 280 130" class="arrow" marker-end="url(#arrdash)"/>
+      <path d="M 140 180 L 140 218" class="arrow" stroke="#ea580c" marker-end="url(#arrdash)"/>
+      <path d="M 560 170 L 598 140" class="arrow" marker-end="url(#arrind)" stroke="#0ea5e9"/>
+      <path d="M 770 260 L 770 288" class="arrow" marker-end="url(#arrind)" stroke="#0ea5e9"/>
+      <!-- iframe load -->
+      <path d="M 415 195 L 415 0" class="arrowthin" marker-end="url(#arrdash)"/>
+    </svg>
+
+    <p class="text-sm opacity-70 mt-4 max-w-4xl">
+      Electron arranca el backend core (<code>pi --web</code>) como child process, parsea la URL
+      del dashboard y la expone por IPC al renderer. El canvas React muestra iframes que cargan
+      <code>/thread/&lt;threadId&gt;</code> contra el core backend (Bun HTTP + oRPC + SSE). La
+      <code>SubagentListPanel</code> refleja los <code>SubAgentEvent</code>s en tiempo real
+      via <code>useSubAgentStore</code>, y los the detail views consumen
+      <code>AgentRunSidebar</code> + <code>TaskSidebarSection</code>. El dashboard Electron nunca
+      ejecuta sesiones por si mismo, solo renderiza el canvas.
+    </p>
+  </section>
+
+  <!-- ============================================================ -->
+  <!-- DIAGRAMA 7: EVENT BUS DETAIL -->
+  <!-- ============================================================ -->
+  <section class="mb-14">
+    <div class="flex items-center gap-3 mb-4">
+      <span class="inline-flex items-center justify-center w-7 h-7 rounded-full bg-emerald-500/15 text-emerald-400 text-sm font-bold">7</span>
+      <h2 class="text-xl font-semibold">Event bus y trazabilidad</h2>
+    </div>
+
+    <p class="text-sm opacity-70 mb-4 max-w-4xl">
+      <code>SubAgentEventBus</code> emite <code>SubAgentEvent</code>s que llegan al
+      <code>SubagentJobManager</code> y al <code>MainSessionBridge</code>. Hay dos loggers paralelos
+      para trazabilidad:
+    </p>
+
+    <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+      <div class="rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 p-4 shadow-sm">
+        <h3 class="font-semibold mb-2">RunLogger</h3>
+        <p class="text-sm opacity-70">
+          <code>core/lion/run-logger.ts</code>. Heartbeat + run-level log. Persiste tasks por run,
+          actualiza contadores de completed/failed/pending. Recibe <code>start_job</code>,
+          <code>finish_job</code> y eventos completos de cada subagente.
+        </p>
+      </div>
+      <div class="rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 p-4 shadow-sm">
+        <h3 class="font-semibold mb-2">LionLogger</h3>
+        <p class="text-sm opacity-70">
+          <code>core/lion/logger.ts</code>. Captura state transitions y errores del runtime,
+          incluye <code>LionRuntimeEventBus</code> con eventos <code>lion.*</code> (mode.changed,
+          tasks.start, checklist.snapshot, etc.) consumidos por UI y API.
+        </p>
+      </div>
+    </div>
+
+    <div class="mt-4 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900/50 p-4 shadow-sm">
+      <div class="text-xs uppercase tracking-wide opacity-60 mb-2">Tipos de eventos clave</div>
+      <div class="grid grid-cols-2 md:grid-cols-4 gap-2 text-sm">
+        <div><code>instance.created</code></div>
+        <div><code>instance.state</code></div>
+        <div><code>tool.start</code> / <code>tool.end</code></div>
+        <div><code>turn.complete</code></div>
+        <div><code>task.start</code> / <code>task.end</code></div>
+        <div><code>lifecycle.change</code></div>
+        <div><code>progress.update</code></div>
+        <div><code>lion.checklist.snapshot</code></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============================================================ -->
+  <!-- FILES MAP -->
+  <!-- ============================================================ -->
+  <section class="mb-14">
+    <div class="flex items-center gap-3 mb-4">
+      <span class="inline-flex items-center justify-center w-7 h-7 rounded-full bg-violet-500/15 text-violet-400 text-sm font-bold">8</span>
+      <h2 class="text-xl font-semibold">Mapa de archivos relevantes</h2>
+    </div>
+
+    <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 text-sm">
+      <div class="rounded-lg border border-slate-200 dark:border-slate-700 p-3 bg-white dark:bg-slate-900">
+        <div class="font-semibold mb-1 text-violet-600 dark:text-violet-400">Orchestrator runtime</div>
+        <code class="block">core/src/lion/runtime.ts</code>
+        <code class="block">core/src/lion/task-runner.ts</code>
+        <code class="block">core/src/lion/strategies/{plan,simple,review}.ts</code>
+        <code class="block">core/src/lion/main-session.ts</code>
+      </div>
+
+      <div class="rounded-lg border border-slate-200 dark:border-slate-700 p-3 bg-white dark:bg-slate-900">
+        <div class="font-semibold mb-1 text-emerald-600 dark:text-emerald-400">Core subagent engine</div>
+        <code class="block">core/src/controller.ts</code>
+        <code class="block">core/src/instance.ts</code>
+        <code class="block">core/src/task-executor.ts</code>
+        <code class="block">core/src/event-bus.ts</code>
+        <code class="block">core/src/definitions/{executor,planner,analyzer,reviewer}.ts</code>
+      </div>
+
+      <div class="rounded-lg border border-slate-200 dark:border-slate-700 p-3 bg-white dark:bg-slate-900">
+        <div class="font-semibold mb-1 text-amber-600 dark:text-amber-400">Logging & events</div>
+        <code class="block">core/src/lion/run-logger.ts</code>
+        <code class="block">core/src/lion/logger.ts</code>
+        <code class="block">core/src/lion/events/defs.ts</code>
+        <code class="block">core/src/lion/job-tracker.ts</code>
+        <code class="block">core/src/lion/ui/subagents-widget.ts</code>
+      </div>
+
+      <div class="rounded-lg border border-slate-200 dark:border-slate-700 p-3 bg-white dark:bg-slate-900">
+        <div class="font-semibold mb-1 text-sky-600 dark:text-sky-400">Frontend (TanStack)</div>
+        <code class="block">frontend/components/SubagentListPanel.tsx</code>
+        <code class="block">frontend/components/AgentRunSidebar.tsx</code>
+        <code class="block">frontend/components/TaskSidebarSection.tsx</code>
+        <code class="block">frontend/store/use-subagent-store.ts</code>
+      </div>
+
+      <div class="rounded-lg border border-slate-200 dark:border-slate-700 p-3 bg-white dark:bg-slate-900">
+        <div class="font-semibold mb-1 text-rose-600 dark:text-rose-400">Dashboard Electron</div>
+        <code class="block">dashboard/electron/main.ts</code>
+        <code class="block">dashboard/electron/preload.ts</code>
+        <code class="block">dashboard/server/subagents-backend.ts</code>
+        <code class="block">dashboard/server/daemon.ts</code>
+      </div>
+
+      <div class="rounded-lg border border-slate-200 dark:border-slate-700 p-3 bg-white dark:bg-slate-900">
+        <div class="font-semibold mb-1 text-slate-600 dark:text-slate-400">Transporte & API</div>
+        <code class="block">core/src/transport/http-server.ts</code>
+        <code class="block">core/src/transport/manager.ts</code>
+        <code class="block">core/src/api/router.ts</code>
+        <code class="block">core/src/api/context.ts</code>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============================================================ -->
+  <!-- LIMITACIONES CONOCIDAS -->
+  <!-- ============================================================ -->
+  <section class="mb-10">
+    <div class="flex items-center gap-3 mb-4">
+      <span class="inline-flex items-center justify-center w-7 h-7 rounded-full bg-slate-500/15 text-slate-400 text-sm font-bold">9</span>
+      <h2 class="text-xl font-semibold">Limitaciones conocidas del estado actual</h2>
+    </div>
+
+    <ul class="text-sm space-y-2 max-w-4xl">
+      <li class="flex items-start gap-2">
+        <span class="pill bg-amber-500/15 text-amber-400 mt-1">Stall</span>
+        <span><code>markStalledJobs</code> marca como stalled tras 2 minutos sin actividad. Causa comun: ejecucion esperando una promesa externa o CWD cambiado.</span>
+      </li>
+      <li class="flex items-start gap-2">
+        <span class="pill bg-rose-500/15 text-rose-400 mt-1">Composite</span>
+        <span>El UI widget (<code>subagents-widget</code>) solo muestra los 4 mas recientes. Para +50 jobs simultaneos usar el frontend en drawer.</span>
+      </li>
+      <li class="flex items-start gap-2">
+        <span class="pill bg-violet-500/15 text-violet-400 mt-1">Gate</span>
+        <span>El completion gate obliga a <code>subagent_record_result</code>. Si un executor termina sin registrar, hay un solo retry automatico antes de marcar retryable.</span>
+      </li>
+      <li class="flex items-start gap-2">
+        <span class="pill bg-emerald-500/15 text-emerald-400 mt-1">Cleanup</span>
+        <span>El <code>SubAgentController</code> mantiene maximo 50 instancias en memoria; las viejas (>30 min completadas) se eliminan automaticamente.</span>
+      </li>
+      <li class="flex items-start gap-2">
+        <span class="pill bg-sky-500/15 text-sky-400 mt-1">Bridge</span>
+        <span>Solo el thread principal (main session) es controlable via RPC. Subagentes son steer-only desde el sidebar.</span>
+      </li>
+    </ul>
+  </section>
+
+  <footer class="pt-6 border-t border-slate-200 dark:border-slate-700 text-xs opacity-60">
+    <p>Artifact generado a partir del codigo en <code>packages/core/src/lion</code>,
+       <code>packages/core/frontend</code>, <code>packages/core/src/extensions/subagents</code>
+       y <code>packages/dashboard</code>. Estado a partir del commit
+       <code>6030ff24 feat(core)!: rename subagents and merge extensions</code>.</p>
+  </footer>
+
+</div>
+
+</body>
+</html>

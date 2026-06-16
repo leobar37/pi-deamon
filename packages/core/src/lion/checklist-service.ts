@@ -1,7 +1,7 @@
 import { readFileSync, writeFileSync } from "node:fs";
 import { basename } from "node:path";
 import { getNextExecutableTask, loadLionPlan, recordStructuredTaskResult, resolvePlanPath } from "./plans/index.js";
-import { listReviewPlans, loadReviewPlan } from "./review-plan.js";
+import { loadReviewPlan } from "./review-plan.js";
 import type {
 	LionChecklistKind,
 	LionChecklistProgress,
@@ -175,10 +175,6 @@ export class LionChecklistService {
 		if (!Array.isArray(record.tasks)) throw new Error(`Invalid checklist tasks: ${checklistFile}`);
 		return record;
 	}
-}
-
-export function listChecklistReferences(cwd: string): Array<{ kind: LionChecklistKind; path: string }> {
-	return listReviewPlans(cwd).map((path) => ({ kind: "review", path }));
 }
 
 function normalizeTask(task: LionTask): LionTask {

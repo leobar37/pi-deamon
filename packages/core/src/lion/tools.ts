@@ -189,7 +189,6 @@ export function registerLionTools(runtime: LionRuntime): void {
 		async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
 			assertLionToolAllowed(runtime, "lion_activate_plan");
 			const result = activator.activate(ctx, params.reference);
-			runtime.logTool("lion_activate_plan", { reference: params.reference }, result);
 			return toToolResult(result);
 		},
 	});
@@ -220,7 +219,6 @@ export function registerLionTools(runtime: LionRuntime): void {
 				}),
 			);
 			const result: LionToolResponse = { run: runtime.core.activeRun, checklist };
-			runtime.logTool("lion_checklist_read", params, result);
 			return toToolResult(result);
 		},
 	});
@@ -273,7 +271,6 @@ export function registerLionTools(runtime: LionRuntime): void {
 				checklistTask: task,
 				lionTasksParams,
 			};
-			runtime.logTool("lion_checklist_start_next", params, result);
 			return toToolResult(result);
 		},
 	});
@@ -316,7 +313,6 @@ export function registerLionTools(runtime: LionRuntime): void {
 				}),
 			);
 			const result: LionToolResponse = { run: runtime.core.activeRun, checklist, checklistTask: task };
-			runtime.logTool("lion_checklist_record", params, result);
 			return toToolResult(result);
 		},
 	});
@@ -335,16 +331,6 @@ export function registerLionTools(runtime: LionRuntime): void {
 				threadId: runtime.mainSession.getThread()?.instanceId ?? `main:${ctx.sessionManager.getSessionId()}`,
 				toolCallId,
 			});
-			runtime.logTool(
-				"lion_tasks",
-				{
-					source: params.source,
-					role: params.role,
-					strategy: params.strategy,
-					taskCount: params.tasks?.length ?? 0,
-				},
-				result,
-			);
 			return toToolResult(result);
 		},
 	});

@@ -9,13 +9,12 @@ import type {
 	SettingsManager,
 	ToolInfo,
 } from "@earendil-works/pi-coding-agent";
-import type { SessionLogger } from "@local/pi-logger";
 import type { DashboardCommand } from "./api/session-control.js";
-import { SubAgentConfigManager } from "./config-manager.js";
-import { resolveEffectiveConfig } from "./config-resolver.js";
 import { SubAgentContextStore as FileSubAgentContextStore } from "./context-store.js";
 import { SubAgentEventBus } from "./event-bus.js";
 import { SubAgentInstance } from "./instance.js";
+import { SubAgentConfigManager } from "./lion/config/config-manager.js";
+import { resolveEffectiveConfig } from "./lion/config/config-resolver.js";
 import { SubAgentRunStore as FileSubAgentRunStore } from "./run-store.js";
 import { TaskExecutor } from "./task-executor.js";
 import { TransportManager } from "./transport/manager.js";
@@ -49,7 +48,6 @@ export class SubAgentController {
 	private modelRegistry?: ModelRegistry;
 	private settingsManager?: SettingsManager;
 	private transportManager?: TransportManager;
-	private logger?: SessionLogger;
 	private configManager: SubAgentRuntimeConfigManager;
 	private contextStore: SubAgentContextStore;
 	private runStore: SubAgentRunStore;
@@ -60,7 +58,6 @@ export class SubAgentController {
 		this.authStorage = options.authStorage;
 		this.modelRegistry = options.modelRegistry;
 		this.settingsManager = options.settingsManager;
-		this.logger = options.logger;
 		this.configManager = options.configManager ?? SubAgentConfigManager.defaultsOnly();
 		this.contextStore = options.contextStore ?? new FileSubAgentContextStore(options.cwd);
 		this.runStore = options.runStore ?? new FileSubAgentRunStore(options.cwd);
@@ -166,7 +163,6 @@ export class SubAgentController {
 			authStorage: this.authStorage,
 			modelRegistry: this.modelRegistry,
 			settingsManager: this.settingsManager,
-			logger: this.logger,
 			configManager: this.configManager,
 			contextStore: this.contextStore,
 			runStore: this.runStore,

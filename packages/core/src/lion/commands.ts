@@ -20,7 +20,6 @@ export function registerLionCommands(pi: ExtensionAPI, runtime: LionRuntime): vo
 			const runId = createRunId();
 			const input = args.trim();
 			runtime.emit({ type: "lion.activate.start", timestamp: Date.now(), runId, input });
-			runtime.logState("command_lion_activate", { runId, input });
 
 			if (!input) {
 				runtime.activatePlanning();
@@ -153,7 +152,6 @@ export function registerLionCommands(pi: ExtensionAPI, runtime: LionRuntime): vo
 			const runId = createRunId();
 			const input = args.trim();
 			runtime.emit({ type: "lion.activate.start", timestamp: Date.now(), runId, input });
-			runtime.logState("command_lion_simple", { runId, input });
 			runtime.activateSimple();
 			if (!persistOrStop(ctx)) return;
 			runtime.ensureController(ctx);
@@ -208,7 +206,6 @@ export function registerLionCommands(pi: ExtensionAPI, runtime: LionRuntime): vo
 			const runId = createRunId();
 			const input = args.trim();
 			const cwd = ctx.cwd ?? ctx.sessionManager.getCwd();
-			runtime.logState("command_lion_code_review", { runId, input, cwd });
 
 			const git = await collectCodeReviewGitContext(cwd);
 			const todo = buildCodeReviewTodo({ scope: input, git });
@@ -288,7 +285,6 @@ export function registerLionCommands(pi: ExtensionAPI, runtime: LionRuntime): vo
 			const focus = args.trim();
 			const cwd = ctx.cwd ?? ctx.sessionManager.getCwd();
 			const plan = loadLionPlan(activePlanPath);
-			runtime.logState("command_lion_review", { runId, focus, cwd, planPath: plan.rootPath });
 
 			const git = await collectCodeReviewGitContext(cwd);
 			const todo = buildPlanCodeReviewTodo({ plan, focus, git });
@@ -379,7 +375,6 @@ export function registerLionCommands(pi: ExtensionAPI, runtime: LionRuntime): vo
 			}
 
 			const focus = args.trim() || undefined;
-			runtime.logState("command_lion_validate", { focus });
 			if (runtime.state.strategy === "review") {
 				const review = loadReviewPlan(activePlanPath, ctx.cwd ?? ctx.sessionManager.getCwd());
 				const content = [
@@ -498,7 +493,6 @@ export function registerLionCommands(pi: ExtensionAPI, runtime: LionRuntime): vo
 
 			await ctx.waitForIdle();
 			const runId = createRunId();
-			runtime.logState("command_lion_build", { runId, planPath: activePlanPath, strategy });
 			runtime.setPhase("building");
 			if (!persistOrStop(ctx)) return;
 			runtime.ui.updateStatus(ctx, runtime.state);
@@ -592,12 +586,10 @@ export function registerLionCommands(pi: ExtensionAPI, runtime: LionRuntime): vo
 					process.platform === "darwin" ? "open" : process.platform === "win32" ? "start" : "xdg-open";
 				execFile(openCommand, [url.href], (err) => {
 					if (!err) return;
-					runtime.logError("lion-dashboard-open", err);
 					runtime.ui.showMessage(`Failed to open browser automatically.\n\nURL: ${url.href}`);
 				});
 			} catch (err: unknown) {
 				const error = err instanceof Error ? err.message : String(err);
-				runtime.logError("lion-dashboard", err);
 				runtime.ui.showMessage(`Failed to open Lion dashboard: ${error}`);
 			}
 		},

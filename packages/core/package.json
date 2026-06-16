@@ -34,7 +34,6 @@
   },
   "dependencies": {
     "@local/pi-dashboard": "workspace:*",
-    "@local/pi-logger": "workspace:*",
     "@orpc/contract": "^1.14.3",
     "@orpc/server": "^1.14.3",
     "diff": "^8.0.2",
@@ -49,6 +48,6 @@
     "@earendil-works/pi-tui": "^0.79.2"
   },
   "pi": {
-    "extensions": ["./dist"]
+    "extensions": ["./dist/extensions"]
   }
 }

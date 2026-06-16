@@ -6,9 +6,9 @@ import {
 	SessionManager,
 } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
-import { resolveConfiguredModel, SubAgentConfigManager } from "./config-manager.js";
 import { DEFAULT_BUILDER } from "./instructions/defaults.js";
 import { applyInternalSkillPrecedence, getInternalSkillPaths } from "./internal-skills.js";
+import { resolveConfiguredModel, SubAgentConfigManager } from "./lion/config/config-manager.js";
 import type {
 	CreateSubAgentSessionOptions,
 	CreateSubAgentSessionResult,

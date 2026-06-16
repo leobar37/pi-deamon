@@ -11,17 +11,6 @@ export type { SubagentsContract } from "./api/contract.js";
 export { subagentsContract } from "./api/contract.js";
 export { createSubagentsRouter } from "./api/router.js";
 export type { SubagentsInputs, SubagentsOutputs } from "./api/types.js";
-export {
-	findConfigPath,
-	loadConfig,
-	loadConfigManager,
-	PI_CONFIG_FILE,
-} from "./config-loader.js";
-export {
-	resolveConfiguredModel,
-	SubAgentConfigManager,
-} from "./config-manager.js";
-export { resolveEffectiveConfig } from "./config-resolver.js";
 export { SubAgentContextStore } from "./context-store.js";
 // Controller
 export { SubAgentController } from "./controller.js";
@@ -35,7 +24,6 @@ export {
 } from "./definitions/index.js";
 // Event bus
 export { EventBusBase, SubAgentEventBus } from "./event-bus.js";
-
 // File-system artifact store (optional addon)
 export { FsArtifactStore } from "./fs-artifact-store.js";
 // Instance
@@ -50,28 +38,24 @@ export {
 } from "./instructions/index.js";
 export type { InstructionBuilder, InstructionContext } from "./instructions/types.js";
 export { registerLionCommands } from "./lion/commands.js";
-export type { LionCore, LionRun, LionRunStatus, LionSubagentRole } from "./lion/core.js";
 export {
-	createLionCore,
-	finishRun,
-	markAwaitingOrchestrator,
-	recordReviewVerdict,
-	recordSubagentResult,
-	setRunStatus,
-	snapshot,
-	startRun,
-} from "./lion/core.js";
+	findConfigPath,
+	loadConfig,
+	loadConfigManager,
+	PI_CONFIG_FILE,
+} from "./lion/config/config-loader.js";
+export {
+	resolveConfiguredModel,
+	SubAgentConfigManager,
+} from "./lion/config/config-manager.js";
+export { resolveEffectiveConfig } from "./lion/config/config-resolver.js";
+export type { LionCore, LionRun, LionRunStatus, LionSubagentRole } from "./lion/core.js";
+export { createLionCore } from "./lion/core.js";
 export { LionEvents, LionRuntimeEventBus } from "./lion/events/index.js";
 // Lion orchestration
 export { lionExtension } from "./lion/index.js";
 export { MainSessionBridge } from "./lion/main-session.js";
-export {
-	buildCorrectionPrompt,
-	buildExecutorPrompt,
-	buildPlanningSystemPrompt,
-	buildPlanReviewPrompt,
-	buildReviewerPrompt,
-} from "./lion/prompts/index.js";
+export { buildPlanReviewPrompt } from "./lion/prompts/index.js";
 export { LionRuntime } from "./lion/runtime.js";
 export { readLionState, writeLionState } from "./lion/state-store.js";
 export type { LionToolResponse } from "./lion/tools.js";

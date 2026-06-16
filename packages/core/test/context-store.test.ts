@@ -17,7 +17,7 @@ describe("SubAgentContextStore", () => {
 					kind: "decision",
 					summary: "Use the shared config manager",
 					details: "It keeps session-factory small.",
-					files: ["packages/subagents/src/config-manager.ts"],
+					files: ["packages/core/src/lion/config/config-manager.ts"],
 					decisions: ["Project overrides win over built-in defaults"],
 				},
 			});
@@ -29,7 +29,7 @@ describe("SubAgentContextStore", () => {
 
 			const formatted = await store.formatForPrompt("session-1", "task-1");
 			expect(formatted).toContain("decision: Use the shared config manager");
-			expect(formatted).toContain("packages/subagents/src/config-manager.ts");
+			expect(formatted).toContain("packages/core/src/lion/config/config-manager.ts");
 		} finally {
 			rmSync(cwd, { recursive: true, force: true });
 		}

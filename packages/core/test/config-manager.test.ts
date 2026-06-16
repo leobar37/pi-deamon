@@ -3,8 +3,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { Api, Model } from "@earendil-works/pi-ai";
 import { describe, expect, it } from "vitest";
-import { loadConfigManager } from "../src/config-loader.js";
-import { resolveConfiguredModel, SubAgentConfigManager } from "../src/config-manager.js";
+import { loadConfigManager } from "../src/lion/config/config-loader.js";
+import { resolveConfiguredModel, SubAgentConfigManager } from "../src/lion/config/config-manager.js";
 
 function model(provider: string, id: string): Model<Api> {
 	return {

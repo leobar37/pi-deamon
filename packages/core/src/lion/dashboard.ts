@@ -6,12 +6,12 @@ function isDashboardMode(): boolean {
 }
 
 function getDashboardPort(): number {
-	const rawPort = process.env.PI_SUBAGENTS_DASHBOARD_PORT;
+	const rawPort = process.env.PI_CORE_DASHBOARD_PORT ?? process.env.PI_SUBAGENTS_DASHBOARD_PORT;
 	if (!rawPort) return 0;
 
 	const port = Number(rawPort);
 	if (!Number.isInteger(port) || port <= 0 || port > 65535) {
-		throw new Error(`Invalid PI_SUBAGENTS_DASHBOARD_PORT: ${rawPort}`);
+		throw new Error(`Invalid PI_CORE_DASHBOARD_PORT: ${rawPort}`);
 	}
 	return port;
 }

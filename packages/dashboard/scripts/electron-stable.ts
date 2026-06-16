@@ -7,7 +7,7 @@
  * until the next rebuild/restart.
  *
  * Environment variables:
- * - PI_SUBAGENTS_PORT  Port for the subagents backend (default: 9394)
+ * - PI_CORE_PORT  Port for the core backend (default: 9394)
  * - SKIP_NATIVE_REBUILD  Set to "1" to skip the better-sqlite3 Electron rebuild
  */
 
@@ -20,10 +20,10 @@ import process from "node:process";
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = join(__dirname, "..", "..", "..");
 const DASHBOARD_DIR = join(REPO_ROOT, "packages", "dashboard");
-const EXTENSIONS_DIR = join(REPO_ROOT, "packages", "extensions");
-const SUBAGENTS_FRONTEND_DIR = join(REPO_ROOT, "packages", "subagents", "frontend");
+const CORE_DIR = join(REPO_ROOT, "packages", "core");
+const CORE_FRONTEND_DIR = join(REPO_ROOT, "packages", "core", "frontend");
 
-const DEFAULT_SUBAGENTS_PORT = "9394";
+const DEFAULT_CORE_PORT = "9394";
 
 async function runCommand(command: string, args: string[], cwd?: string): Promise<void> {
 	const child = spawn(command, args, {
@@ -74,8 +74,8 @@ async function rebuildNativeModulesForElectron(): Promise<void> {
 async function main(): Promise<void> {
 	console.log("[electron-stable] Building static artifacts...");
 
-	await runCommand("bun", ["run", "build"], EXTENSIONS_DIR);
-	await runCommand("bun", ["run", "build"], SUBAGENTS_FRONTEND_DIR);
+	await runCommand("bun", ["run", "build"], CORE_DIR);
+	await runCommand("bun", ["run", "build"], CORE_FRONTEND_DIR);
 	await runCommand("bun", ["run", "build:all"], DASHBOARD_DIR);
 	await runCommand("bun", ["run", "build:electron"], DASHBOARD_DIR);
 
@@ -84,17 +84,17 @@ async function main(): Promise<void> {
 		await rebuildNativeModulesForElectron();
 	}
 
-	const subagentsPort = process.env.PI_SUBAGENTS_PORT ?? DEFAULT_SUBAGENTS_PORT;
+	const corePort = process.env.PI_CORE_PORT ?? process.env.PI_SUBAGENTS_PORT ?? DEFAULT_CORE_PORT;
 
 	const env: NodeJS.ProcessEnv = {
 		...process.env,
-		PI_SUBAGENTS_DASHBOARD_PORT: subagentsPort,
+		PI_CORE_DASHBOARD_PORT: corePort,
 	};
 	// Ensure we never inherit a dev renderer URL; Electron must load the static
 	// frontend build from file://frontend/dist/index.html.
 	delete env.PI_DASHBOARD_RENDERER_URL;
 
-	console.log(`[electron-stable] Starting Electron (subagents backend port ${subagentsPort})...`);
+	console.log(`[electron-stable] Starting Electron (core backend port ${corePort})...`);
 	const electron = spawnProcess("electron", ["electron/dist/main.cjs"], {
 		cwd: DASHBOARD_DIR,
 		env,

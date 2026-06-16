@@ -4,7 +4,6 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import {
-	buildCodeReviewLionTasksParams,
 	buildCodeReviewTodo,
 	type CodeReviewGitContext,
 	collectCodeReviewGitContext,
@@ -27,7 +26,6 @@ const dirtyGit: CodeReviewGitContext = {
 describe("Lion code review orchestration", () => {
 	it("builds a prioritized read-only review TODO from dirty files", () => {
 		const todo = buildCodeReviewTodo({ scope: "", git: dirtyGit });
-		const params = buildCodeReviewLionTasksParams(todo);
 
 		expect(todo.priorityFiles).toEqual([
 			"packages/subagents/src/lion/commands.ts",
@@ -36,14 +34,13 @@ describe("Lion code review orchestration", () => {
 		expect(todo.recentCommitFiles).toEqual(["apps/product/src/sales.tsx", "apps/product/src/responsive.css"]);
 		expect(todo.selectedStrategy).toBe("dirty_and_recent_commits");
 		expect(todo.relatedCandidates.some((candidate) => candidate.includes("packages/subagents/src/lion"))).toBe(true);
-		expect(params.strategy).toBe("parallel");
-		expect(params.concurrency).toBeGreaterThan(0);
-		expect(params.tasks?.every((task) => task.disabledTools?.includes("edit"))).toBe(true);
-		expect(params.tasks?.every((task) => task.skillPaths?.some((path) => path.includes("skills/code-review")))).toBe(
+		expect(todo.tasks.length).toBeGreaterThan(0);
+		expect(todo.tasks.every((task) => task.disabledTools?.includes("edit"))).toBe(true);
+		expect(todo.tasks.every((task) => task.skillPaths?.some((path) => path.includes("skills/code-review")))).toBe(
 			true,
 		);
-		expect(params.tasks?.[0].prompt).toContain("Try to disprove suspected findings");
-		expect(params.tasks?.[0].prompt).toContain("false-positive check");
+		expect(todo.tasks[0].prompt).toContain("Try to disprove suspected findings");
+		expect(todo.tasks[0].prompt).toContain("false-positive check");
 	});
 
 	it("registers /lion-code-review, activates review strategy, and creates a durable plan", async () => {

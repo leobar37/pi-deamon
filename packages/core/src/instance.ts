@@ -11,7 +11,6 @@ import type {
 	SettingsManager,
 	ToolInfo,
 } from "@earendil-works/pi-coding-agent";
-import type { LogEntryType, SessionLogger } from "@local/pi-logger";
 import { type DashboardCommand, getAgentSessionCommands } from "./api/session-control.js";
 import type { SubAgentEventBus } from "./event-bus.js";
 import { buildSubAgentInstructions, createSubAgentSession } from "./session-factory.js";
@@ -70,12 +69,10 @@ export class SubAgentInstance {
 	>();
 	private toolCount = 0;
 	private currentToolStartedAt: number | null = null;
-	private eventLog: SubAgentEvent[] = [];
 	private unsubscribeSession?: () => void;
 	private authStorage?: AuthStorage;
 	private modelRegistry?: ModelRegistry;
 	private settingsManager?: SettingsManager;
-	private logger?: SessionLogger;
 	private configManager?: SubAgentRuntimeConfigManager;
 	private contextStore?: SubAgentContextStore;
 	private runStore?: SubAgentRunStore;
@@ -95,7 +92,6 @@ export class SubAgentInstance {
 		this.authStorage = options.authStorage;
 		this.modelRegistry = options.modelRegistry;
 		this.settingsManager = options.settingsManager;
-		this.logger = options.logger;
 		this.configManager = options.configManager;
 		this.contextStore = options.contextStore;
 		this.runStore = options.runStore;
@@ -112,7 +108,6 @@ export class SubAgentInstance {
 			runIndex: this.task.runIndex,
 			timestamp: Date.now(),
 		};
-		this.logEvent(createdEvent);
 		this.eventBus.emit(createdEvent);
 	}
 
@@ -160,7 +155,6 @@ export class SubAgentInstance {
 			current: to,
 			timestamp: Date.now(),
 		};
-		this.logEvent(event);
 		this.eventBus.emit(event);
 		this.emitState();
 	}
@@ -173,7 +167,6 @@ export class SubAgentInstance {
 			state: this.getState(),
 			timestamp: Date.now(),
 		};
-		this.logEvent(event);
 		this.eventBus.emit(event);
 	}
 
@@ -185,7 +178,6 @@ export class SubAgentInstance {
 			message,
 			timestamp: Date.now(),
 		};
-		this.logEvent(event);
 		this.eventBus.emit(event);
 	}
 
@@ -218,13 +210,6 @@ export class SubAgentInstance {
 				this.endTime = Date.now();
 				const result = this.buildResult("failed", errorMessage);
 				await this.recordRunCompletion(result).catch(() => {});
-				this.logEvent({
-					type: "task.end",
-					instanceId: this.instanceId,
-					taskId: this.taskId,
-					result,
-					timestamp: Date.now(),
-				});
 				this.eventBus.emit({
 					type: "task.end",
 					instanceId: this.instanceId,
@@ -281,7 +266,6 @@ export class SubAgentInstance {
 			sessionFile: rpcState.sessionFile,
 			timestamp: Date.now(),
 		};
-		this.logEvent(sessionInfoEvent);
 		this.eventBus.emit(sessionInfoEvent);
 		this.recordRunStart().catch(() => {});
 
@@ -301,7 +285,6 @@ export class SubAgentInstance {
 			sessionEvent: event as unknown as Record<string, unknown>,
 			timestamp: now,
 		};
-		this.logEvent(sessionEvent);
 		this.eventBus.emit(sessionEvent);
 
 		switch (event.type) {
@@ -319,7 +302,6 @@ export class SubAgentInstance {
 					description: this.taskDescription,
 					timestamp: now,
 				};
-				this.logEvent(startEvent);
 				this.eventBus.emit(startEvent);
 				break;
 			}
@@ -351,7 +333,6 @@ export class SubAgentInstance {
 					hadError,
 					timestamp: now,
 				};
-				this.logEvent(turnEvent);
 				this.eventBus.emit(turnEvent);
 				break;
 			}
@@ -368,7 +349,6 @@ export class SubAgentInstance {
 					toolCallId: event.toolCallId,
 					timestamp: now,
 				};
-				this.logEvent(toolEvent);
 				this.eventBus.emit(toolEvent);
 				if (this.config.verboseTools) {
 					const legacyEvent: SubAgentEvent = {
@@ -380,7 +360,6 @@ export class SubAgentInstance {
 						isError: false,
 						timestamp: now,
 					};
-					this.logEvent(legacyEvent);
 					this.eventBus.emit(legacyEvent);
 				}
 				break;
@@ -398,11 +377,9 @@ export class SubAgentInstance {
 					isError: event.isError,
 					timestamp: now,
 				};
-				this.logEvent(toolEvent);
 				this.eventBus.emit(toolEvent);
 				const taskEvent = taskChangedEventFromToolResult(event, now);
 				if (taskEvent) {
-					this.logEvent(taskEvent);
 					this.eventBus.emit(taskEvent);
 				}
 				if (this.config.verboseTools) {
@@ -415,7 +392,6 @@ export class SubAgentInstance {
 						isError: event.isError,
 						timestamp: now,
 					};
-					this.logEvent(legacyEvent);
 					this.eventBus.emit(legacyEvent);
 				}
 				break;
@@ -430,7 +406,6 @@ export class SubAgentInstance {
 						message: event.message,
 						timestamp: now,
 					};
-					this.logEvent(completeEvent);
 					this.eventBus.emit(completeEvent);
 
 					const text = this.extractAssistantText(event.message);
@@ -442,7 +417,6 @@ export class SubAgentInstance {
 						message: preview,
 						timestamp: now,
 					};
-					this.logEvent(progressEvent);
 					this.eventBus.emit(progressEvent);
 				}
 				break;
@@ -477,7 +451,6 @@ export class SubAgentInstance {
 			result,
 			timestamp: Date.now(),
 		};
-		this.logEvent(endEvent);
 		this.eventBus.emit(endEvent);
 
 		if (this.completionResolve) {
@@ -545,34 +518,6 @@ export class SubAgentInstance {
 			modelProvider: this.session.model?.provider,
 			modelId: this.session.model?.id,
 		});
-	}
-
-	private logEvent(event: SubAgentEvent): void {
-		this.eventLog.push(event);
-		if (this.logger) {
-			this.logger.log({
-				type: this.mapEventType(event.type),
-				source: "subagent",
-				data: event,
-			});
-		}
-	}
-
-	private mapEventType(type: SubAgentEvent["type"]): LogEntryType {
-		switch (type) {
-			case "lifecycle.change":
-				return "lifecycle";
-			case "tool.start":
-			case "tool.end":
-			case "tool.execute":
-				return "tool";
-			case "error":
-				return "error";
-			case "turn.complete":
-				return "turn";
-			default:
-				return "event";
-		}
 	}
 
 	// =====================================================================
@@ -668,7 +613,6 @@ export class SubAgentInstance {
 			answer,
 			timestamp: Date.now(),
 		};
-		this.logEvent(event);
 		this.eventBus.emit(event);
 	}
 
@@ -712,7 +656,6 @@ export class SubAgentInstance {
 			messageCount: summary.messageCount,
 			timestamp: Date.now(),
 		};
-		this.logEvent(event);
 		this.eventBus.emit(event);
 		return summary;
 	}
@@ -754,7 +697,6 @@ export class SubAgentInstance {
 			result,
 			timestamp: Date.now(),
 		};
-		this.logEvent(endEvent);
 		this.eventBus.emit(endEvent);
 		this.completionResolve?.(result);
 	}

@@ -142,14 +142,6 @@ export class TaskRunner {
 			.map((task) => getLionStrategy(runtime.state.strategy).decorateTaskPrompt(task, { plan }));
 		const strategy = params.strategy ?? "sequential";
 
-		// Initialize structured run logger for this batch
-		const runLogger = runtime.initRunLogger(cwd, runId);
-		runLogger.startRun({
-			planSlug: plan?.slug ?? runtime.state.activePlanSlug,
-			planPath: plan?.rootPath ?? runtime.state.activePlanPath,
-			tasksTotal: taskConfigs.length,
-		});
-
 		const batchTask: LionTask = {
 			id: `tasks-${runId}`,
 			title: `Batch ${strategy}: ${taskConfigs.length} tasks`,
@@ -173,14 +165,6 @@ export class TaskRunner {
 			controller,
 			onEvent: (event) => {
 				runtime.recordSubagentUiEvent(event);
-				// Log full subagent events to structured run logger (per-task file)
-				if ("taskId" in event) {
-					runtime.runLogger?.logSubagent(event.taskId, {
-						type: "event",
-						source: "subagent",
-						data: event,
-					});
-				}
 				if (!plan) return;
 				bus.emit(
 					LionEvents.subagentEvent({
@@ -228,7 +212,6 @@ export class TaskRunner {
 			const isRetryable = isRetryableOrchestrationFailure(error);
 			this.handleExecutionError(runId, taskConfigs, plan, error);
 			renderLionSubagentWidget(runtime, ctx);
-			runtime.completeRun("failed", error);
 			const failedResult: TaskExecutionResult = {
 				plan: executionPlan,
 				results: taskConfigs.map((t, i) => ({
@@ -291,17 +274,6 @@ export class TaskRunner {
 		}
 		this.publishEndEvents(runtime, plan, runId, strategy, taskConfigs, result);
 		renderLionSubagentWidget(runtime, ctx);
-
-		// Mark run as completed in structured logger
-		const allCompleted = result.results.every((r) => r.status === "completed");
-		const anyFailed = result.results.some((r) => r.status === "failed");
-		if (allCompleted) {
-			runtime.completeRun("completed");
-		} else if (anyFailed) {
-			runtime.completeRun("failed", `${result.results.filter((r) => r.status === "failed").length} task(s) failed`);
-		} else {
-			runtime.completeRun("completed");
-		}
 
 		const run = runtime.core.activeRun ?? this.buildSyntheticRun(runId, strategy, batchTask, result, taskConfigs);
 

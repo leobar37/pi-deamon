@@ -3,6 +3,7 @@ import { join } from "node:path";
 
 const ENTRY = join(import.meta.dir, "src", "index.ts");
 const OUT_DIR = join(import.meta.dir, "dist");
+const EXTENSIONS_OUT_DIR = join(OUT_DIR, "extensions");
 const FRONTEND_DIR = join(import.meta.dir, "frontend");
 const SKILLS_DIR = join(import.meta.dir, "skills");
 const DIST_SKILLS_DIR = join(OUT_DIR, "skills");
@@ -13,7 +14,6 @@ const EXTERNAL_LIB = [
 	"@earendil-works/pi-ai/oauth",
 	"@earendil-works/pi-coding-agent",
 	"@earendil-works/pi-tui",
-	"@local/pi-logger",
 	"typebox",
 	"typebox/compile",
 	"typebox/value",
@@ -33,7 +33,6 @@ const EXTERNAL_EXT = [
 	"@mariozechner/pi-tui",
 	"@mariozechner/pi-coding-agent",
 	"@local/pi-dashboard",
-	"@local/pi-logger",
 	"typebox",
 	"typebox/compile",
 	"typebox/value",
@@ -98,7 +97,7 @@ async function buildExtensions() {
 	for (const { entrypoint, name } of extensions) {
 		const result = await Bun.build({
 			entrypoints: [entrypoint],
-			outdir: OUT_DIR,
+			outdir: EXTENSIONS_OUT_DIR,
 			target: "bun",
 			format: "esm",
 			sourcemap: "inline",
@@ -117,7 +116,7 @@ async function buildExtensions() {
 		}
 		built++;
 	}
-	console.log(`Built ${built} extensions → ${OUT_DIR}`);
+	console.log(`Built ${built} extensions → ${EXTENSIONS_OUT_DIR}`);
 }
 
 async function build() {

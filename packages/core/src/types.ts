@@ -7,7 +7,6 @@ import type {
 	ModelRegistry,
 	SettingsManager,
 } from "@earendil-works/pi-coding-agent";
-import type { SessionLogger } from "@local/pi-logger";
 import type { SubAgentEventBus } from "./event-bus.js";
 import type { TaskRecord } from "./tasks/types.js";
 import type { SubAgentTransport } from "./transport/types.js";
@@ -438,7 +437,6 @@ export interface SubAgentControllerOptions {
 	authStorage?: AuthStorage;
 	modelRegistry?: ModelRegistry;
 	settingsManager?: SettingsManager;
-	logger?: SessionLogger;
 	onEvent?: (event: SubAgentEvent) => void;
 	onLifecycleChange?: (event: SubAgentEventMap["lifecycle.change"]) => void;
 	transports?: SubAgentTransport[];
@@ -702,7 +700,6 @@ export interface CreateSubAgentInstanceOptions {
 	authStorage?: AuthStorage;
 	modelRegistry?: ModelRegistry;
 	settingsManager?: SettingsManager;
-	logger?: SessionLogger;
 	configManager?: SubAgentRuntimeConfigManager;
 	contextStore?: SubAgentContextStore;
 	runStore?: SubAgentRunStore;

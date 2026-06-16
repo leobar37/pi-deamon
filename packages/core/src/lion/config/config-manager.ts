@@ -1,6 +1,6 @@
 import type { Api, Model } from "@earendil-works/pi-ai";
 import type { ModelRegistry } from "@earendil-works/pi-coding-agent";
-import type { SubAgentCompactionConfig, SubAgentProjectConfig, SubAgentRoleConfig } from "./types.js";
+import type { SubAgentCompactionConfig, SubAgentProjectConfig, SubAgentRoleConfig } from "../../types.js";
 
 const DEFAULT_AGENT_CONFIGS: Record<string, SubAgentRoleConfig> = {
 	planner: {

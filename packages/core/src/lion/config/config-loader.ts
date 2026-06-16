@@ -2,8 +2,8 @@ import { existsSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { transform } from "esbuild";
+import type { SubAgentProjectConfig } from "../../types.js";
 import { SubAgentConfigManager } from "./config-manager.js";
-import type { SubAgentProjectConfig } from "./types.js";
 
 export const PI_CONFIG_FILE = "config.pi.ts";
 

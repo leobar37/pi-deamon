@@ -1,4 +1,4 @@
-import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
+import { existsSync, readFileSync, statSync } from "node:fs";
 import { join, resolve } from "node:path";
 import type { LionPlan, LionTask, LionTaskStatus } from "../types.js";
 import { LionChecklistFile } from "./checklist.js";
@@ -137,81 +137,7 @@ function findCandidatePlans(cwd: string, _reference: string): PlanResolution["ca
 	return candidates;
 }
 
-export interface ListedPlan {
-	slug: string;
-	path: string;
-	displayPath: string;
-	taskCount: number;
-	modifiedAt: number;
-}
-
-/**
- * List all available plans in the project.
- * Scans `plans/` and `.plans/` directories for markdown files.
- */
-export function listPlans(cwd: string): ListedPlan[] {
-	const plans: ListedPlan[] = [];
-	const seenPaths = new Set<string>();
-
-	for (const dirName of ["plans", ".plans"]) {
-		const dir = join(cwd, dirName);
-		if (!existsSync(dir)) continue;
-
-		const entries = readdirSync(dir, { withFileTypes: true });
-		for (const entry of entries) {
-			const path = join(dir, entry.name);
-			if (seenPaths.has(path)) continue;
-
-			if (entry.isFile() && entry.name.endsWith(".md")) {
-				seenPaths.add(path);
-				try {
-					const content = readFileSync(path, "utf-8");
-					const lines = content.split("\n");
-					const slug = lines[0]?.trim() || entry.name.replace(".md", "");
-					const taskCount = lines.filter((l) => l.trim() && !l.startsWith("#")).length - 1;
-					const stats = statSync(path);
-					plans.push({
-						slug,
-						path,
-						displayPath: path.replace(`${cwd}/`, ""),
-						taskCount: Math.max(0, taskCount),
-						modifiedAt: stats.mtime.getTime(),
-					});
-				} catch {
-					/* skip unreadable */
-				}
-			} else if (entry.isDirectory()) {
-				// Check for task-index.md inside subdirectories
-				const indexPath = join(path, "task-index.md");
-				if (existsSync(indexPath)) {
-					seenPaths.add(indexPath);
-					try {
-						const content = readFileSync(indexPath, "utf-8");
-						const lines = content.split("\n");
-						const slug = lines[0]?.trim() || entry.name;
-						const taskCount = lines.filter((l) => l.trim() && !l.startsWith("#")).length - 1;
-						const stats = statSync(indexPath);
-						plans.push({
-							slug,
-							path: indexPath,
-							displayPath: indexPath.replace(`${cwd}/`, ""),
-							taskCount: Math.max(0, taskCount),
-							modifiedAt: stats.mtime.getTime(),
-						});
-					} catch {
-						/* skip unreadable */
-					}
-				}
-			}
-		}
-	}
-
-	// Sort by most recently modified first
-	plans.sort((a, b) => b.modifiedAt - a.modifiedAt);
-	return plans;
-}
-
-export function updateStructuredTaskStatus(plan: LionPlan, taskId: string, status: LionTaskStatus): void {
+function updateStructuredTaskStatus(plan: LionPlan, taskId: string, status: LionTaskStatus): void {
 	const task = plan.tasks.find((t) => t.id === taskId);
 	if (task) {
 		task.status = status;

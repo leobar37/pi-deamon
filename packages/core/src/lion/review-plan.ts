@@ -83,38 +83,6 @@ export function loadReviewPlan(pathOrSlug: string, cwd: string): ReviewPlan {
 	};
 }
 
-export function getNextReviewTask(plan: ReviewPlan): ReviewPlanTask | null {
-	return plan.tasks.find((task) => task.status === "pending") ?? null;
-}
-
-export function updateReviewTaskStatus(plan: ReviewPlan, taskId: string, status: ReviewTaskStatus): void {
-	const checklist = readChecklist(plan.checklistFile);
-	const task = checklist.tasks.find((item) => item.id === taskId);
-	if (!task) throw new Error(`Review task ${taskId} not found`);
-	task.status = status;
-	checklist.completed = checklist.tasks.filter((item) => item.status === "complete").length;
-	checklist.total_tasks = checklist.tasks.length;
-	writeFileSync(plan.checklistFile, JSON.stringify(checklist, null, 2), "utf-8");
-}
-
-export function recordReviewTaskResult(
-	plan: ReviewPlan,
-	taskId: string,
-	status: ReviewTaskStatus,
-	summary?: string,
-): ReviewPlanTask {
-	const checklist = readChecklist(plan.checklistFile);
-	const task = checklist.tasks.find((item) => item.id === taskId);
-	if (!task) throw new Error(`Review task ${taskId} not found`);
-	task.status = status;
-	if (summary) task.last_summary = summary;
-	task.updated_at = new Date().toISOString();
-	checklist.completed = checklist.tasks.filter((item) => item.status === "complete").length;
-	checklist.total_tasks = checklist.tasks.length;
-	writeFileSync(plan.checklistFile, JSON.stringify(checklist, null, 2), "utf-8");
-	return task;
-}
-
 export function buildReviewTaskLionTasksParams(plan: ReviewPlan, task: ReviewPlanTask): RunTasksParams {
 	const taskBrief = readFileSync(join(plan.rootPath, task.file), "utf-8");
 	const codeReviewSkillPath = getInternalSkillPath("code-review");

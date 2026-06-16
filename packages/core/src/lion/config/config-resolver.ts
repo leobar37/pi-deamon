@@ -4,7 +4,7 @@ import type {
 	SubAgentCapabilities,
 	SubAgentDefinition,
 	SubAgentRoleConfig,
-} from "./types.js";
+} from "../../types.js";
 
 /**
  * Merge a base SubAgentDefinition with a DelegationTask's dynamic overrides

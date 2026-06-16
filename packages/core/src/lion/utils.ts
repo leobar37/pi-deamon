@@ -1,27 +1,5 @@
-import { basename, relative } from "node:path";
-import type { LionBuildResult, LionPlan, LionReviewVerdict, LionState, LionTaskStatus } from "./types.js";
-
-export function slugFromPath(path: string): string {
-	return basename(path.replace(/\/$/, ""));
-}
-
-export function normalizeTaskStatus(status: unknown): LionTaskStatus {
-	switch (status) {
-		case "complete":
-		case "completed":
-			return "complete";
-		case "in_progress":
-		case "in-progress":
-		case "running":
-			return "in_progress";
-		case "blocked":
-			return "blocked";
-		case "retryable":
-			return "retryable";
-		default:
-			return "pending";
-	}
-}
+import { randomUUID } from "node:crypto";
+import type { LionPlan, LionReviewVerdict, LionState } from "./types.js";
 
 export function parseReviewVerdict(summary: string): LionReviewVerdict {
 	const lines = summary
@@ -47,21 +25,6 @@ export function formatPlanSummary(plan: LionPlan): string {
 		`Tasks: ${complete}/${plan.tasks.length} complete, ${pending} pending, ${retryable} retryable, ${blocked} blocked`,
 	].join("\n");
 }
-
-export function formatBuildResult(result: LionBuildResult): string {
-	const lines = [`Task: ${result.taskId}`, `Status: ${result.status}`, `Attempts: ${result.attempts}`];
-	if (result.executorSummary) lines.push("", "Executor summary:", result.executorSummary);
-	if (result.reviewerSummary) lines.push("", "Reviewer summary:", result.reviewerSummary);
-	if (result.error) lines.push("", `Error: ${result.error}`);
-	return lines.join("\n");
-}
-
-export function relativeDisplayPath(cwd: string, path: string): string {
-	const rel = relative(cwd, path);
-	return rel.startsWith("..") ? path : rel;
-}
-
-import { randomUUID } from "node:crypto";
 
 export function createRunId(): string {
 	return `lion-${Date.now()}-${randomUUID().replace(/-/g, "").slice(0, 12)}`;

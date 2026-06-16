@@ -6,7 +6,6 @@ import type { RunTasksParams } from "./task-runner.js";
 import type { LionPlan } from "./types.js";
 
 const execFileAsync = promisify(execFile);
-const REVIEW_CONCURRENCY = 3;
 
 export interface CodeReviewGitContext {
 	statusShort: string;
@@ -286,14 +285,6 @@ export function buildPlanCodeReviewTodo(input: {
 			unique([input.plan.rootPath, ...planTaskFiles]),
 			tasks,
 		),
-	};
-}
-
-export function buildCodeReviewLionTasksParams(todo: CodeReviewTodo): RunTasksParams {
-	return {
-		tasks: todo.tasks,
-		strategy: "parallel",
-		concurrency: Math.min(REVIEW_CONCURRENCY, Math.max(todo.tasks.length, 1)),
 	};
 }
 

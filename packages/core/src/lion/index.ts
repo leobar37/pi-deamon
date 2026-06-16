@@ -1,13 +1,11 @@
 import { compact, type ExtensionAPI, type ExtensionContext } from "@earendil-works/pi-coding-agent";
-import { SessionLogger } from "@local/pi-logger";
-import { loadConfigManager } from "../config-loader.js";
-import { resolveConfiguredModel } from "../config-manager.js";
 import { registerLionCommands } from "./commands.js";
+import { loadConfigManager } from "./config/config-loader.js";
+import { resolveConfiguredModel } from "./config/config-manager.js";
 import { LionRuntime } from "./runtime.js";
 import { getLionStrategy } from "./strategies/index.js";
 import { getActiveLionTools, isLionToolCallAllowed, LION_TOOL_NAMES, registerLionTools } from "./tools.js";
 import { stopLionSubagentWidget } from "./ui/subagents-widget.js";
-import { createRunId } from "./utils.js";
 
 function shouldAutoActivate(): boolean {
 	return process.env.LION_AUTO_ACTIVATE === "true";
@@ -50,21 +48,6 @@ export function lionExtension(pi: ExtensionAPI): void {
 
 	pi.on("session_start", async (_event, ctx) => {
 		const cwd = ctx.sessionManager.getCwd();
-		const sessionId = ctx.sessionManager.getSessionId();
-		if (!runtime.logger) {
-			runtime.logger = new SessionLogger({
-				cwd,
-				sessionId,
-			});
-		}
-		// Initialize structured run logger for this session
-		if (!runtime.runLogger) {
-			const runLogger = runtime.initRunLogger(cwd, createRunId());
-			runLogger.startRun({
-				planSlug: runtime.state.activePlanSlug,
-				planPath: runtime.state.activePlanPath,
-			});
-		}
 		// Load project config from config.pi.ts if available
 		if (!runtime.configManager) {
 			try {
@@ -72,7 +55,6 @@ export function lionExtension(pi: ExtensionAPI): void {
 				runtime.configManager = configManager;
 			} catch (err) {
 				const message = err instanceof Error ? err.message : String(err);
-				runtime.logError("config-load", err);
 				console.error(`[lion] failed to load config.pi.ts: ${message}`);
 			}
 		}
@@ -131,11 +113,6 @@ export function lionExtension(pi: ExtensionAPI): void {
 		return undefined;
 	});
 	pi.on("session_shutdown", async () => {
-		// Mark run as interrupted only if it hasn't already completed
-		const runLogger = runtime.runLogger;
-		if (runLogger && !runLogger.closed) {
-			runtime.interruptRun(undefined, "session_shutdown");
-		}
 		stopLionSubagentWidget(runtime);
 		await runtime.stopDashboard();
 	});

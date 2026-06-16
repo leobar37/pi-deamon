@@ -7,34 +7,21 @@ import { visibleWidth } from "@earendil-works/pi-tui";
 import { describe, it } from "vitest";
 import { LionChecklistService } from "../../src/lion/checklist-service.js";
 import { registerLionCommands } from "../../src/lion/commands.js";
-import {
-	createLionCore,
-	finishRun,
-	type LionCore,
-	recordReviewVerdict,
-	recordSubagentResult,
-	startRun,
-} from "../../src/lion/core.js";
+import { createLionCore } from "../../src/lion/core.js";
 import { classifyLionTaskResult } from "../../src/lion/evidence.js";
 import { lionExtension } from "../../src/lion/index.js";
 import { MainSessionBridge } from "../../src/lion/main-session.js";
 import { LionChecklistFile } from "../../src/lion/plans/checklist.js";
-import {
-	getNextExecutableTask,
-	loadLionPlan,
-	recordStructuredTaskResult,
-	updateStructuredTaskStatus,
-} from "../../src/lion/plans/index.js";
+import { getNextExecutableTask, loadLionPlan, recordStructuredTaskResult } from "../../src/lion/plans/index.js";
 import { StructuredLionPlanFile } from "../../src/lion/plans/structured.js";
 import { buildPlanReviewPrompt } from "../../src/lion/prompts/plan-reviewer.js";
-import { buildPlanningSystemPrompt } from "../../src/lion/prompts/planning.js";
 import { createReviewPlanFromTodo } from "../../src/lion/review-plan.js";
 import { LionRuntime } from "../../src/lion/runtime.js";
 import { getLionStatePath, readLionState, writeLionState } from "../../src/lion/state-store.js";
 import { hasPlanReference } from "../../src/lion/strategies/shared.js";
 import { TaskRunner } from "../../src/lion/task-runner.js";
 import { getActiveLionTools, registerLionTools } from "../../src/lion/tools.js";
-import type { LionPlan, LionTask } from "../../src/lion/types.js";
+import type { LionPlan } from "../../src/lion/types.js";
 import { buildLionSubagentWidgetLines } from "../../src/lion/ui/subagents-widget.js";
 import { parseReviewVerdict } from "../../src/lion/utils.js";
 import type { DelegationResult, DelegationTask } from "../../src/types.js";
@@ -54,15 +41,6 @@ const plan: LionPlan = {
 			requirements: [],
 		},
 	],
-};
-
-const task: LionTask = {
-	id: "T-001",
-	title: "Implement workflow",
-	file: "tasks/T-001.md",
-	status: "pending",
-	dependencies: [],
-	requirements: [],
 };
 
 const plainTheme = {
@@ -98,78 +76,6 @@ function delegationResult(task: DelegationTask, status: DelegationResult["status
 	};
 }
 
-function testStartRunInitializesRun(): void {
-	const core: LionCore = createLionCore();
-	startRun(core, { runId: "run-1", plan, task, maxAttempts: 3 });
-	assert.ok(core.activeRun);
-	assert.equal(core.activeRun!.runId, "run-1");
-	assert.equal(core.activeRun!.taskId, "T-001");
-	assert.equal(core.activeRun!.status, "executing");
-	assert.equal(core.activeRun!.attempts, 0);
-	assert.equal(core.activeRun!.maxAttempts, 3);
-	assert.equal(core.activeRun!.verdict, null);
-}
-
-function testFinishRunMarksComplete(): void {
-	const cwd = createStructuredPlanDirWithChecklist();
-	try {
-		const runtime = new LionRuntime(fakePi() as any, TEST_CWD);
-		const loadedPlan = new StructuredLionPlanFile(cwd).loadPlan();
-		startRun(runtime.core, { runId: "run-1", plan: loadedPlan, task: loadedPlan.tasks[0], maxAttempts: 3 });
-		recordReviewVerdict(runtime.core, "approved", "ok\n<LION-APPROVE>");
-
-		const result = finishRun(runtime.core, "approved");
-
-		assert.equal(result.status, "approved");
-		assert.equal(result.taskId, loadedPlan.tasks[0].id);
-		assert.equal(runtime.core.activeRun, null);
-		assert.equal(runtime.core.runHistory.length, 1);
-	} finally {
-		rmSync(cwd, { recursive: true, force: true });
-	}
-}
-
-function testFinishRunRetriesOnReject(): void {
-	const core: LionCore = createLionCore();
-	startRun(core, { runId: "run-1", plan, task, maxAttempts: 3 });
-	recordReviewVerdict(core, "rejected", "needs fix\n<LION-REJECT>");
-
-	const result = finishRun(core, "rejected");
-	assert.equal(result.status, "rejected");
-	assert.equal(core.activeRun, null);
-	assert.equal(core.runHistory.length, 1);
-}
-
-function testFinishRunFailsAfterMaxAttempts(): void {
-	const core: LionCore = createLionCore();
-	startRun(core, { runId: "run-1", plan, task, maxAttempts: 2 });
-	recordReviewVerdict(core, "rejected", "needs fix\n<LION-REJECT>");
-	finishRun(core, "rejected");
-
-	// Manual retry - restart the run
-	startRun(core, { runId: "run-2", plan, task, maxAttempts: 2 });
-	recordReviewVerdict(core, "rejected", "still bad\n<LION-REJECT>");
-	const result = finishRun(core, "rejected");
-
-	assert.equal(result.status, "rejected");
-	assert.equal(core.activeRun, null);
-	assert.equal(core.runHistory.length, 2);
-}
-
-function testRecordSubagentResultUpdatesRun(): void {
-	const core: LionCore = createLionCore();
-	startRun(core, { runId: "run-1", plan, task, maxAttempts: 3 });
-	const result = delegationResult(
-		{ id: "task-1", definition: "coder", prompt: "do it" } as DelegationTask,
-		"completed",
-		"done",
-	);
-	recordSubagentResult(core, "executor", result);
-
-	assert.equal(core.activeRun!.subagents.length, 1);
-	assert.equal(core.activeRun!.subagents[0].status, "completed");
-}
-
 function testParseReviewVerdict(): void {
 	assert.equal(parseReviewVerdict("looks good\n<LION-APPROVE>"), "approved");
 	assert.equal(parseReviewVerdict("needs fix\n<LION-REJECTED>"), "rejected");
@@ -183,43 +89,6 @@ function testBuildPlanReviewPrompt(): void {
 	assert.ok(prompt.includes("test-plan"));
 	assert.ok(prompt.includes("T-001"));
 	assert.ok(prompt.includes("Do not edit files."));
-}
-
-function testBuildPlanningSystemPrompt(): void {
-	const state = {
-		version: 2 as const,
-		active: true,
-		strategy: "plan" as const,
-		phase: "planning" as const,
-		planKind: "structured" as const,
-		activePlanPath: "/tmp/test-plan",
-		activePlanSlug: "test-plan",
-		activeTaskId: null,
-		maxAttempts: 3,
-		lastRunId: null,
-		lastBuild: undefined,
-	};
-	const prompt = buildPlanningSystemPrompt(state);
-	assert.ok(prompt.includes("test-plan"));
-	assert.ok(prompt.includes("compact structured delegation brief"));
-	assert.ok(prompt.includes("Do not paste full plan files"));
-	assert.ok(prompt.includes("<delegation>"));
-	assert.ok(prompt.includes("<must_not>Ask the user for clarification.</must_not>"));
-	assert.ok(prompt.includes('task_id="T-001"'));
-	assert.ok(prompt.includes("verificationStatus"));
-	assert.ok(prompt.includes("Never treat a subagent self-report as proof"));
-	assert.ok(prompt.includes('source: "active_plan_next_task"'));
-	assert.ok(!prompt.includes("lion_next_task"));
-	assert.ok(!prompt.includes("lion_record_task_result"));
-	assert.ok(prompt.includes("Never read, edit, write, or multi-edit .plans/**/checklist.json directly"));
-	assert.ok(prompt.includes("Interpret User Intent First"));
-	assert.ok(prompt.includes("This interpretation belongs to the main Lion orchestration thread"));
-	assert.ok(prompt.includes("Do not delegate the raw user prompt just to understand it"));
-	assert.ok(prompt.includes("use any relevant loaded skill"));
-	assert.ok(prompt.includes("Executor delegations must reference the active plan and task file"));
-	assert.ok(prompt.includes("/lion-activate with no reference"));
-	assert.ok(prompt.includes("Do not call lion_activate_plan and do not infer or reuse an existing plan"));
-	assert.ok(prompt.includes("previous ordinary chat as planning context for a new plan"));
 }
 
 function testHasPlanReferenceSupportsStructuredBriefs(): void {
@@ -263,28 +132,6 @@ function testReviewPlanExtractsMarkdownScopePaths(): void {
 	} finally {
 		rmSync(cwd, { recursive: true, force: true });
 	}
-}
-
-function testBuildSimpleSystemPrompt(): void {
-	const state = {
-		version: 2 as const,
-		active: true,
-		strategy: "simple" as const,
-		phase: "building" as const,
-		planKind: null,
-		activePlanPath: null,
-		activePlanSlug: null,
-		activeTaskId: null,
-		maxAttempts: 3,
-		lastRunId: null,
-		lastBuild: undefined,
-	};
-	const prompt = buildPlanningSystemPrompt(state);
-	assert.ok(prompt.includes("Lion simple mode is active"));
-	assert.ok(prompt.includes("Do not create, activate, or require a durable plan"));
-	assert.ok(prompt.includes("Use lion_tasks"));
-	assert.ok(!prompt.includes("lion_next_task: Select the next executable"));
-	assert.ok(!prompt.includes("checklist.json"));
 }
 
 async function testTaskRunnerAddsPlanContextToDelegations(): Promise<void> {
@@ -1006,7 +853,7 @@ function testStructuredPlanNextTaskRespectsDependencies(): void {
 		const loaded = loadLionPlan(dir);
 		const next = getNextExecutableTask(loaded);
 		assert.equal(next?.id, "T-001");
-		updateStructuredTaskStatus(loaded, "T-001", "complete");
+		recordStructuredTaskResult(loaded, "T-001", "complete");
 		const updated = loadLionPlan(dir);
 		assert.equal(getNextExecutableTask(updated)?.id, "T-002");
 	} finally {
@@ -2914,17 +2761,10 @@ Status: pending
 // Run all tests
 
 const tests = [
-	{ name: "testStartRunInitializesRun", fn: testStartRunInitializesRun },
-	{ name: "testFinishRunMarksComplete", fn: testFinishRunMarksComplete },
-	{ name: "testFinishRunRetriesOnReject", fn: testFinishRunRetriesOnReject },
-	{ name: "testFinishRunFailsAfterMaxAttempts", fn: testFinishRunFailsAfterMaxAttempts },
-	{ name: "testRecordSubagentResultUpdatesRun", fn: testRecordSubagentResultUpdatesRun },
 	{ name: "testParseReviewVerdict", fn: testParseReviewVerdict },
 	{ name: "testBuildPlanReviewPrompt", fn: testBuildPlanReviewPrompt },
-	{ name: "testBuildPlanningSystemPrompt", fn: testBuildPlanningSystemPrompt },
 	{ name: "testHasPlanReferenceSupportsStructuredBriefs", fn: testHasPlanReferenceSupportsStructuredBriefs },
 	{ name: "testReviewPlanExtractsMarkdownScopePaths", fn: testReviewPlanExtractsMarkdownScopePaths },
-	{ name: "testBuildSimpleSystemPrompt", fn: testBuildSimpleSystemPrompt },
 	{ name: "testTaskRunnerAddsPlanContextToDelegations", fn: testTaskRunnerAddsPlanContextToDelegations },
 	{
 		name: "testTaskRunnerAddsPlanContextWhenBriefHasGenericLionContext",

@@ -1,4 +1,4 @@
-import { SubAgentConfigManager } from "../config-manager.js";
+import { SubAgentConfigManager } from "../lion/config/config-manager.js";
 import type { SubAgentCompactionConfig, SubAgentProjectConfig, SubAgentRoleConfig } from "../types.js";
 
 export type { SubAgentCompactionConfig, SubAgentProjectConfig, SubAgentRoleConfig };

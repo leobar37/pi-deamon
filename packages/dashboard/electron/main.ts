@@ -1,7 +1,7 @@
 /**
  * Electron main process.
  *
- * Starts the dashboard backend (DashboardDaemon) and the subagents backend,
+ * Starts the dashboard backend (DashboardDaemon) and the core backend,
  * then loads the React frontend. The renderer obtains both backend URLs
  * through the preload script via IPC and performs catalog operations through
  * the dashboard backend API.
@@ -36,7 +36,7 @@ function getBackendCommand(): SubagentsBackendCommand {
 	const isPackaged = app.isPackaged;
 	const extensionsDir = isPackaged
 		? join(process.resourcesPath, "extensions")
-		: join(__dirname, "..", "..", "..", "extensions");
+		: join(__dirname, "..", "..", "..", "core");
 	const args = ["--web", "--no-extensions", "-e", extensionsDir];
 
 	if (isPackaged) {
@@ -179,14 +179,14 @@ app.whenReady().then(async () => {
 		const dashboardUrl = await dashboardDaemon.start();
 		console.log(`[electron] Dashboard backend URL: ${dashboardUrl}`);
 
-		console.log("[electron] Starting subagents backend...");
+		console.log("[electron] Starting core backend...");
 		backendManager.start(getBackendCommand());
-		const subagentsUrl = await backendManager.getUrl();
-		console.log(`[electron] Subagents backend URL resolved: ${subagentsUrl}`);
-		dashboardDaemon.setSubagentsUrl(subagentsUrl);
+		const coreUrl = await backendManager.getUrl();
+		console.log(`[electron] Core backend URL resolved: ${coreUrl}`);
+		dashboardDaemon.setSubagentsUrl(coreUrl);
 
-		await waitForUrl(subagentsUrl, HEALTHCHECK_TIMEOUT_MS, HEALTHCHECK_INTERVAL_MS);
-		console.log("[electron] Subagents backend is ready; creating window");
+		await waitForUrl(coreUrl, HEALTHCHECK_TIMEOUT_MS, HEALTHCHECK_INTERVAL_MS);
+		console.log("[electron] Core backend is ready; creating window");
 		await createWindow();
 	} catch (err) {
 		console.error("[electron] Failed to start dashboard:", err);

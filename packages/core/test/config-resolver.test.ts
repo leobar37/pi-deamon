@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { resolveEffectiveConfig } from "../src/config-resolver.js";
 import { reviewerDefinition } from "../src/definitions/reviewer.js";
+import { resolveEffectiveConfig } from "../src/lion/config/config-resolver.js";
 import type { DelegationTask, SubAgentDefinition } from "../src/types.js";
 
 const baseDefinition: SubAgentDefinition = {

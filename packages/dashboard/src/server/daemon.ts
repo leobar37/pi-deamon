@@ -2,7 +2,7 @@
  * DashboardDaemon — minimal HTTP server for the web dashboard SPA.
  *
  * Serves the static React SPA and exposes the dashboard catalog API. Session
- * runtime is handled by the subagents backend spawned by Electron's main process.
+ * runtime is handled by the core backend spawned by Electron's main process.
  */
 
 import { existsSync } from "node:fs";
@@ -116,9 +116,9 @@ export class DashboardDaemon {
 		this.server = await startHttpServer(fetchHandler, this.config.host, listenPort);
 		if (this.config.subagentsBackend) {
 			this.subagentsBackend = new SubagentsBackendManager({
-				onStdout: (text) => logger.info("Subagents backend stdout", { text }),
-				onStderr: (text) => logger.warn("Subagents backend stderr", { text }),
-				onUnexpectedExit: (code) => logger.error("Subagents backend exited unexpectedly", { code }),
+				onStdout: (text) => logger.info("Core backend stdout", { text }),
+				onStderr: (text) => logger.warn("Core backend stderr", { text }),
+				onUnexpectedExit: (code) => logger.error("Core backend exited unexpectedly", { code }),
 			});
 			this.subagentsBackend.start(this.config.subagentsBackend);
 			this.setSubagentsUrl(await this.subagentsBackend.getUrl());
@@ -155,7 +155,7 @@ export class DashboardDaemon {
 
 	setSubagentsUrl(url: string | undefined): void {
 		this.subagentsUrl = url;
-		logger.info("Subagents backend URL registered", { url });
+		logger.info("Core backend URL registered", { url });
 	}
 
 	getSubagentsUrl(): string | undefined {

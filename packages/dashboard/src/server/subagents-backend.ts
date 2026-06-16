@@ -1,7 +1,7 @@
 import { type ChildProcessByStdio, spawn } from "node:child_process";
 import type { Readable } from "node:stream";
 
-const DASHBOARD_URL_REGEX = /\[lion\] dashboard at (https?:\/\/[^\s]+)/;
+const CORE_URL_REGEX = /\[lion\] dashboard at (https?:\/\/[^\s]+)/;
 const KILL_TIMEOUT_MS = 3000;
 const MAX_STDOUT_BUFFER_SIZE = 8192;
 
@@ -129,7 +129,7 @@ export class SubagentsBackendManager {
 	}
 
 	private parseUrl(): string | null {
-		const match = DASHBOARD_URL_REGEX.exec(this.stdoutBuffer);
+		const match = CORE_URL_REGEX.exec(this.stdoutBuffer);
 		return match ? match[1].replace(/\/$/, "") : null;
 	}
 

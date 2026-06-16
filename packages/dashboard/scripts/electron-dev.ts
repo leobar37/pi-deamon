@@ -91,8 +91,8 @@ async function main(): Promise<void> {
 	const rendererUrl = `http://${HOST}:${port}`;
 	console.log(`[electron-dev] Renderer URL: ${rendererUrl}`);
 
-	await runCommand("bun", ["x", "vite", "build"], "../subagents/frontend");
-	await runCommand("bun", ["run", "build"], "../subagents");
+	await runCommand("bun", ["x", "vite", "build"], "../core/frontend");
+	await runCommand("bun", ["run", "build"], "../core");
 	await runCommand("bun", ["run", "build"]);
 	await runCommand("bun", ["run", "build:electron"]);
 	await rebuildNativeModulesForElectron();
