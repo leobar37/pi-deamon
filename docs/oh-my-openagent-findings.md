@@ -1,5 +1,7 @@
 # Oh-My-OpenAgent Analysis — Findings for `packages/subagents`
 
+> **Note:** The `packages/subagents` package was renamed to `packages/core`. Path references below reflect the original package name at the time of analysis.
+
 **Source:** `https://github.com/code-yeongyu/oh-my-openagent/tree/dev`
 **Date:** 2026-05-29
 **Scope:** Config-driven agent overrides, model assignment strategies, ultrawork mode, and planning architecture.

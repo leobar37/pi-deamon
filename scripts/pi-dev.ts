@@ -1,7 +1,7 @@
 #!/usr/bin/env bun
 /**
  * pi-dev: run this fork of pi in web mode from any directory,
- * loading the vendored extensions from packages/extensions.
+ * loading the vendored extensions from packages/core.
  */
 
 import { realpathSync } from "node:fs";
@@ -10,9 +10,8 @@ import { join } from "node:path";
 
 const REPO_ROOT = realpathSync(join(import.meta.dirname, ".."));
 const CLI_ENTRY = join(REPO_ROOT, "packages", "coding-agent", "src", "cli.ts");
-const SUBAGENTS_DIR = join(REPO_ROOT, "packages", "subagents");
-const SUBAGENTS_FRONTEND_DIR = join(SUBAGENTS_DIR, "frontend");
-const EXT_DIR = join(REPO_ROOT, "packages", "extensions");
+const CORE_DIR = join(REPO_ROOT, "packages", "core");
+const CORE_FRONTEND_DIR = join(CORE_DIR, "frontend");
 const DASHBOARD_URL_PATTERN = /\[lion\] dashboard at (https?:\/\/[^\s]+)/;
 const VITE_URL_PATTERN = /Local:\s+(https?:\/\/[^\s]+)/;
 
@@ -90,20 +89,17 @@ async function forwardOutput(
 console.log("[pi-dev] Starting Pi web interface");
 
 if (!devMode) {
-	// Build subagents frontend first because HttpServerTransport serves its static files.
-	runBuild(["bun", "run", "build"], SUBAGENTS_FRONTEND_DIR);
+	// Build core frontend first because HttpServerTransport serves its static files.
+	runBuild(["bun", "run", "build"], CORE_FRONTEND_DIR);
 }
 
-// Build subagents because extensions keep @local/pi-subagents external.
-runBuild(["bun", "run", "build"], SUBAGENTS_DIR);
-
-// Build extensions so external dependencies are bundled and imports resolve.
-runBuild(["bun", "run", "build"], EXT_DIR);
+// Build core package (lib + extensions)
+runBuild(["bun", "run", "build"], CORE_DIR);
 
 // --no-extensions disables global extension discovery so we only load the
-// vendored extensions from packages/extensions, avoiding conflicts with
+// vendored extensions from packages/core, avoiding conflicts with
 // user-installed global extensions (e.g. @capyup/pi-goal, @juicesharp/rpiv-todo).
-const bunArgs = ["run", CLI_ENTRY, "--no-extensions", "-e", EXT_DIR, "--web", ...args];
+const bunArgs = ["run", CLI_ENTRY, "--no-extensions", "-e", CORE_DIR, "--web", ...args];
 
 const backendPort = devMode ? await getAvailablePort() : undefined;
 const backendUrl = backendPort ? `http://127.0.0.1:${backendPort}` : undefined;
@@ -142,13 +138,13 @@ if (devMode) {
 	}
 
 	const viteProc = Bun.spawn(["bun", "run", "dev", "--", "--host", "127.0.0.1"], {
-		cwd: SUBAGENTS_FRONTEND_DIR,
+		cwd: CORE_FRONTEND_DIR,
 		stdout: "pipe",
 		stderr: "pipe",
 		stdin: "ignore",
 		env: {
 			...process.env,
-			PI_SUBAGENTS_BACKEND_URL: backendUrl,
+			PI_CORE_BACKEND_URL: backendUrl,
 		},
 	});
 	childProcesses.push(viteProc);

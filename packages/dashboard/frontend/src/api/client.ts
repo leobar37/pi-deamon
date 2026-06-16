@@ -1,6 +1,6 @@
 import { createORPCClient } from "@orpc/client";
 import { RPCLink } from "@orpc/client/fetch";
-import { subagentsContract } from "@local/pi-subagents/contract";
+import { subagentsContract } from "@local/pi-core/contract";
 import type { ContractRouterClient } from "@orpc/contract";
 
 export type SubagentsClient = ContractRouterClient<typeof subagentsContract>;

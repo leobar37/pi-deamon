@@ -3,7 +3,7 @@
 
 ## Purpose
 
-Electron-based iframe orchestrator for the Pi subagents web UI. Spawns the coding-agent backend, renders the subagents frontend inside iframes on a canvas, and tracks local canvas state (node positions and session metadata). It does not run agent sessions itself.
+Electron-based iframe orchestrator for the Pi core web UI. Spawns the coding-agent backend, renders the core frontend inside iframes on a canvas, and tracks local canvas state (node positions and session metadata). It does not run agent sessions itself.
 
 ## Architecture
 
@@ -50,7 +50,7 @@ Minimal HTTP server that serves:
 - `/api` — oRPC endpoints (`state.get`, `logs.get`)
 - `/` — static React SPA from `frontend/dist`
 
-Session management has moved to `packages/subagents`.
+Session management has moved to `packages/core`.
 
 ### Electron Backend Manager
 
@@ -75,7 +75,7 @@ Each canvas node renders an iframe pointing to:
 <backendUrl>/thread/<threadId>
 ```
 
-The subagents frontend handles its own routing, state, and event streaming inside the iframe.
+The core frontend handles its own routing, state, and event streaming inside the iframe.
 
 ## Dependencies
 
@@ -120,7 +120,7 @@ Electron Main (Node.js)
 Renderer (Chromium)
 ├── Loads: file://frontend/dist/index.html
 ├── Calls window.__PI_ELECTRON__.getBackendUrl()
-└── Renders subagents UI in iframes on the canvas
+└── Renders the core UI in iframes on the canvas
 ```
 
 ### Key Implementation Details
@@ -144,9 +144,9 @@ Renderer (Chromium)
 ## Conventions
 
 - Use `logger.info/warn/error/debug` for structured logging (not console.log).
-- Frontend uses React Flow for the canvas and iframes for the subagents UI.
+- Frontend uses React Flow for the canvas and iframes for the core UI.
 - Canvas sessions and positions are persisted to `localStorage`.
-- The dashboard does not call subagents APIs directly; all session state lives inside the iframes.
+- The dashboard does not call core APIs directly; all session state lives inside the iframes.
 
 ## Testing
 

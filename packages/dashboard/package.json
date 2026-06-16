@@ -30,12 +30,12 @@
     "electron:start": "electron electron/dist/main.cjs",
     "electron:stable": "bun run scripts/electron-stable.ts",
     "electron:dev": "bun run scripts/electron-dev.ts",
-    "electron:build": "bun run build:all && (cd ../extensions && bun run build) && (cd ../coding-agent && bun run build:binary) && bun run build:electron",
+    "electron:build": "bun run build:all && (cd ../core && bun run build) && (cd ../coding-agent && bun run build:binary) && bun run build:electron",
     "electron:pack": "bun run electron:build && electron-builder",
     "test": "vitest --run"
   },
   "dependencies": {
-    "@local/pi-subagents": "workspace:*",
+    "@local/pi-core": "workspace:*",
     "@orpc/client": "^1.14.3",
     "@orpc/contract": "^1.14.3",
     "@orpc/server": "^1.14.3",
@@ -73,7 +73,7 @@
         "to": "pi"
       },
       {
-        "from": "../extensions/dist",
+        "from": "../core/dist",
         "to": "extensions"
       }
     ],

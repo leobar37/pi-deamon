@@ -16,7 +16,7 @@ El loader de extensiones de Pi (`packages/coding-agent/src/core/extensions/loade
 - **Descubrimiento de archivos `.js`/`.ts` en directorios**
 - **Carga de múltiples extensiones desde un solo `-e` path**
 
-Ejemplo en el repo: `packages/extensions/` carga `auth.js`, `deploy.js`, etc. desde `./dist/extensions`.
+Ejemplo en el repo: `packages/core/src/extensions/` carga `auth.js`, `deploy.js`, etc. desde `./dist/extensions`.
 
 ---
 
@@ -267,7 +267,7 @@ O desde cualquier lugar si está en `PI_PACKAGE_DIR` o el path es absoluto.
 
 1. **Script de build**: `build.ts` listo para copiar y usar
 2. **Template de paquete**: estructura de carpetas + `package.json` ejemplo
-3. **Ejemplo funcional**: `packages/coding-agent/examples/extensions/multi-toolkit/` con 3 extensiones y `zod`
+3. **Ejemplo funcional**: `packages/core/src/coding-agent/examples/extensions/multi-toolkit/` con 3 extensiones y `zod`
 4. **Documentación**: este plan como referencia
 
 ---

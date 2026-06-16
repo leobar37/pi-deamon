@@ -6,7 +6,7 @@ Crear un estándar y una herramienta para que los usuarios de Pi agreguen **tool
 
 **Restricción**: Sin modificar el runtime del agente. El loader existente ya soporta esto.
 
-**Nota sobre nomenclatura**: usamos "toolkit" para diferenciar del paquete interno `packages/extensions`. Un toolkit es un paquete de extensiones del usuario.
+**Nota sobre nomenclatura**: usamos "toolkit" para diferenciar del paquete interno `packages/core/src/extensions`. Un toolkit es un paquete de extensiones del usuario.
 
 ---
 
@@ -18,13 +18,13 @@ El loader de extensiones de Pi (`packages/coding-agent/src/core/extensions/loade
 - **Descubrimiento de archivos `.js`/`.ts` en directorios**
 - **Carga de múltiples extensiones desde un solo `-e` path**
 
-Ejemplo real en el repo: `packages/extensions/` carga múltiples `.js` desde `./dist`.
+Ejemplo real en el repo: `packages/core/src/extensions/` carga múltiples `.js` desde `./dist`.
 
 ---
 
 ## Problema
 
-Hoy no hay un **script de build oficial** para crear toolkits. El usuario debe copiar manualmente el `build.ts` de `packages/extensions` y adaptarlo.
+Hoy no hay un **script de build oficial** para crear toolkits. El usuario debe copiar manualmente el `build.ts` de `packages/core` y adaptarlo.
 
 ---
 

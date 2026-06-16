@@ -35,8 +35,8 @@
 
 			"@earendil-works/pi-web-ui": ["./packages/web-ui/src/index.ts"],
 			"@earendil-works/pi-web-ui/*": ["./packages/web-ui/src/*"],
-			"@local/pi-subagents": ["./packages/subagents/src/index.ts"],
-			"@local/pi-subagents/*": ["./packages/subagents/src/*"],
+			"@local/pi-core": ["./packages/core/src/index.ts"],
+			"@local/pi-core/*": ["./packages/core/src/*"],
 			"@local/pi-dashboard": ["./packages/dashboard/src/index.ts"],
 			"@local/pi-dashboard/*": ["./packages/dashboard/src/*"],
 			"@local/pi-logger": ["./packages/logger/src/index.ts"],

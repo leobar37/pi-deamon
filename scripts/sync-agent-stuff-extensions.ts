@@ -1,7 +1,7 @@
 #!/usr/bin/env bun
 /**
  * Clone mitsuhiko/agent-stuff into a temp directory, copy its extensions
- * into packages/extensions/src, then remove the temp clone.
+ * into packages/core/src/extensions, then remove the temp clone.
  */
 
 import { mkdtempSync, rmSync, existsSync, mkdirSync, cpSync } from "node:fs";
@@ -9,7 +9,7 @@ import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 
 const REPO_URL = "https://github.com/mitsuhiko/agent-stuff.git";
-const DEST_DIR = resolve(import.meta.dir, "..", "packages", "extensions", "src");
+const DEST_DIR = resolve(import.meta.dir, "..", "packages", "core", "src", "extensions");
 
 function run(cmd: string, args: string[], cwd?: string) {
 	const proc = Bun.spawnSync([cmd, ...args], { cwd, stdout: "inherit", stderr: "inherit" });
