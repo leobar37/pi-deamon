@@ -429,6 +429,118 @@ export const AgentMessageSchema = z.union([
 ]);
 
 // =============================================================================
+// Session Entries (for session hydration endpoint)
+// =============================================================================
+
+export const SessionEntrySchema = z.union([
+	z.object({
+		type: z.literal("session"),
+		version: z.number(),
+		id: z.string(),
+		timestamp: z.string(),
+		cwd: z.string(),
+		parentSession: z.string().optional(),
+	}),
+	z.object({
+		type: z.literal("message"),
+		id: z.string(),
+		parentId: z.string().nullable(),
+		timestamp: z.string(),
+		message: AgentMessageSchema,
+	}),
+	z.object({
+		type: z.literal("model_change"),
+		id: z.string(),
+		parentId: z.string(),
+		timestamp: z.string(),
+		provider: z.string(),
+		modelId: z.string(),
+	}),
+	z.object({
+		type: z.literal("thinking_level_change"),
+		id: z.string(),
+		parentId: z.string(),
+		timestamp: z.string(),
+		thinkingLevel: z.string(),
+	}),
+	z.object({
+		type: z.literal("compaction"),
+		id: z.string(),
+		parentId: z.string(),
+		timestamp: z.string(),
+		summary: z.string(),
+		firstKeptEntryId: z.string(),
+		tokensBefore: z.number(),
+		details: z.record(z.unknown()).optional(),
+	}),
+	z.object({
+		type: z.literal("branch_summary"),
+		id: z.string(),
+		parentId: z.string(),
+		timestamp: z.string(),
+		fromId: z.string(),
+		summary: z.string(),
+		details: z.record(z.unknown()).optional(),
+	}),
+	z.object({
+		type: z.literal("custom"),
+		id: z.string(),
+		parentId: z.string(),
+		timestamp: z.string(),
+		customType: z.string(),
+		data: z.record(z.unknown()),
+	}),
+	z.object({
+		type: z.literal("custom_message"),
+		id: z.string(),
+		parentId: z.string(),
+		timestamp: z.string(),
+		customType: z.string(),
+		content: z.string(),
+		display: z.boolean(),
+		details: z.record(z.unknown()).optional(),
+	}),
+	z.object({
+		type: z.literal("label"),
+		id: z.string(),
+		parentId: z.string(),
+		timestamp: z.string(),
+		targetId: z.string(),
+		label: z.string(),
+	}),
+	z.object({
+		type: z.literal("session_info"),
+		id: z.string(),
+		parentId: z.string(),
+		timestamp: z.string(),
+		name: z.string(),
+	}),
+]);
+
+export const SessionResponseSchema = z.object({
+	sessionId: z.string(),
+	version: z.number(),
+	entries: z.array(SessionEntrySchema),
+	leafId: z.string().nullable(),
+	messages: z.array(AgentMessageSchema),
+	settings: z.object({
+		model: z.object({
+			provider: z.string().optional(),
+			modelId: z.string().optional(),
+		}),
+		thinkingLevel: z.string().optional(),
+	}),
+	compactions: z.array(
+		z.object({
+			entryId: z.string(),
+			firstKeptEntryId: z.string(),
+			summary: z.string(),
+			tokensBefore: z.number(),
+		}),
+	),
+});
+
+// =============================================================================
 // Events
 // =============================================================================
 

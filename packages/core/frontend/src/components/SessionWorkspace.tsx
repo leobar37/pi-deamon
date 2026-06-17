@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { PanelRight, PanelRightClose } from "lucide-react";
 import type { SubAgentInstanceState } from "../types.ts";
 import { useAgent } from "../hooks/use-agent.ts";
-import { useAgentMessages } from "../hooks/use-agent-messages.ts";
+import { useAgentSession } from "../hooks/use-agent-session.ts";
 import { useAgentRun } from "../hooks/use-agent-run.ts";
 import { useLionState } from "../hooks/use-lion-state.ts";
 import { useSseEvents } from "../hooks/use-sse.ts";
@@ -28,7 +28,7 @@ export interface SessionWorkspaceProps {
 
 export function SessionWorkspace({ threadId, variant, onBack }: SessionWorkspaceProps) {
 	const { data: fetchedAgent } = useAgent(threadId);
-	const { data: fetchedMessages } = useAgentMessages(threadId);
+	const { data: fetchedSession } = useAgentSession(threadId);
 	const { data: fetchedRun, isLoading: isRunLoading } = useAgentRun(threadId);
 	const { data: lionState } = useLionState();
 	const embedded = variant !== "full";
@@ -45,10 +45,10 @@ export function SessionWorkspace({ threadId, variant, onBack }: SessionWorkspace
 	useEffect(() => {
 		if (todoMockMode) {
 			setMessages(threadId, MOCK_TODO_MESSAGES);
-		} else if (fetchedMessages) {
-			setMessages(threadId, fetchedMessages);
+		} else if (fetchedSession?.messages) {
+			setMessages(threadId, fetchedSession.messages);
 		}
-	}, [fetchedMessages, threadId, setMessages, todoMockMode]);
+	}, [fetchedSession, threadId, setMessages, todoMockMode]);
 
 	const displayAgent: SubAgentInstanceState | undefined = storeAgent ?? fetchedAgent ?? undefined;
 	const parentThread = displayAgent?.parentThreadId

@@ -14,6 +14,7 @@ import {
 	LionChecklistSnapshotSchema,
 	LionSetStrategyInputSchema,
 	LionSetStrategyResultSchema,
+	SessionResponseSchema,
 	SubAgentEventSchema,
 	SubAgentRunRecordSchema,
 	TaskBlockInputSchema,
@@ -47,12 +48,7 @@ export const subagentsContract = oc.router({
 
 		get: oc.input(ThreadIdInputSchema).output(DashboardThreadStateSchema),
 
-		session: oc.input(ThreadIdInputSchema).output(
-			z.object({
-				sessionId: z.string(),
-				messages: z.array(AgentMessageSchema),
-			}),
-		),
+		session: oc.input(ThreadIdInputSchema).output(SessionResponseSchema),
 
 		messages: oc.input(ThreadIdInputSchema).output(z.array(AgentMessageSchema)),
 

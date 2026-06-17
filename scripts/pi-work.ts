@@ -11,18 +11,18 @@ import { join } from "node:path";
 
 const REPO_ROOT = realpathSync(join(import.meta.dirname, ".."));
 const CLI_ENTRY = join(REPO_ROOT, "packages", "coding-agent", "src", "cli.ts");
-const SUBAGENTS_DIR = join(REPO_ROOT, "packages", "subagents");
-const SUBAGENTS_ENTRY = join(SUBAGENTS_DIR, "src", "index.ts");
-const SUBAGENTS_OUT_DIR = join(SUBAGENTS_DIR, "dist");
-const GOAL_EXT_ENTRY = join(REPO_ROOT, "packages", "extensions", "src", "extensions", "goal-v2", "index.ts");
-const LION_EXT_ENTRY = join(REPO_ROOT, "packages", "extensions", "src", "extensions", "lion", "index.ts");
+const CORE_DIR = join(REPO_ROOT, "packages", "core");
+const CORE_ENTRY = join(CORE_DIR, "src", "index.ts");
+const CORE_OUT_DIR = join(CORE_DIR, "dist");
+const GOAL_EXT_ENTRY = join(REPO_ROOT, "packages", "core", "src", "extensions", "goal-v2", "index.ts");
+const LION_EXT_ENTRY = join(REPO_ROOT, "packages", "core", "src", "extensions", "lion", "index.ts");
 
 const args = process.argv.slice(2);
 
-async function buildSubagentsBackend() {
+async function buildCoreBackend() {
 	const result = await Bun.build({
-		entrypoints: [SUBAGENTS_ENTRY],
-		outdir: SUBAGENTS_OUT_DIR,
+		entrypoints: [CORE_ENTRY],
+		outdir: CORE_OUT_DIR,
 		target: "bun",
 		format: "esm",
 		external: [
@@ -43,17 +43,17 @@ async function buildSubagentsBackend() {
 	});
 
 	if (!result.success) {
-		console.error("Subagents backend build failed:", result.logs);
+		console.error("Core backend build failed:", result.logs);
 		process.exit(1);
 	}
 
-	console.log(`Built → ${join(SUBAGENTS_OUT_DIR, "index.js")}`);
+	console.log(`Built → ${join(CORE_OUT_DIR, "index.js")}`);
 }
 
 console.log("[pi-work] Starting Pi TUI (local packages, global extensions disabled)");
 
-// Build only the subagents backend (no frontend, since TUI mode doesn't need it).
-await buildSubagentsBackend();
+// Build only the core backend (no frontend, since TUI mode doesn't need it).
+await buildCoreBackend();
 
 // Load only the local goal-v2 and lion (subagent) extensions explicitly (-e),
 // and disable global extension discovery (--no-extensions) to avoid tool name

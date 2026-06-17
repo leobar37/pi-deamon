@@ -1,5 +1,6 @@
 import { readdir } from "node:fs/promises";
 import { join } from "node:path";
+import type { SessionEntry } from "@earendil-works/pi-coding-agent";
 import { getDefaultSessionDir, SessionManager } from "@earendil-works/pi-coding-agent";
 import { implement, ORPCError } from "@orpc/server";
 import type { LionStrategyName } from "../lion/types.js";
@@ -745,20 +746,44 @@ export function createSubagentsRouter(ctx: SubagentsApiContext) {
 
 			session: impl.threads.session.handler(async ({ input }) => {
 				const threadId = input.threadId;
-				const mainMessages = ctx.mainSession?.getMessages(threadId);
 				const main = ctx.mainSession?.getThread();
-				if (mainMessages && main?.instanceId === threadId) {
-					return {
-						sessionId: main.sessionId!,
-						messages: mainMessages as SubagentsOutputs["threads"]["messages"],
-					};
+				if (main?.instanceId === threadId) {
+					const mainMessages = ctx.mainSession?.getMessages(threadId);
+					if (mainMessages) {
+						return {
+							sessionId: main.sessionId!,
+							version: 3,
+							entries: [],
+							leafId: null,
+							messages: mainMessages as SubagentsOutputs["threads"]["messages"],
+							settings: {
+								model: {
+									provider: main.modelProvider ?? "",
+									modelId: main.modelId ?? "",
+								},
+								thinkingLevel: "medium",
+							},
+							compactions: [],
+						};
+					}
 				}
 
 				const standalone = ctx.standaloneSessions.get(threadId);
 				if (standalone) {
 					return {
 						sessionId: standalone.sessionId,
+						version: 3,
+						entries: [],
+						leafId: null,
 						messages: standalone.session.messages as SubagentsOutputs["threads"]["messages"],
+						settings: {
+							model: {
+								provider: standalone.session.model?.provider ?? "",
+								modelId: standalone.session.model?.id ?? "",
+							},
+							thinkingLevel: standalone.session.thinkingLevel ?? "medium",
+						},
+						compactions: [],
 					};
 				}
 
@@ -772,7 +797,18 @@ export function createSubagentsRouter(ctx: SubagentsApiContext) {
 					const messages = instance.getMessages();
 					return {
 						sessionId: rpcState.sessionId,
+						version: 3,
+						entries: [],
+						leafId: null,
 						messages: messages as SubagentsOutputs["threads"]["messages"],
+						settings: {
+							model: {
+								provider: rpcState.model?.provider ?? "",
+								modelId: rpcState.model?.id ?? "",
+							},
+							thinkingLevel: rpcState.thinkingLevel ?? "medium",
+						},
+						compactions: [],
 					};
 				}
 
@@ -781,9 +817,28 @@ export function createSubagentsRouter(ctx: SubagentsApiContext) {
 					const sm = await tryOpenSession(threadId, virtual, ctx.runStore);
 					if (sm) {
 						const sessionContext = sm.buildSessionContext();
+						const entries = sm.getEntries();
+						const leafId = sm.getLeafId();
+						const header = sm.getHeader();
+						const compactions = entries.filter(
+							(e): e is Extract<SessionEntry, { type: "compaction" }> => e.type === "compaction",
+						);
 						return {
 							sessionId: sm.getSessionId(),
+							version: header?.version ?? 3,
+							entries: entries as unknown as SubagentsOutputs["threads"]["session"]["entries"],
+							leafId,
 							messages: sessionContext.messages as SubagentsOutputs["threads"]["messages"],
+							settings: {
+								model: sessionContext.model ?? { provider: "", modelId: "" },
+								thinkingLevel: sessionContext.thinkingLevel,
+							},
+							compactions: compactions.map((c) => ({
+								entryId: c.id,
+								firstKeptEntryId: c.firstKeptEntryId,
+								summary: c.summary,
+								tokensBefore: c.tokensBefore,
+							})),
 						};
 					}
 				}

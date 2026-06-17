@@ -9,6 +9,7 @@ import { dashboardDebugLedger } from "../dev/debug-ledger.ts";
 import { queryClient } from "../lib/query-client.ts";
 import { invalidateTaskQueries } from "../lib/task-query-cache.ts";
 import { setThreadMessagesCache } from "../lib/thread-message-cache.ts";
+import { api } from "../api/client.ts";
 
 function isDev(): boolean {
 	return (import.meta as unknown as { env?: { DEV?: boolean } }).env?.DEV ?? false;
@@ -17,6 +18,7 @@ function isDev(): boolean {
 export function useSseEvents(instanceId?: string, enabled = true) {
 	const storeRef = useRef(useSubAgentStore.getState());
 	const abortRef = useRef<AbortController | null>(null);
+	const hydratedRef = useRef(false);
 
 	useEffect(() => {
 		if (!enabled) return;
@@ -114,6 +116,26 @@ export function useSseEvents(instanceId?: string, enabled = true) {
 			return true;
 		};
 
+		const hydrateFromSession = async () => {
+			if (!instanceId || hydratedRef.current) return;
+			try {
+				const data = await api.threads.session.call({ threadId: instanceId });
+				if (cancelled) return;
+				const messages = convertAgentMessages(
+					instanceId,
+					data.messages as Array<Record<string, unknown>>,
+				);
+				useSessionMessagesStore.getState().setMessages(instanceId, messages);
+				syncMessageQuery(instanceId);
+				hydratedRef.current = true;
+				dashboardDebugLedger.log("info", "sse", "hydrated", { count: messages.length }, instanceId);
+			} catch (err) {
+				if (!cancelled) {
+					console.warn("[SSE] Failed to hydrate from session:", err);
+				}
+			}
+		};
+
 		const connect = () => {
 			if (cancelled) return;
 			if (reconnectTimer) {
@@ -124,6 +146,9 @@ export function useSseEvents(instanceId?: string, enabled = true) {
 			// Try mock emitter first in dev mode
 			startMockEmitter().then((usedMock) => {
 				if (usedMock) return;
+
+				// Hydrate from persisted session before opening SSE
+				void hydrateFromSession();
 
 				// Fall back to real SSE fetch -- filter by instanceId if provided
 				const url = new URL("/events", window.location.origin);
