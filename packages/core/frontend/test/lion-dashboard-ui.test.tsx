@@ -42,6 +42,16 @@ const mainAgent: SubAgentInstanceState = {
 	sessionId: "session-1",
 };
 
+const standaloneAgent: SubAgentInstanceState = {
+	...baseAgent,
+	instanceId: "standalone-session-1",
+	taskId: "standalone",
+	definitionName: "standalone",
+	kind: "standalone",
+	description: "Session 1",
+	sessionId: "standalone-session-1",
+};
+
 const runningAgent: SubAgentInstanceState = {
 	...baseAgent,
 	instanceId: "subagent-running",
@@ -126,6 +136,23 @@ const sidebarTasks: TaskRecord[] = [
 		updatedAt: "2026-06-12T00:00:00.000Z",
 		revision: 1,
 	},
+	{
+		id: "cafebabe",
+		title: "Ship task sidebar",
+		status: "completed",
+		createdAt: "2026-06-12T00:00:00.000Z",
+		updatedAt: "2026-06-12T00:00:00.000Z",
+		completedAt: "2026-06-12T00:00:00.000Z",
+		revision: 1,
+	},
+	{
+		id: "badc0de",
+		title: "Investigate blocker",
+		status: "blocked",
+		createdAt: "2026-06-12T00:00:00.000Z",
+		updatedAt: "2026-06-12T00:00:00.000Z",
+		revision: 1,
+	},
 ];
 
 function createLionState(overrides: Partial<LionDashboardState>): LionDashboardState {
@@ -178,15 +205,50 @@ describe("Lion dashboard UI", () => {
 		expect(html).not.toContain("paused");
 	});
 
-	it("renders task groups in the main session sidebar", () => {
+	it("renders editable task groups in the main session sidebar", () => {
 		const html = renderWithQueryClient(<TaskSidebarSection sessionId="session-1" tasksOverride={sidebarTasks} />);
 
 		expect(html).toContain("Tasks");
 		expect(html).toContain("Active");
 		expect(html).toContain("Pending");
+		expect(html).toContain("Past");
 		expect(html).toContain("Wire task sidebar");
 		expect(html).toContain("Keep context compact.");
 		expect(html).toContain("Review task store");
+		expect(html).toContain("Ship task sidebar");
+		expect(html).toContain("Investigate blocker");
+		expect(html).not.toContain("Blocked");
+		expect(html).not.toContain("Done");
+	});
+
+	it("renders read-only tasks as a simple checklist", () => {
+		const html = renderWithQueryClient(<TaskSidebarSection sessionId="session-1" tasksOverride={sidebarTasks} readOnly />);
+
+		expect(html).toContain("Tasks");
+		expect(html).toContain("Task checklist");
+		expect(html).toContain("Wire task sidebar");
+		expect(html).toContain("Review task store");
+		expect(html).toContain("Investigate blocker");
+		expect(html).toContain("Ship task sidebar");
+		expect(html).toContain("Open task");
+		expect(html).toContain("Completed task");
+		expect(html).toContain("line-through");
+		expect(html).not.toContain("rounded border border-border-subtle bg-bg");
+		expect(html).not.toContain("rounded border border-border-subtle bg-bg-elevated");
+		expect(html).not.toContain("Active");
+		expect(html).not.toContain("Pending");
+		expect(html).not.toContain("Past");
+		expect(html).not.toContain("Blocked");
+		expect(html).not.toContain("Done");
+		expect(html).not.toContain("Keep context compact.");
+		expect(html).not.toContain("placeholder=\"Task\"");
+		expect(html).not.toContain(">Add</button>");
+	});
+
+	it("hides the read-only task checklist when there are no tasks", () => {
+		const html = renderWithQueryClient(<TaskSidebarSection sessionId="session-1" tasksOverride={[]} readOnly />);
+
+		expect(html).toBe("");
 	});
 
 	it("shows run input and output for subagents", () => {
@@ -275,14 +337,28 @@ describe("Lion dashboard UI", () => {
 		expect(html).toContain("Session ID");
 	});
 
-	it("renders canvas workspace controls for subagents and run details", () => {
+	it("renders canvas workspace without duplicated session chrome", () => {
 		useSubAgentStore.getState().setAgents([mainAgent, runningAgent]);
 		const html = renderWithQueryClient(<SessionWorkspace threadId={mainAgent.instanceId} variant="canvas" />);
 
 		expect(html).toContain("No messages yet");
 		expect(html).toContain("Message thread");
 		expect(html).toContain("Open subagent widget");
-		expect(html).toContain("Details");
+		expect(html).not.toContain("Tasks");
+		expect(html).not.toContain("No tasks yet");
+		expect(html).not.toContain("placeholder=\"Task\"");
+		expect(html).not.toContain("placeholder=\"Context\"");
+		expect(html).not.toContain("Create task");
+		expect(html).not.toContain(">Add</button>");
+		expect(html).not.toContain("Active");
+		expect(html).not.toContain("Pending");
+		expect(html).not.toContain("Past");
+		expect(html).not.toContain("Blocked");
+		expect(html).not.toContain("Done");
+		expect(html).not.toContain("complete</span>");
+		expect(html).not.toContain("0<!-- -->%");
+		expect(html).not.toContain("Details");
+		expect(html).not.toContain("border-b border-border-subtle bg-bg-elevated px-4 py-1.5 text-xs text-text-tertiary");
 		expect(html).not.toContain("CanvasSessionPreview");
 	});
 
@@ -291,7 +367,43 @@ describe("Lion dashboard UI", () => {
 		const html = renderWithQueryClient(<SessionWorkspace threadId={mainAgent.instanceId} variant="canvas" />);
 
 		expect(html).not.toContain("Open subagent widget");
-		expect(html).toContain("Details");
+		expect(html).not.toContain("Tasks");
+		expect(html).not.toContain("No tasks yet");
+		expect(html).not.toContain("placeholder=\"Task\"");
+		expect(html).not.toContain("placeholder=\"Context\"");
+		expect(html).not.toContain("Create task");
+		expect(html).not.toContain(">Add</button>");
+		expect(html).not.toContain("Active");
+		expect(html).not.toContain("Pending");
+		expect(html).not.toContain("Past");
+		expect(html).not.toContain("Blocked");
+		expect(html).not.toContain("Done");
+		expect(html).not.toContain("complete</span>");
+		expect(html).not.toContain("0<!-- -->%");
+		expect(html).not.toContain("Details");
+		expect(html).not.toContain("border-b border-border-subtle bg-bg-elevated px-4 py-1.5 text-xs text-text-tertiary");
+	});
+
+	it("renders task UI for standalone canvas sessions", () => {
+		useSubAgentStore.getState().setAgents([standaloneAgent]);
+		const html = renderWithQueryClient(<SessionWorkspace threadId={standaloneAgent.instanceId} variant="canvas" />);
+
+		expect(html).toContain("No messages yet");
+		expect(html).toContain("Message thread");
+		expect(html).not.toContain("Tasks");
+		expect(html).not.toContain("No tasks yet");
+		expect(html).not.toContain("placeholder=\"Task\"");
+		expect(html).not.toContain("placeholder=\"Context\"");
+		expect(html).not.toContain("Create task");
+		expect(html).not.toContain(">Add</button>");
+		expect(html).not.toContain("Active");
+		expect(html).not.toContain("Pending");
+		expect(html).not.toContain("Past");
+		expect(html).not.toContain("Blocked");
+		expect(html).not.toContain("Done");
+		expect(html).not.toContain("complete</span>");
+		expect(html).not.toContain("0<!-- -->%");
+		expect(html).not.toContain("Details");
 	});
 
 	it("marks the active subagent in the persistent list", () => {

@@ -67,11 +67,12 @@ export function AgentRunSidebar({
 	const input = run?.prompt ?? "";
 	const systemPrompt = run?.systemPrompt ?? "";
 	const output = run?.summary ?? run?.error ?? "";
-	const isMain = agent?.kind === "main";
+	const isMain = isPrimarySessionThread(agent);
 	const todoMockMode = isTodoMockMode();
 	const isLionActive = !todoMockMode && isLionUiActive(lionState);
 	const showStatus = !isMain;
 	const isPlanStrategy = lionState?.strategy === "plan";
+	const taskReadOnly = isLionActive || presentation === "drawer";
 	const { data: planChecklist } = useLionChecklist("plan", activePlanReference, {
 		enabled: isMain && isLionActive && isPlanStrategy && Boolean(activePlanReference),
 		refetchInterval: 2000,
@@ -92,6 +93,7 @@ export function AgentRunSidebar({
 			systemPrompt={systemPrompt}
 			output={output}
 			showClose={presentation === "drawer"}
+			taskReadOnly={taskReadOnly}
 			onClose={onClose}
 		/>
 	);
@@ -157,6 +159,7 @@ function AgentRunSidebarContent({
 	systemPrompt,
 	output,
 	showClose,
+	taskReadOnly,
 	onClose,
 }: {
 	agent?: SubAgentInstanceState;
@@ -171,6 +174,7 @@ function AgentRunSidebarContent({
 	systemPrompt: string;
 	output: string;
 	showClose: boolean;
+	taskReadOnly: boolean;
 	onClose?: () => void;
 }) {
 	return (
@@ -238,7 +242,7 @@ function AgentRunSidebarContent({
 							</section>
 						) : null}
 
-						<TaskSidebarSection sessionId={agent?.sessionId} compact={compactTasks} />
+						<TaskSidebarSection sessionId={agent?.sessionId} compact={compactTasks} readOnly={taskReadOnly} />
 
 						{compactTasks ? null : <SessionInfoWidget agent={agent} />}
 					</>
@@ -369,6 +373,10 @@ function RunProgressCard({ progress }: { progress: RunProgress }) {
 function isTodoMockMode(): boolean {
 	if (typeof window === "undefined") return false;
 	return new URLSearchParams(window.location.search).get("mock") === "todos";
+}
+
+function isPrimarySessionThread(agent?: SubAgentInstanceState): boolean {
+	return agent?.kind === "main" || agent?.kind === "standalone";
 }
 
 function formatDuration(value: number): string {

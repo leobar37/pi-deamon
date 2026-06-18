@@ -209,7 +209,7 @@ export const MOCK_TODO_MESSAGES: ChatMessage[] = [
 			},
 			{
 				type: "text",
-				text: "The local todos are grouped in the Tasks panel by Active, Pending, Blocked, and Done. These are TaskRecord items from the todos extension.",
+				text: "The local todos render as a simple checklist in the Tasks panel. These are TaskRecord items from the todos extension.",
 			},
 		],
 		timestamp: now.getTime() - 7_000,

@@ -1,4 +1,4 @@
-import { Ban, Check, Circle, Play, Plus, RotateCcw, Trash2 } from "lucide-react";
+import { Ban, Check, Circle, Play, Plus, Trash2 } from "lucide-react";
 import { useMemo, useState } from "react";
 import type { ReactNode } from "react";
 import { useQueryClient, type QueryClient } from "@tanstack/react-query";
@@ -18,9 +18,11 @@ interface TaskSidebarSectionProps {
 	sessionId?: string;
 	tasksOverride?: TaskRecord[];
 	compact?: boolean;
+	/** When true, hides the creation form because tasks are managed by the agent/plan */
+	readOnly?: boolean;
 }
 
-export function TaskSidebarSection({ sessionId, tasksOverride, compact = false }: TaskSidebarSectionProps) {
+export function TaskSidebarSection({ sessionId, tasksOverride, compact = false, readOnly = false }: TaskSidebarSectionProps) {
 	const queryClient = useQueryClient();
 	const { data, isLoading } = useTasks({ enabled: tasksOverride === undefined, refetchInterval: 15000 });
 	const createTask = useCreateTask();
@@ -33,10 +35,12 @@ export function TaskSidebarSection({ sessionId, tasksOverride, compact = false }
 	const [error, setError] = useState<string | null>(null);
 	const tasks = tasksOverride ?? data ?? [];
 	const grouped = useMemo(() => groupTasks(tasks), [tasks]);
-	const progress = useMemo(() => getTaskProgress(tasks), [tasks]);
+	const readOnlyTasks = useMemo(() => sortTasks(tasks.filter((task) => task.status !== "deleted")), [tasks]);
 	const isMutating =
 		createTask.isPending || updateTask.isPending || completeTask.isPending || blockTask.isPending || deleteTask.isPending;
-	const canMutate = tasksOverride === undefined;
+	const canMutate = tasksOverride === undefined && !readOnly;
+
+	if (readOnly && readOnlyTasks.length === 0) return null;
 
 	function syncTask(task: TaskRecord): void {
 		setTaskInCache(queryClient, task);
@@ -68,189 +72,192 @@ export function TaskSidebarSection({ sessionId, tasksOverride, compact = false }
 		);
 	};
 
+	const sectionClass = readOnly
+		? `flex min-h-0 flex-col ${compact ? "px-1 py-1" : "px-2 py-1.5 sm:px-2.5 sm:py-2"}`
+		: `flex min-h-0 flex-col rounded border border-border-subtle bg-bg ${compact ? "px-2 py-2" : "px-2.5 py-2.5 sm:px-3 sm:py-3"}`;
+
 	return (
-		<section className={`flex min-h-0 flex-col rounded border border-border-subtle bg-bg ${compact ? "px-2 py-2" : "px-2.5 py-2.5 sm:px-3 sm:py-3"}`}>
+		<section className={sectionClass}>
 			<div className={`flex items-center justify-between gap-3 ${compact ? "mb-1.5" : "mb-2 sm:mb-3"}`}>
 				<h2 className={compact ? "text-[11px] font-semibold uppercase text-text-tertiary" : "text-xs font-semibold uppercase tracking-wide text-text-tertiary"}>Tasks</h2>
-				<div className="text-[11px] text-text-muted">{tasks.length}</div>
 			</div>
 
-			<div className="space-y-1.5 sm:space-y-2">
-				<input
-					value={title}
-					onChange={(event) => setTitle(event.target.value)}
-					onKeyDown={(event) => {
-						if (event.key === "Enter" && !event.shiftKey) {
-							event.preventDefault();
-							submitTask();
-						}
-					}}
-					placeholder="Task"
-					className="w-full rounded border border-border-subtle bg-bg-elevated px-2 py-1.5 text-xs text-text-primary outline-none transition placeholder:text-text-muted focus:border-border-hover"
-				/>
-				<textarea
-					value={notes}
-					onChange={(event) => setNotes(event.target.value)}
-					placeholder="Context"
-					rows={compact ? 1 : 2}
-					className="max-h-24 min-h-10 w-full resize-y rounded border border-border-subtle bg-bg-elevated px-2 py-1.5 text-xs text-text-primary outline-none transition placeholder:text-text-muted focus:border-border-hover"
-				/>
-				<button
-					type="button"
-					onClick={submitTask}
-					disabled={!title.trim() || isMutating || !canMutate}
-					title="Create task"
-					className="inline-flex h-7 w-full items-center justify-center gap-1.5 rounded border border-border-subtle bg-bg-surface px-2 text-xs font-medium text-text-primary transition hover:border-border-hover disabled:cursor-not-allowed disabled:opacity-50"
-				>
-					<Plus className="h-3.5 w-3.5" />
-					Add
-				</button>
-				{error ? (
-					<div className="rounded border border-error/30 bg-error/10 px-2 py-1.5 text-[11px] leading-snug text-error">
-						{error}
-					</div>
-				) : null}
-			</div>
-
-			<div className={compact ? "mt-2" : "mt-3"}>
-				<div className="flex items-center justify-between gap-2 text-[11px] text-text-muted">
-					<span>
-						{progress.completed}/{progress.total} complete
-					</span>
-					<span>{progress.percent}%</span>
+			{!readOnly ? (
+				<div className="space-y-1.5 sm:space-y-2">
+					<input
+						value={title}
+						onChange={(event) => setTitle(event.target.value)}
+						onKeyDown={(event) => {
+							if (event.key === "Enter" && !event.shiftKey) {
+								event.preventDefault();
+								submitTask();
+							}
+						}}
+						placeholder="Task"
+						className="w-full rounded border border-border-subtle bg-bg-elevated px-2 py-1.5 text-xs text-text-primary outline-none transition placeholder:text-text-muted focus:border-border-hover"
+					/>
+					<textarea
+						value={notes}
+						onChange={(event) => setNotes(event.target.value)}
+						placeholder="Context"
+						rows={compact ? 1 : 2}
+						className="max-h-24 min-h-10 w-full resize-y rounded border border-border-subtle bg-bg-elevated px-2 py-1.5 text-xs text-text-primary outline-none transition placeholder:text-text-muted focus:border-border-hover"
+					/>
+					<button
+						type="button"
+						onClick={submitTask}
+						disabled={!title.trim() || isMutating || !canMutate}
+						title="Create task"
+						className="inline-flex h-7 w-full items-center justify-center gap-1.5 rounded border border-border-subtle bg-bg-surface px-2 text-xs font-medium text-text-primary transition hover:border-border-hover disabled:cursor-not-allowed disabled:opacity-50"
+					>
+						<Plus className="h-3.5 w-3.5" />
+						Add
+					</button>
+					{error ? (
+						<div className="rounded border border-error/30 bg-error/10 px-2 py-1.5 text-[11px] leading-snug text-error">
+							{error}
+						</div>
+					) : null}
 				</div>
-				<div className="mt-1 h-1.5 overflow-hidden rounded bg-bg-surface">
-					<div className="h-full bg-success transition-[width]" style={{ width: `${progress.percent}%` }} />
-				</div>
-			</div>
+			) : null}
 
-			<div className={compact ? "mt-2 min-h-0 space-y-1.5 overflow-y-auto pr-1" : "mt-3 min-h-0 space-y-2.5 overflow-y-auto pr-1 sm:mt-4 sm:space-y-3"}>
+			<div className={`${!readOnly ? compact ? "mt-2" : "mt-3" : ""} min-h-0 space-y-1.5 overflow-y-auto pr-1`}>
 				{isLoading && tasks.length === 0 ? <div className="text-xs text-text-muted">Loading tasks...</div> : null}
-				<TaskGroup
-					title="Active"
-					tasks={grouped.active}
-					empty="No active task"
-					compact={compact}
-					actions={(task) => (
-						<>
-							<TaskIconButton
-								title="Complete"
-								compact={compact}
-								disabled={isMutating}
-								onClick={() => {
-									setError(null);
-									completeTask.mutate(
-										{ id: task.id, actorSessionId: sessionId, expectedRevision: task.revision },
-										{ onSuccess: (result) => syncTask(result.task), onError: reportError },
-									);
-								}}
-							>
-								<Check className="h-3.5 w-3.5" />
-							</TaskIconButton>
-							<TaskIconButton
-								title="Block"
-								compact={compact}
-								disabled={isMutating}
-								onClick={() => {
-									setError(null);
-									blockTaskFromPrompt((input) => blockTask.mutate(input, { onSuccess: (result) => syncTask(result.task), onError: reportError }), task, sessionId);
-								}}
-							>
-								<Ban className="h-3.5 w-3.5" />
-							</TaskIconButton>
-						</>
-					)}
-				/>
-				<TaskGroup
-					title="Pending"
-					tasks={grouped.pending}
-					empty="No pending task"
-					compact={compact}
-					actions={(task) => (
-						<>
-							<TaskIconButton
-								title="Start"
-								compact={compact}
-								disabled={isMutating || !sessionId}
-								onClick={() => {
-									setError(null);
-									updateTask.mutate({
-										id: task.id,
-										status: "in_progress",
-										assignedToSession: sessionId,
-										actorSessionId: sessionId,
-										expectedRevision: task.revision,
-									}, { onSuccess: (result) => syncTask(result.task), onError: reportError });
-								}}
-							>
-								<Play className="h-3.5 w-3.5" />
-							</TaskIconButton>
-							<TaskIconButton
-								title="Complete"
-								compact={compact}
-								disabled={isMutating}
-								onClick={() => {
-									setError(null);
-									completeTask.mutate(
-										{ id: task.id, actorSessionId: sessionId, expectedRevision: task.revision },
-										{ onSuccess: (result) => syncTask(result.task), onError: reportError },
-									);
-								}}
-							>
-								<Check className="h-3.5 w-3.5" />
-							</TaskIconButton>
-						</>
-					)}
-				/>
-				<TaskGroup
-					title="Blocked"
-					tasks={grouped.blocked}
-					empty="No blocked task"
-					compact={compact}
-					actions={(task) => (
-						<TaskIconButton
-							title="Reopen"
+				{readOnly ? (
+					<ReadonlyTaskChecklist tasks={readOnlyTasks} compact={compact} />
+				) : (
+					<>
+						<TaskGroup
+							title="Active"
+							tasks={grouped.active}
+							empty="No active task"
 							compact={compact}
-							disabled={isMutating}
-							onClick={() => {
-								setError(null);
-								updateTask.mutate({
-									id: task.id,
-									status: "pending",
-									assignedToSession: null,
-									actorSessionId: sessionId,
-									expectedRevision: task.revision,
-								}, { onSuccess: (result) => syncTask(result.task), onError: reportError });
-							}}
-						>
-							<RotateCcw className="h-3.5 w-3.5" />
-						</TaskIconButton>
-					)}
-				/>
-				<TaskGroup
-					title="Done"
-					tasks={grouped.completed.slice(0, 4)}
-					empty="No completed task"
-					compact={compact}
-					actions={(task) => (
-						<TaskIconButton
-							title="Delete"
+							actions={(task) => (
+								<>
+									<TaskIconButton
+										title="Complete"
+										compact={compact}
+										disabled={isMutating}
+										onClick={() => {
+											setError(null);
+											completeTask.mutate(
+												{ id: task.id, actorSessionId: sessionId, expectedRevision: task.revision },
+												{ onSuccess: (result) => syncTask(result.task), onError: reportError },
+											);
+										}}
+									>
+										<Check className="h-3.5 w-3.5" />
+									</TaskIconButton>
+									<TaskIconButton
+										title="Block"
+										compact={compact}
+										disabled={isMutating}
+										onClick={() => {
+											setError(null);
+											blockTaskFromPrompt((input) => blockTask.mutate(input, { onSuccess: (result) => syncTask(result.task), onError: reportError }), task, sessionId);
+										}}
+									>
+										<Ban className="h-3.5 w-3.5" />
+									</TaskIconButton>
+								</>
+							)}
+						/>
+						<TaskGroup
+							title="Pending"
+							tasks={grouped.pending}
+							empty="No pending task"
 							compact={compact}
-							disabled={isMutating}
-							onClick={() => {
-								setError(null);
-								deleteTask.mutate(
-									{ id: task.id, actorSessionId: sessionId, expectedRevision: task.revision },
-									{ onSuccess: (result) => syncTask(result.task), onError: reportError },
-								);
-							}}
-						>
-							<Trash2 className="h-3.5 w-3.5" />
-						</TaskIconButton>
-					)}
-				/>
+							actions={(task) => (
+								<>
+									<TaskIconButton
+										title="Start"
+										compact={compact}
+										disabled={isMutating || !sessionId}
+										onClick={() => {
+											setError(null);
+											updateTask.mutate({
+												id: task.id,
+												status: "in_progress",
+												assignedToSession: sessionId,
+												actorSessionId: sessionId,
+												expectedRevision: task.revision,
+											}, { onSuccess: (result) => syncTask(result.task), onError: reportError });
+										}}
+									>
+										<Play className="h-3.5 w-3.5" />
+									</TaskIconButton>
+									<TaskIconButton
+										title="Complete"
+										compact={compact}
+										disabled={isMutating}
+										onClick={() => {
+											setError(null);
+											completeTask.mutate(
+												{ id: task.id, actorSessionId: sessionId, expectedRevision: task.revision },
+												{ onSuccess: (result) => syncTask(result.task), onError: reportError },
+											);
+										}}
+									>
+										<Check className="h-3.5 w-3.5" />
+									</TaskIconButton>
+								</>
+							)}
+						/>
+						<TaskGroup
+							title="Past"
+							tasks={grouped.past.slice(0, 6)}
+							empty="No past task"
+							compact={compact}
+							actions={(task) => (
+								<TaskIconButton
+									title="Delete"
+									compact={compact}
+									disabled={isMutating}
+									onClick={() => {
+										setError(null);
+										deleteTask.mutate(
+											{ id: task.id, actorSessionId: sessionId, expectedRevision: task.revision },
+											{ onSuccess: (result) => syncTask(result.task), onError: reportError },
+										);
+									}}
+								>
+									<Trash2 className="h-3.5 w-3.5" />
+								</TaskIconButton>
+							)}
+						/>
+					</>
+				)}
 			</div>
 		</section>
+	);
+}
+
+function ReadonlyTaskChecklist({ tasks, compact = false }: { tasks: TaskRecord[]; compact?: boolean }) {
+	return (
+		<ul className={compact ? "space-y-0.5" : "space-y-1"} aria-label="Task checklist">
+			{tasks.map((task) => {
+				const completed = task.status === "completed";
+				return (
+					<li
+						key={task.id}
+						className={`flex items-center gap-2 rounded ${compact ? "px-0.5 py-0.5" : "px-1 py-1"} ${completed ? "opacity-60" : ""}`}
+					>
+						<span
+							aria-label={completed ? "Completed task" : "Open task"}
+							className={`inline-flex h-4 w-4 shrink-0 items-center justify-center rounded border ${completed ? "border-success bg-success/15 text-success" : "border-border-hover bg-bg-surface text-transparent"}`}
+						>
+							{completed ? <Check className="h-3 w-3" /> : null}
+						</span>
+						<span
+							className={`${compact ? "text-[11px]" : "text-xs"} min-w-0 truncate font-medium ${completed ? "text-text-muted line-through" : "text-text-primary"}`}
+							title={task.title}
+						>
+							{task.title}
+						</span>
+					</li>
+				);
+			})}
+		</ul>
 	);
 }
 
@@ -259,7 +266,7 @@ interface TaskGroupProps {
 	tasks: TaskRecord[];
 	empty: string;
 	compact?: boolean;
-	actions(task: TaskRecord): ReactNode;
+	actions?: (task: TaskRecord) => ReactNode;
 }
 
 function TaskGroup({ title, tasks, empty, compact = false, actions }: TaskGroupProps) {
@@ -287,7 +294,7 @@ function TaskGroup({ title, tasks, empty, compact = false, actions }: TaskGroupP
 										<div className="mt-1 hidden text-[11px] leading-snug text-text-muted sm:line-clamp-2">{task.context.notes}</div>
 									) : null}
 								</div>
-								<div className="flex shrink-0 items-center gap-1">{actions(task)}</div>
+								{actions ? <div className="flex shrink-0 items-center gap-1">{actions(task)}</div> : null}
 							</div>
 						</div>
 					))}
@@ -322,14 +329,6 @@ function TaskIconButton({
 			{children}
 		</button>
 	);
-}
-
-function getTaskProgress(tasks: TaskRecord[]): { completed: number; total: number; percent: number } {
-	const visible = tasks.filter((task) => task.status !== "deleted");
-	const total = visible.length;
-	const completed = visible.filter((task) => task.status === "completed").length;
-	const percent = total > 0 ? Math.round((completed / total) * 100) : 0;
-	return { completed, total, percent };
 }
 
 function setTaskInCache(queryClient: QueryClient, task: TaskRecord): void {

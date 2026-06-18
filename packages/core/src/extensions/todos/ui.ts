@@ -81,12 +81,7 @@ export class TaskSelectorComponent extends Container implements Focusable {
 	}
 
 	private updateHeader(): void {
-		const visible = this.allTasks.filter(isTaskVisible);
-		const openCount = visible.filter((task) => !isTaskClosed(task.status)).length;
-		const closedCount = visible.length - openCount;
-		this.headerText.setText(
-			this.theme.fg("accent", this.theme.bold(`Tasks (${openCount} open, ${closedCount} closed)`)),
-		);
+		this.headerText.setText(this.theme.fg("accent", this.theme.bold("Tasks")));
 	}
 
 	private updateHints(): void {
@@ -116,18 +111,18 @@ export class TaskSelectorComponent extends Container implements Focusable {
 			if (!task) continue;
 			const isSelected = i === this.selectedIndex;
 			const closed = isTaskClosed(task.status);
-			const prefix = isSelected ? this.theme.fg("accent", "> ") : "  ";
+			const selectionPrefix = isSelected ? this.theme.fg("accent", "> ") : "  ";
+			const checklistPrefix = this.theme.fg(closed ? "dim" : "muted", closed ? "[x]" : "[ ]");
 			const titleColor = isSelected ? "accent" : closed ? "dim" : "text";
-			const statusColor = closed ? "dim" : task.status === "blocked" ? "warning" : "success";
 			const assignmentText = renderAssignmentSuffix(this.theme, task, this.currentSessionId);
 			const line =
-				prefix +
+				selectionPrefix +
+				checklistPrefix +
+				" " +
 				this.theme.fg("accent", formatTaskId(task.id)) +
 				" " +
 				this.theme.fg(titleColor, task.title || "(untitled)") +
-				assignmentText +
-				" " +
-				this.theme.fg(statusColor, `(${task.status})`);
+				assignmentText;
 			this.listContainer.addChild(new Text(line, 0, 0));
 		}
 		if (startIndex > 0 || endIndex < this.filteredTasks.length) {

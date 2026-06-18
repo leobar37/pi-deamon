@@ -37,6 +37,9 @@
 - Refactored `commands.ts` `/lion-build` handler to use `matchStrategyOnly` for strategy-dependent messages, guards, and side effects.
 - Refactored `LionModeBadge.tsx` to use `Record<strategy, string>` lookup tables instead of nested ternaries.
 - Refactored `task-runner.ts` `applyPhasePolicy` to use early returns and a private `#asReadOnlyTask` helper, eliminating duplicated read-only task configuration.
+- Removed duplicated session header and summary chrome from embedded canvas session views.
+- Rendered embedded task views as a read-only checklist.
+- Rendered todos extension task lists as flat checklists in human-facing UI.
 
 ### Fixed
 

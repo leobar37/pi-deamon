@@ -47,7 +47,12 @@ interface BunHttpServer {
 }
 
 declare const Bun: {
-	serve(options: { port: number; hostname: string; fetch(req: Request): Response | Promise<Response> }): BunHttpServer;
+	serve(options: {
+		port: number;
+		hostname: string;
+		idleTimeout?: number;
+		fetch(req: Request): Response | Promise<Response>;
+	}): BunHttpServer;
 };
 
 const encoder = new TextEncoder();
@@ -139,6 +144,7 @@ export class HttpServerTransport implements SubAgentTransport {
 		this.server = Bun.serve({
 			port: this.options.port ?? 0,
 			hostname: this.options.host ?? "0.0.0.0",
+			idleTimeout: 0,
 			fetch: (req) => this.handleRequest(req),
 		});
 	}

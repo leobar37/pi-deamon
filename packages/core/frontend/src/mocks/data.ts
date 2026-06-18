@@ -16,14 +16,14 @@ const lionRunId = "mock-run-1";
 const mockCwd = "/mock/project";
 
 export const MOCK_LION_STATE: LionDashboardState = {
-	active: true,
-	strategy: "plan",
+	active: false,
+	strategy: "none",
 	phase: "planning",
-	activePlanPath: ".plans/lion-dashboard-runtime",
-	activePlanSlug: "lion-dashboard-runtime",
-	planKind: "structured",
+	activePlanPath: null,
+	activePlanSlug: null,
+	planKind: null,
 	activeTaskId: null,
-	lastRunId: lionRunId,
+	lastRunId: null,
 };
 
 export const MOCK_PLAN_CHECKLIST: LionChecklistSnapshot = {

@@ -17,6 +17,7 @@ import { ChatView } from "./ChatView.tsx";
 import { isLionUiActive, LionModeBadge } from "./LionModeBadge.tsx";
 import { StatusBadge } from "./StatusBadge.tsx";
 import { SubagentListPanel } from "./SubagentListPanel.tsx";
+import { TaskSidebarSection } from "./TaskSidebarSection.tsx";
 
 export type SessionWorkspaceVariant = "full" | "canvas" | "embed";
 
@@ -33,7 +34,7 @@ export function SessionWorkspace({ threadId, variant, onBack }: SessionWorkspace
 	const { data: lionState } = useLionState();
 	const embedded = variant !== "full";
 	const todoMockMode = isTodoMockMode();
-	const [sidebarOpen, setSidebarOpen] = useState(!embedded || todoMockMode);
+	const [sidebarOpen, setSidebarOpen] = useState(!embedded);
 
 	useSseEvents(threadId, todoMockMode);
 
@@ -60,8 +61,8 @@ export function SessionWorkspace({ threadId, variant, onBack }: SessionWorkspace
 	const isLionActive = isLionUiActive(effectiveLionState);
 	const showMainNavigation = !isMainThread || isLionActive;
 	const showStateBadge = !isMainThread;
-	const showHeader = Boolean(displayAgent && (!isMainThread || showMainNavigation));
-	const showEmbeddedSummary = embedded && Boolean(displayAgent);
+	const showHeader = !embedded && Boolean(displayAgent && (!isMainThread || showMainNavigation));
+	const showEmbeddedTasks = embedded && isPrimarySessionThread(displayAgent);
 
 	const navigateWithinWorkspace = (nextThreadId: string | null) => {
 		if (!nextThreadId) {
@@ -103,18 +104,24 @@ export function SessionWorkspace({ threadId, variant, onBack }: SessionWorkspace
 				<div className="min-w-0 flex-1 overflow-hidden">
 					<ErrorBoundary threadId={threadId}>
 						<div className="flex h-full min-w-0 flex-col">
-							{displayAgent && (showEmbeddedSummary || !sidebarOpen) ? (
+							{displayAgent && !embedded && !sidebarOpen ? (
 								<SessionSummaryBar
 									agent={displayAgent}
 									run={fetchedRun}
-									showDetailsButton={embedded}
-									detailsOpen={sidebarOpen}
-									onToggleDetails={toggleSidebar}
 								/>
 							) : null}
 							<div className="min-h-0 flex-1 overflow-hidden">
 								<ChatView instanceId={threadId} />
 							</div>
+							{showEmbeddedTasks ? (
+								<div className="min-h-0 shrink-0 border-t border-border-subtle bg-bg-base p-2">
+									<TaskSidebarSection
+										sessionId={displayAgent?.sessionId}
+										compact
+										readOnly
+									/>
+								</div>
+							) : null}
 							<ChatComposer instanceId={threadId} thread={displayAgent} />
 						</div>
 					</ErrorBoundary>
@@ -135,6 +142,10 @@ export function SessionWorkspace({ threadId, variant, onBack }: SessionWorkspace
 function isTodoMockMode(): boolean {
 	if (typeof window === "undefined") return false;
 	return new URLSearchParams(window.location.search).get("mock") === "todos";
+}
+
+function isPrimarySessionThread(agent?: SubAgentInstanceState): boolean {
+	return agent?.kind === "main" || agent?.kind === "standalone";
 }
 
 function SessionHeader({
@@ -211,15 +222,9 @@ function SessionHeader({
 function SessionSummaryBar({
 	agent,
 	run,
-	showDetailsButton = false,
-	detailsOpen = false,
-	onToggleDetails,
 }: {
 	agent?: SubAgentInstanceState;
 	run?: { turnCount?: number; toolCount?: number; durationMs?: number };
-	showDetailsButton?: boolean;
-	detailsOpen?: boolean;
-	onToggleDetails?: () => void;
 }) {
 	return (
 		<div className="flex items-center gap-4 border-b border-border-subtle bg-bg-elevated px-4 py-1.5 text-xs text-text-tertiary">
@@ -230,15 +235,6 @@ function SessionSummaryBar({
 				Tools <span className="text-text-secondary">{run?.toolCount ?? agent?.toolCount ?? 0}</span>
 			</span>
 			<span className="ml-auto">{formatDurationCompact(run?.durationMs ?? agent?.durationMs ?? 0)}</span>
-			{showDetailsButton ? (
-				<button
-					type="button"
-					onClick={onToggleDetails}
-					className="rounded border border-border-subtle px-2 py-1 text-[11px] text-text-secondary transition hover:border-border-hover hover:bg-bg-hover hover:text-text-primary"
-				>
-					{detailsOpen ? "Hide details" : "Details"}
-				</button>
-			) : null}
 		</div>
 	);
 }

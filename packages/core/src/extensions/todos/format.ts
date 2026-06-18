@@ -102,25 +102,20 @@ export function splitTasksByStatus(tasks: TaskRecord[]): {
 	return { activeTasks, pendingTasks, blockedTasks, completedTasks, deletedTasks };
 }
 
-export function formatTaskList(tasks: TaskRecord[]): string {
-	if (!tasks.length) return "No tasks.";
+function orderedChecklistTasks(tasks: TaskRecord[]): TaskRecord[] {
 	const { activeTasks, pendingTasks, blockedTasks, completedTasks } = splitTasksByStatus(tasks);
-	const lines: string[] = [];
-	const pushSection = (label: string, sectionTasks: TaskRecord[]) => {
-		lines.push(`${label} (${sectionTasks.length}):`);
-		if (!sectionTasks.length) {
-			lines.push("  none");
-			return;
-		}
-		for (const task of sectionTasks) {
-			lines.push(`  ${formatTaskHeading(task)}`);
-		}
-	};
-	pushSection("In progress", activeTasks);
-	pushSection("Pending", pendingTasks);
-	pushSection("Blocked", blockedTasks);
-	pushSection("Completed", completedTasks);
-	return lines.join("\n");
+	return [...activeTasks, ...pendingTasks, ...blockedTasks, ...completedTasks];
+}
+
+function formatTaskChecklistLine(task: TaskRecord): string {
+	const marker = isTaskClosed(task.status) ? "[x]" : "[ ]";
+	return `${marker} ${formatTaskHeading(task)}`;
+}
+
+export function formatTaskList(tasks: TaskRecord[]): string {
+	const visibleTasks = orderedChecklistTasks(tasks);
+	if (!visibleTasks.length) return "No tasks.";
+	return visibleTasks.map(formatTaskChecklistLine).join("\n");
 }
 
 export function serializeTaskForAgent(task: TaskRecord): string {
@@ -149,36 +144,25 @@ export function renderTaskHeading(theme: Theme, task: TaskRecord, currentSession
 	return `${theme.fg("accent", formatTaskId(task.id))} ${theme.fg(titleColor, getTaskTitle(task))}${assignmentText}`;
 }
 
+function renderTaskChecklistLine(theme: Theme, task: TaskRecord, currentSessionId?: string): string {
+	const closed = isTaskClosed(task.status);
+	const marker = theme.fg(closed ? "dim" : "muted", closed ? "[x]" : "[ ]");
+	return `${marker} ${renderTaskHeading(theme, task, currentSessionId)}`;
+}
+
 export function renderTaskList(
 	theme: Theme,
 	tasks: TaskRecord[],
 	expanded: boolean,
 	currentSessionId?: string,
 ): string {
-	if (!tasks.length) return theme.fg("dim", "No tasks");
-	const { activeTasks, pendingTasks, blockedTasks, completedTasks } = splitTasksByStatus(tasks);
-	const sections: Array<{ label: string; tasks: TaskRecord[] }> = [
-		{ label: "In progress", tasks: activeTasks },
-		{ label: "Pending", tasks: pendingTasks },
-		{ label: "Blocked", tasks: blockedTasks },
-		{ label: "Completed", tasks: completedTasks },
-	];
-	const lines: string[] = [];
-	sections.forEach((section, index) => {
-		if (index > 0) lines.push("");
-		lines.push(theme.fg("muted", `${section.label} (${section.tasks.length})`));
-		if (!section.tasks.length) {
-			lines.push(theme.fg("dim", "  none"));
-			return;
-		}
-		const maxItems = expanded ? section.tasks.length : Math.min(section.tasks.length, 3);
-		for (let i = 0; i < maxItems; i += 1) {
-			lines.push(`  ${renderTaskHeading(theme, section.tasks[i], currentSessionId)}`);
-		}
-		if (!expanded && section.tasks.length > maxItems) {
-			lines.push(theme.fg("dim", `  ... ${section.tasks.length - maxItems} more`));
-		}
-	});
+	const visibleTasks = orderedChecklistTasks(tasks);
+	if (!visibleTasks.length) return theme.fg("dim", "No tasks");
+	const maxItems = expanded ? visibleTasks.length : Math.min(visibleTasks.length, 8);
+	const lines = visibleTasks.slice(0, maxItems).map((task) => renderTaskChecklistLine(theme, task, currentSessionId));
+	if (!expanded && visibleTasks.length > maxItems) {
+		lines.push(theme.fg("dim", `... ${visibleTasks.length - maxItems} more`));
+	}
 	return lines.join("\n");
 }
 

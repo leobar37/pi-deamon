@@ -86,13 +86,11 @@ function invalidateTasks(queryClient: QueryClient): void {
 export function groupTasks(tasks: TaskRecord[]): {
 	active: TaskRecord[];
 	pending: TaskRecord[];
-	blocked: TaskRecord[];
-	completed: TaskRecord[];
+	past: TaskRecord[];
 } {
 	return {
 		active: tasks.filter((task) => task.status === "in_progress"),
 		pending: tasks.filter((task) => task.status === "pending"),
-		blocked: tasks.filter((task) => task.status === "blocked"),
-		completed: tasks.filter((task) => task.status === "completed"),
+		past: tasks.filter((task) => task.status === "blocked" || task.status === "completed"),
 	};
 }
