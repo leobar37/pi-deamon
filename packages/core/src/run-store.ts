@@ -1,4 +1,4 @@
-import { mkdir, readdir, readFile, writeFile } from "node:fs/promises";
+import { mkdir, readdir, readFile, rename, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import type {
 	SubAgentRunListFilters,
@@ -95,7 +95,9 @@ export class SubAgentRunStore implements SubAgentRunStoreContract {
 	private async write(record: SubAgentRunRecord): Promise<void> {
 		const path = this.getPath(record.sessionId, record.taskId);
 		await mkdir(dirname(path), { recursive: true });
-		await writeFile(path, `${JSON.stringify(record, null, 2)}\n`, "utf8");
+		const tmp = `${path}.tmp.${process.pid}`;
+		await writeFile(tmp, `${JSON.stringify(record, null, 2)}\n`, "utf8");
+		await rename(tmp, path);
 	}
 
 	private async listRecordPaths(): Promise<string[]> {

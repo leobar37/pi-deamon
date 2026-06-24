@@ -26,3 +26,12 @@ export function escapeXml(value: string): string {
 		.replaceAll("<", "&lt;")
 		.replaceAll(">", "&gt;");
 }
+
+/**
+ * Truncates a subagent context summary to prevent unbounded context injection
+ * during compaction. Appends a truncation notice when the summary exceeds maxChars.
+ */
+export function truncateSummary(summary: string, maxChars = 500): string {
+	if (summary.length <= maxChars) return summary;
+	return `${summary.slice(0, maxChars)}\n... (truncated, was ${summary.length} chars)`;
+}

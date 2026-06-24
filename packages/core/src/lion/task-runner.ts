@@ -1,3 +1,4 @@
+import { readFileSync } from "node:fs";
 import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
 import type { TaskExecutionResult } from "../task-executor.js";
 import { TaskExecutor } from "../task-executor.js";
@@ -361,10 +362,25 @@ export class TaskRunner {
 	private buildActivePlanTaskPrompt(task: LionTask, role: string, retryDirective?: string): string {
 		const planPath = this.runtime.state.activePlanPath ?? "";
 		const taskFile = task.file ? `${planPath}/${task.file}` : "";
+
+		// Include task file content inline when the file is small, to save a round trip.
+		let taskContent = "";
+		if (taskFile) {
+			try {
+				const content = readFileSync(taskFile, "utf-8");
+				if (content.length < 1024) {
+					taskContent = `\n<task_content>\n${escapeXml(content)}\n</task_content>`;
+				}
+			} catch {
+				// file not found or unreadable; proceed with path only
+			}
+		}
+
 		return [
 			"<delegation>",
 			`  <role>${escapeXml(role)}</role>`,
 			`  <plan path="${escapeXml(planPath)}" task_id="${escapeXml(task.id)}" task_file="${escapeXml(taskFile)}" />`,
+			taskContent,
 			`  <objective>${escapeXml(task.title)}</objective>`,
 			retryDirective
 				? ["  <retry_directive>", `    ${escapeXml(retryDirective)}`, "  </retry_directive>"].join("\n")

@@ -9,6 +9,12 @@ function sourceTruthInstruction(ctx: Parameters<InstructionBuilder>[0]): string 
 	return "Use referenced plan, task, and source files as the source of truth. Do not assume the delegation brief contains the full task.";
 }
 
+/** Shared instructions appended to every subagent builder to reduce token waste. */
+const BASE_INSTRUCTIONS =
+	"Use subagent_record_context for durable decisions, blockers, relevant files, and evidence when the tool is available.\n" +
+	"Use subagent_record_result for your final task result when the tool is available. If it is not available, return the final result in your last message.\n" +
+	"Do not ask the user for clarification or wait for external input. If context is missing, report it under unknowns and return the best concrete result possible.";
+
 export const DEFAULT_BUILDER: InstructionBuilder = (ctx) =>
 	`${ctx.config.name}. ${ctx.config.description}
 
@@ -24,9 +30,8 @@ ${ctx.task.prompt}
 
 ${sourceTruthInstruction(ctx)}
 Use any relevant loaded skill before analyzing or changing a specialized flow. If a matching skill is available, read and follow it, then mention it in your final summary.
-Read referenced sources before reaching conclusions. Use subagent_record_context for durable decisions, blockers, relevant files, and evidence when the tool is available.
-Use subagent_record_result for your final task result when the tool is available. If it is not available, return the final result in your last message.
-Do not ask the user for clarification or wait for external input. If context is missing, report it under unknowns and return the best concrete result possible.
+Read referenced sources before reaching conclusions.
+${BASE_INSTRUCTIONS}
 When done, provide a concise summary of what you did.`;
 
 export const EXECUTOR_BUILDER: InstructionBuilder = (ctx) =>
@@ -46,9 +51,8 @@ ${ctx.task.prompt}
 
 ${sourceTruthInstruction(ctx)}
 Use any relevant loaded skill before analyzing or changing a specialized flow. If a matching skill is available, read and follow it, then mention it in your final summary.
-Read referenced sources before changing code. Use subagent_record_context for durable decisions, blockers, relevant files, and evidence when the tool is available.
-Use subagent_record_result for your final task result when the tool is available. If it is not available, return the final result in your last message.
-Do not ask the user for clarification or wait for external input. If context is missing, report it under unknowns and return the best concrete result possible.
+Read referenced sources before changing code.
+${BASE_INSTRUCTIONS}
 Make minimal, safe changes. Validate according to the scope using only commands permitted by the task and repository. Do not claim verification without concrete evidence.
 When done, summarize what you changed and why.`;
 
@@ -71,8 +75,8 @@ ${ctx.task.prompt}
 
 ${sourceTruthInstruction(ctx)}
 Use any relevant loaded skill before analyzing a specialized flow. If a matching skill is available, read and follow it, then mention it in your final summary.
-Read referenced sources before reaching conclusions. Use subagent_record_context for durable decisions, blockers, relevant files, and evidence when the tool is available.
-Use subagent_record_result for your final task result when the tool is available. If it is not available, return the final result in your last message.
+Read referenced sources before reaching conclusions.
+${BASE_INSTRUCTIONS}
 You are a non-interactive analyzer worker. Do not ask the user for clarification, do not wait for external input, do not edit files, and do not invent missing context.
 Investigate thoroughly and return a concrete report with findings, relevant file paths and line numbers, risks, unknowns, and the recommended next delegation or implementation step.`;
 
@@ -92,9 +96,8 @@ ${ctx.task.prompt}
 
 ${sourceTruthInstruction(ctx)}
 Use any relevant loaded skill before planning a specialized flow. If a matching skill is available, read and follow it, then mention it in your final summary.
-Read referenced sources before reaching conclusions. Use subagent_record_context for durable decisions, blockers, relevant files, and evidence when the tool is available.
-Use subagent_record_result for your final task result when the tool is available. If it is not available, return the final result in your last message.
-Do not ask the user for clarification or wait for external input. If context is missing, report it under unknowns and return the best concrete result possible.
+Read referenced sources before reaching conclusions.
+${BASE_INSTRUCTIONS}
 Produce a clear, actionable plan. Break it into ordered steps with boundaries, dependencies, risks, and validation.`;
 
 export const REVIEWER_BUILDER: InstructionBuilder = (ctx) =>
@@ -115,8 +118,7 @@ ${ctx.task.prompt}
 
 ${sourceTruthInstruction(ctx)}
 Use any relevant loaded skill before reviewing a specialized flow. If a matching skill is available, read and follow it, then mention it in your final summary.
-Read referenced sources before reaching conclusions. Use subagent_record_context for durable decisions, blockers, relevant files, and evidence when the tool is available.
-Use subagent_record_result for your final task result when the tool is available. If it is not available, return the final result in your last message.
-Do not ask the user for clarification or wait for external input. If context is missing, report it under unknowns and return the best concrete result possible.
+Read referenced sources before reaching conclusions.
+${BASE_INSTRUCTIONS}
 Review the work against the criteria. Report findings first, ordered by severity, and cite the evidence checked.
 End with "Review complete."`;

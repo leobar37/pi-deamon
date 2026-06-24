@@ -192,9 +192,15 @@ export class LionRuntime {
 		this.rememberUiContext(ctx);
 		const saved = readLionState(this.#cwd, ctx);
 		if (saved) {
-			this.#state = normalizeInactiveStrategy(saved.state);
-			this.#core = saved.core;
-			this.#lastStateUpdatedAt = saved.updatedAt;
+			// Only restore from disk if in-memory state is stale or inactive.
+			// This prevents overwriting a mid-session activation with stale disk state.
+			const shouldRestore =
+				!this.#state.active || this.#lastStateUpdatedAt === null || saved.updatedAt > this.#lastStateUpdatedAt;
+			if (shouldRestore) {
+				this.#state = normalizeInactiveStrategy(saved.state);
+				this.#core = saved.core;
+				this.#lastStateUpdatedAt = saved.updatedAt;
+			}
 		} else {
 			this.#state = createInitialLionState();
 			this.#core = createLionCore();
@@ -285,6 +291,10 @@ export class LionRuntime {
 	}
 	getSubagentHealth(taskId?: string): LionSubagentJob[] {
 		return this.#jobTracker.getSubagentHealth(taskId);
+	}
+
+	tickStalledJobs(): void {
+		this.#jobTracker.tickStalledJobs();
 	}
 
 	// State transitions
@@ -416,6 +426,7 @@ export class LionRuntime {
 		this.dashboard = null;
 	}
 	cleanupSubagentUi(now = Date.now(), retentionMs = 10000): void {
+		this.#jobTracker.tickStalledJobs(now);
 		this.#jobTracker.cleanupSubagentUi(now, retentionMs);
 	}
 

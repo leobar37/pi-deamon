@@ -1,5 +1,5 @@
 import type { LionState } from "../types.js";
-import { escapeXml, hasPlanReference, inferPlanTaskId, joinPlanPath } from "./shared.js";
+import { escapeXml, hasPlanReference, inferPlanTaskId, joinPlanPath, truncateSummary } from "./shared.js";
 import type { LionCompactionContext, LionStrategy, LionTaskConfigInput, LionTaskPromptContext } from "./types.js";
 
 export class PlanLionStrategy implements LionStrategy {
@@ -208,7 +208,7 @@ Ask concise clarifying questions before writing or changing plan files.`;
 						`- contextPath: ${subagentContext.path}`,
 						`- summary: ${job.summary}`,
 						`- durableContext:`,
-						subagentContext.summary,
+						truncateSummary(subagentContext.summary),
 					].join("\n"),
 				);
 			}
@@ -243,7 +243,7 @@ function formatSubagent(
 		`- contextPath: ${contextPath}`,
 		`- summary: ${subagent.summary}`,
 		`- durableContext:`,
-		contextSummary,
+		truncateSummary(contextSummary),
 	].join("\n");
 }
 

@@ -80,6 +80,7 @@ const CORS_HEADERS = {
 export class HttpServerTransport implements SubAgentTransport {
 	readonly id = "http-server";
 	private server: BunHttpServer | null = null;
+	private stopped = false;
 	private clients = new Set<SseClient>();
 	private staticDir: string;
 	private sseCleanupTimer: ReturnType<typeof setInterval> | null = null;
@@ -139,7 +140,9 @@ export class HttpServerTransport implements SubAgentTransport {
 	}
 
 	async start(): Promise<void> {
+		if (this.server) return;
 		await this.stateManager.loadFromRunStore();
+		this.stopped = false;
 		this.unsubscribeMainSession = this.options.mainSession?.subscribe((event) => this.emitToClients(event));
 		this.server = Bun.serve({
 			port: this.options.port ?? 0,
@@ -164,6 +167,8 @@ export class HttpServerTransport implements SubAgentTransport {
 	}
 
 	async stop(): Promise<void> {
+		if (this.stopped) return;
+		this.stopped = true;
 		if (this.sseCleanupTimer) {
 			clearInterval(this.sseCleanupTimer);
 			this.sseCleanupTimer = null;
@@ -335,9 +340,27 @@ export class HttpServerTransport implements SubAgentTransport {
 		const instanceId = url.searchParams.get("instanceId") ?? undefined;
 
 		const stream = new ReadableStream<Uint8Array>({
-			start: (controller) => {
+			start: async (controller) => {
 				const client: SseClient = { controller, instanceId, lastActivityAt: Date.now() };
 				this.clients.add(client);
+
+				// Replay past events for the subscribed instance upon connection.
+				if (instanceId) {
+					try {
+						const events = await this.stateManager.getEvents(instanceId);
+						for (const event of events) {
+							const enriched = { ...event, instanceId } as SubAgentTransportEvent;
+							const payload = encoder.encode(`data: ${JSON.stringify(enriched)}\n\n`);
+							try {
+								controller.enqueue(payload);
+							} catch {
+								break;
+							}
+						}
+					} catch {
+						/* best effort; replay is a best-attempt deliverable */
+					}
+				}
 
 				req.signal.addEventListener("abort", () => {
 					this.clients.delete(client);

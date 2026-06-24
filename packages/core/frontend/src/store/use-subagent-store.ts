@@ -49,8 +49,8 @@ export const useSubAgentStore = create<SubAgentStore>((set) => ({
 
 	mergeEvents: (events) =>
 		set((state) => {
-			const seen = new Set(state.events.map((e) => `${e.timestamp}-${e.type}-${e.instanceId}`));
-			const newEvents = events.filter((e) => !seen.has(`${e.timestamp}-${e.type}-${e.instanceId}`));
+			const seen = new Set(state.events.map(robustEventKey));
+			const newEvents = events.filter((e) => !seen.has(robustEventKey(e)));
 			const merged = [...state.events, ...newEvents];
 			merged.sort((a, b) => a.timestamp - b.timestamp);
 			return { events: merged };
@@ -58,17 +58,9 @@ export const useSubAgentStore = create<SubAgentStore>((set) => ({
 
 	addEvent: (event) =>
 		set((state) => {
-			// Lightweight dedup: skip if last event is identical (timestamp + type + instanceId)
+			// Lightweight dedup: skip if event content is identical to last event
 			const last = state.events[state.events.length - 1];
-			if (
-				last &&
-				last.type === event.type &&
-				last.instanceId === event.instanceId &&
-				last.timestamp === event.timestamp
-			) {
-				// Guard against different events sharing the same ms by comparing full shape
-				if (JSON.stringify(last) === JSON.stringify(event)) return state;
-			}
+			if (last && JSON.stringify(last) === JSON.stringify(event)) return state;
 
 			// Handle new agents arriving via instance.created
 			if (event.type === "instance.created") {
@@ -192,6 +184,20 @@ export const useSubAgentStore = create<SubAgentStore>((set) => ({
 
 	setConnected: (v) => set({ isConnected: v }),
 }));
+
+function robustEventKey(event: SubAgentEvent): string {
+	const base = `${event.timestamp}-${event.type}-${event.instanceId ?? "?"}-${(event as Record<string, string>).taskId ?? "?"}`;
+	return `${base}-${hashString(JSON.stringify(event, Object.keys(event).sort()))}`;
+}
+
+function hashString(s: string): string {
+	let hash = 0;
+	for (let i = 0; i < s.length; i++) {
+		hash = ((hash << 5) - hash) + s.charCodeAt(i);
+		hash |= 0;
+	}
+	return Math.abs(hash).toString(36);
+}
 
 export function checklistKey(checklist: LionChecklistSnapshot): string {
 	return `${checklist.kind}:${checklist.rootPath}`;

@@ -1,5 +1,5 @@
 import type { LionState } from "../types.js";
-import { escapeXml } from "./shared.js";
+import { escapeXml, truncateSummary } from "./shared.js";
 import type { LionCompactionContext, LionStrategy, LionTaskConfigInput, LionTaskPromptContext } from "./types.js";
 
 export class SimpleLionStrategy implements LionStrategy {
@@ -108,7 +108,7 @@ For implementation:
 						`- contextPath: ${subagentContext.path}`,
 						`- summary: ${subagent.summary}`,
 						`- durableContext:`,
-						subagentContext.summary,
+						truncateSummary(subagentContext.summary),
 					].join("\n"),
 				);
 			}
@@ -126,7 +126,7 @@ For implementation:
 						`- contextPath: ${subagentContext.path}`,
 						`- summary: ${job.summary}`,
 						`- durableContext:`,
-						subagentContext.summary,
+						truncateSummary(subagentContext.summary),
 					].join("\n"),
 				);
 			}

@@ -77,6 +77,7 @@ export class SubAgentInstance {
 	private contextStore?: SubAgentContextStore;
 	private runStore?: SubAgentRunStore;
 	private recordedResult: RecordSubAgentResultInput | null = null;
+	private settled = false;
 
 	constructor(options: CreateSubAgentInstanceOptions) {
 		this.instanceId = options.instanceId;
@@ -204,6 +205,8 @@ export class SubAgentInstance {
 			this.completionResolve = resolve;
 
 			this.runAgentLoop().catch(async (err) => {
+				if (this.settled) return;
+				this.settled = true;
 				const errorMessage = err instanceof Error ? err.message : String(err);
 				this.error = errorMessage;
 				this.transition("failed");
@@ -438,6 +441,8 @@ export class SubAgentInstance {
 	}
 
 	private async handleCompletion(): Promise<void> {
+		if (this.settled) return;
+		this.settled = true;
 		this.endTime = Date.now();
 		const summary = this.buildCompletionSummary();
 		const status = this.recordedResult?.status ?? "completed";
@@ -680,6 +685,8 @@ export class SubAgentInstance {
 
 	async cancel(): Promise<void> {
 		if (this.state === "completed" || this.state === "failed" || this.state === "cancelled") return;
+		if (this.settled) return;
+		this.settled = true;
 
 		// If not yet started (created/starting), no session to abort
 		if (this.session) {

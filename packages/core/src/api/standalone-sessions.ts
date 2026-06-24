@@ -44,13 +44,27 @@ export class StandaloneSessionManager {
 	async create(input: CreateStandaloneSessionInput): Promise<StandaloneSessionInfo> {
 		const instanceId = `standalone-${randomUUID()}`;
 		const sessionManager = SessionManager.create(input.cwd ?? this.cwd);
-		const { session } = await createAgentSession({
-			cwd: input.cwd ?? this.cwd,
-			sessionManager,
-			modelRegistry: this.modelRegistry,
-			settingsManager: this.settingsManager,
-			authStorage: this.authStorage,
-		});
+		let session: AgentSession;
+		try {
+			const result = await createAgentSession({
+				cwd: input.cwd ?? this.cwd,
+				sessionManager,
+				modelRegistry: this.modelRegistry,
+				settingsManager: this.settingsManager,
+				authStorage: this.authStorage,
+			});
+			session = result.session;
+		} catch (err) {
+			this.emit?.({
+				type: "error",
+				instanceId,
+				taskId: instanceId,
+				error: err instanceof Error ? err.message : String(err),
+				fatal: false,
+				timestamp: Date.now(),
+			});
+			throw err;
+		}
 
 		const unsubscribe = session.subscribe((event: AgentSessionEvent) => {
 			this.handleSessionEvent(instanceId, event);

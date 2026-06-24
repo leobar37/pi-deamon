@@ -391,8 +391,23 @@ function agentMessageKey(message: AgentMessage): string {
 	const id = readStringProperty(message, "id") ?? readStringProperty(message, "messageId");
 	if (id) return `id:${id}`;
 	const timestamp = readNumberProperty(message, "timestamp");
-	if (timestamp !== null) return `${message.role}:${timestamp}`;
+	if (timestamp !== null) {
+		// Append a content hash to disambiguate same-role same-timestamp messages.
+		const msgObj = message as unknown as Record<string, unknown>;
+		const content = typeof msgObj.content === "string" ? msgObj.content : JSON.stringify(msgObj.content);
+		const hash = simpleHash(content.slice(0, 120));
+		return `${message.role}:${timestamp}:${hash}`;
+	}
 	return `${message.role}:${JSON.stringify(message)}`;
+}
+
+function simpleHash(s: string): string {
+	let hash = 0;
+	for (let i = 0; i < s.length; i++) {
+		hash = (hash << 5) - hash + s.charCodeAt(i);
+		hash |= 0;
+	}
+	return hash.toString(36);
 }
 
 function compareAgentMessages(left: AgentMessage, right: AgentMessage): number {

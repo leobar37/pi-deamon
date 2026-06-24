@@ -1,4 +1,4 @@
-import { readFileSync, writeFileSync } from "node:fs";
+import { readFileSync, renameSync, writeFileSync } from "node:fs";
 import { basename } from "node:path";
 import { getNextExecutableTask, loadLionPlan, recordStructuredTaskResult, resolvePlanPath } from "./plans/index.js";
 import { loadReviewPlan } from "./review-plan.js";
@@ -165,7 +165,9 @@ export class LionChecklistService {
 		task.updated_at = new Date().toISOString();
 		record.completed = record.tasks.filter((item) => item.status === "complete").length;
 		record.total_tasks = record.tasks.length;
-		writeFileSync(resolved.checklistFile, JSON.stringify(record, null, 2), "utf-8");
+		const tmp = `${resolved.checklistFile}.tmp.${process.pid}`;
+		writeFileSync(tmp, JSON.stringify(record, null, 2), "utf-8");
+		renameSync(tmp, resolved.checklistFile);
 		return normalizeTask(task);
 	}
 

@@ -105,7 +105,7 @@ export function lionExtension(pi: ExtensionAPI): void {
 		}
 
 		if (!runtime.state.active) return undefined;
-		return runtime.delegationGuard.handleToolCall(event);
+		return runtime.delegationGuard.handleToolCall(event, runtime.activeRunId ?? undefined);
 	});
 	pi.on("tool_result", async (event) => {
 		if (!runtime.state.active) return undefined;

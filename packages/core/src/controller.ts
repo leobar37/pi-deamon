@@ -141,6 +141,17 @@ export class SubAgentController {
 	// =====================================================================
 
 	createInstance(task: DelegationTask): SubAgentInstance {
+		const existing = this.instances.get(task.id);
+		if (existing) {
+			const state = existing.getState().state;
+			if (state === "running" || state === "starting" || state === "created") {
+				throw new Error(
+					`Instance for task "${task.id}" already exists and is ${state}. ` +
+						`Cancel it first or use a different task id.`,
+				);
+			}
+		}
+
 		const definition = this.definitions.get(task.definition);
 		if (!definition) {
 			throw new Error(`Sub-agent definition "${task.definition}" not found`);

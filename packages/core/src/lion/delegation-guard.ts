@@ -16,13 +16,13 @@ export class LionDelegationGuard {
 		// Compatibility hook for builds that still notify the guard per turn.
 	}
 
-	handleToolCall(event: ToolCallEvent): ToolCallEventResult | undefined {
+	handleToolCall(event: ToolCallEvent, sessionId?: string): ToolCallEventResult | undefined {
 		const checklistResult = blockChecklistFileAccess(event);
 		if (checklistResult) return checklistResult;
 
 		if (event.toolName !== "lion_tasks") return undefined;
 
-		const threadId = "main";
+		const threadId = sessionId ?? "main";
 		const currentDepth = this.#depthMap.get(threadId) ?? 0;
 
 		if (currentDepth >= MAX_DELEGATION_DEPTH) {

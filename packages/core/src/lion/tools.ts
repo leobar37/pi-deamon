@@ -327,6 +327,12 @@ export function registerLionTools(runtime: LionRuntime): void {
 		parameters: LionTasksParams,
 		async execute(toolCallId, params, _signal, _onUpdate, ctx) {
 			assertLionToolAllowed(runtime, "lion_tasks");
+			// Validate mutual exclusion: source and tasks cannot both be set.
+			if (params.source && params.tasks) {
+				throw new Error(
+					`Cannot set both source and tasks. Use source: "active_plan_next_task" to run the next plan task, or provide an explicit tasks array for other delegations.`,
+				);
+			}
 			const result = await runner.run(ctx, params, {
 				threadId: runtime.mainSession.getThread()?.instanceId ?? `main:${ctx.sessionManager.getSessionId()}`,
 				toolCallId,

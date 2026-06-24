@@ -123,10 +123,13 @@ export class SubagentJobManager {
 	}
 
 	getSubagentHealth(taskId?: string): LionSubagentJob[] {
-		this.markStalledJobs(Date.now(), undefined, true);
 		const jobs = Array.from(this.#subagentJobs.values()).sort((a, b) => b.updatedAt - a.updatedAt);
 		if (!taskId) return jobs;
 		return jobs.filter((job) => job.taskId === taskId);
+	}
+
+	tickStalledJobs(now = Date.now()): void {
+		this.markStalledJobs(now, undefined, true);
 	}
 
 	startSubagentUi(options: {
@@ -211,7 +214,7 @@ export class SubagentJobManager {
 	}
 
 	cleanupSubagentUi(now = Date.now(), retentionMs = 10000): void {
-		this.markStalledJobs(now);
+		this.markStalledJobs(now, 2 * 60 * 1000, false);
 		const orphanedQueuedMs = 5 * 60 * 1000; // 5 min for queued states that never started
 		for (const [taskId, state] of this.#subagentUi.entries()) {
 			if (state.status === "running") continue;

@@ -202,8 +202,10 @@ export function useSseEvents(instanceId?: string, enabled = true) {
 										storeRef.current.addEvent(event);
 										syncDashboardQueries(event);
 										handleSessionEvent(event);
-									} catch {
-										/* ignore malformed */
+									} catch (parseErr) {
+										console.warn("[SSE] Malformed event, skipping:", json.slice(0, 200), parseErr);
+										dashboardDebugLedger.log("warn", "sse", "parse-error",
+											{ json: json.slice(0, 200) }, instanceId);
 									}
 								}
 							}
