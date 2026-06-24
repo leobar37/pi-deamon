@@ -426,7 +426,6 @@ export class LionRuntime {
 		this.dashboard = null;
 	}
 	cleanupSubagentUi(now = Date.now(), retentionMs = 10000): void {
-		this.#jobTracker.tickStalledJobs(now);
 		this.#jobTracker.cleanupSubagentUi(now, retentionMs);
 	}
 

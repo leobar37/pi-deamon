@@ -1368,7 +1368,7 @@ function testWidgetLinesWithFailedJob(): void {
 	assert.ok(lines.some((line) => line.includes("Build auth")));
 }
 
-function testWidgetLinesHidesProgressDetails(): void {
+function testWidgetLinesShowsProgressDetails(): void {
 	const runtime = new LionRuntime(fakePi() as any, TEST_CWD);
 	runtime.startJob({ runId: "run-1", taskId: "task-1", role: "executor", title: "Build auth" });
 	runtime.subagentUi.set("task-1", {
@@ -1388,10 +1388,9 @@ function testWidgetLinesHidesProgressDetails(): void {
 	});
 	const lines = buildLionSubagentWidgetLines(runtime.subagentUi.values(), plainTheme as any);
 	assert.ok(lines.some((line) => line.includes("Build auth")));
-	assert.ok(!lines.some((line) => line.includes("edit_file")));
-	assert.ok(!lines.some((line) => line.includes("Working on auth")));
-	assert.ok(!lines.some((line) => line.includes("turn")));
-	assert.ok(!lines.some((line) => line.includes("tool use")));
+	assert.ok(lines.some((line) => line.includes("Q3")));
+	assert.ok(lines.some((line) => line.includes("5 tool uses")));
+	assert.ok(lines.some((line) => line.includes("edit_file")));
 }
 
 function testWidgetLinesFitInPanel(): void {
@@ -2413,6 +2412,7 @@ function testRuntimeMarksStalledJobs(): void {
 		title: "Build auth",
 		timestamp: 1,
 	});
+	runtime.tickStalledJobs();
 	const [job] = runtime.getSubagentHealth("task-1");
 	assert.equal(job?.status, "stalled");
 }
@@ -2872,7 +2872,7 @@ const tests = [
 	{ name: "testWidgetLinesWithJobs", fn: testWidgetLinesWithJobs },
 	{ name: "testWidgetLinesWithCompletedJob", fn: testWidgetLinesWithCompletedJob },
 	{ name: "testWidgetLinesWithFailedJob", fn: testWidgetLinesWithFailedJob },
-	{ name: "testWidgetLinesHidesProgressDetails", fn: testWidgetLinesHidesProgressDetails },
+	{ name: "testWidgetLinesShowsProgressDetails", fn: testWidgetLinesShowsProgressDetails },
 	{ name: "testWidgetLinesFitInPanel", fn: testWidgetLinesFitInPanel },
 	{ name: "testWidgetCleanupRemovesOldCompleted", fn: testWidgetCleanupRemovesOldCompleted },
 	{ name: "testWidgetCleanupKeepsRecentCompleted", fn: testWidgetCleanupKeepsRecentCompleted },
